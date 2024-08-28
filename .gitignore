@@ -1,5 +1,9 @@
-# IDE settings
 .idea
-
-# draw.io backup files
 *.bkp
+*.exe
+bin/
+/pkg/
+*.backup
+*.log
+*.bak
+*.test

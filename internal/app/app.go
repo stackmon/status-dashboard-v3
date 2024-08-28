@@ -12,9 +12,9 @@ import (
 
 type App struct {
 	// Configuration
-	c *conf.Config
+	conf *conf.Config
 	// Router
-	r *gin.Engine
+	router *gin.Engine
 	// zap logger
 	Log *zap.Logger
 	// db connection
@@ -42,7 +42,7 @@ func New(c *conf.Config, log *zap.Logger) (*App, error) {
 		Handler: r,
 	}
 
-	a := &App{r: r, Log: log, c: c, DB: d, srv: s}
+	a := &App{router: r, Log: log, conf: c, DB: d, srv: s}
 	a.InitRoutes()
 	return a, nil
 }
