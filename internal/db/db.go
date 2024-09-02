@@ -64,3 +64,14 @@ func (db *DB) GetComponents() ([]Component, error) {
 
 	return components, nil
 }
+
+func (db *DB) GetComponentsWithValues() ([]Component, error) {
+	var components []Component
+	r := db.g.Model(&Component{}).Preload("Attrs").Find(&components)
+
+	if r.Error != nil {
+		return nil, r.Error
+	}
+
+	return components, nil
+}

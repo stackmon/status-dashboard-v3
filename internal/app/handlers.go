@@ -105,3 +105,55 @@ func (a *App) PostIncidentHandler(c *gin.Context) {
 		IncidentData: incData,
 	})
 }
+
+type Component struct {
+	Id         int                  `json:"id" uri:"id"`
+	Attributes []ComponentAttribute `json:"attributes"`
+	Name       string               `json:"name"`
+}
+
+type ComponentAttribute struct {
+	Name  string `json:"name"`
+	Value string `json:"value"`
+}
+
+func (a *App) GetComponentsStatusHandler(c *gin.Context) {
+
+	r, err := a.DB.GetComponentsWithValues()
+	if err != nil {
+		c.AbortWithError(http.StatusInternalServerError, err) //nolint
+		return
+	}
+
+	c.JSON(http.StatusOK, r)
+}
+
+// PostComponentStatusHandler creates a new component.
+// TODO: copy-paste from the legacy, it's implemented, but only for API. We should discuss about this functionality.
+//
+//	 Process component status update and open new incident if required:
+//
+//	- current active maintenance for the component - do nothing
+//	- current active incident for the component - do nothing
+//	- current active incident NOT for the component - add component into
+//	  the list of affected components
+//	- no active incidents - create new one
+//	- current active incident for the component and requested
+//	  impact > current impact - run handling:
+//
+//	  If a component exists in an incident, but the requested
+//	  impact is higher than the current one, then the component
+//	  will be moved to another incident if it exists with the
+//	  requested impact, otherwise a new incident will be created
+//	  and the component will be moved to the new incident.
+//	  If there is only one component in an incident, and an
+//	  incident with the requested impact does not exist,
+//	  then the impact of the incident will be changed to a higher
+//	  one, otherwise the component will be moved to an existing
+//	  incident with the requested impact, and the current incident
+//	  will be closed by the system.
+//	  The movement of a component and the closure of an incident
+//	  will be reflected in the incident statuses.
+func (a *App) PostComponentStatusHandler(c *gin.Context) {
+	c.JSON(http.StatusOK, map[string]string{"status": "in development"})
+}
