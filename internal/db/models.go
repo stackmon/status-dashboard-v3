@@ -4,25 +4,46 @@ import (
 	"time"
 )
 
+type Component struct {
+	Id   uint   `json:"id" gorm:"many2many:incident_component_relation"`
+	Name string `json:"name"`
+}
+
+func (c *Component) TableName() string {
+	return "component"
+}
+
+type ComponentAttr struct {
+	Id          uint   `json:"id"`
+	ComponentId uint   `json:"component_id"`
+	Name        string `json:"name"`
+	Value       string `json:"value"`
+}
+
+func (c *ComponentAttr) TableName() string {
+	return "component_attribute"
+}
+
+//
+//type IncidentComponentRelation struct {
+//	ComponentId uint `json:"component_id"`
+//	IncidentId  uint `json:"incident_id"`
+//}
+//
+//func (i *IncidentComponentRelation) TableName() string {
+//	return "incident_component_relation"
+//}
+
 // Incident is a db table representation.
-// CREATE TABLE public.incident (
-//
-//	id integer NOT NULL,
-//	text character varying NOT NULL,
-//	start_date timestamp without time zone NOT NULL,
-//	end_date timestamp without time zone,
-//	impact smallint NOT NULL,
-//	system boolean DEFAULT false NOT NULL
-//
-// );
 type Incident struct {
-	Id        uint             `json:"id"`
-	Text      string           `json:"text"`
-	StartDate time.Time        `json:"start_date"`
-	EndDate   *time.Time       `json:"end_date"`
-	Impact    uint8            `json:"impact"`
-	Updates   []IncidentStatus `json:"updates" gorm:"foreignKey:IncidentId"`
-	System    bool             `json:"-"`
+	Id         uint             //`json:"id"`
+	Text       string           //`json:"text"`
+	StartDate  time.Time        //`json:"start_date"`
+	EndDate    *time.Time       //`json:"end_date"`
+	Impact     int              //`json:"impact"`
+	Statuses   []IncidentStatus //`json:"updates"`
+	System     bool             //`json:"system"`
+	Components []Component      `gorm:"many2many:incident_component_relation"`
 }
 
 func (in *Incident) TableName() string {
@@ -30,18 +51,9 @@ func (in *Incident) TableName() string {
 }
 
 // IncidentStatus is a db table representation.
-// CREATE TABLE public.incident_status (
-//
-//	id integer NOT NULL,
-//	incident_id integer,
-//	"timestamp" timestamp without time zone NOT NULL,
-//	text character varying NOT NULL,
-//	status character varying NOT NULL
-//
-// );
 type IncidentStatus struct {
-	Id         uint
-	IncidentId uint
+	Id         uint      `json:"id"`
+	IncidentId uint      `json:"-"`
 	Status     string    `json:"status"`
 	Text       string    `json:"text"`
 	Timestamp  time.Time `json:"timestamp"`

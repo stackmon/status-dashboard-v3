@@ -12,10 +12,10 @@ func (a *App) InitRoutes() {
 		v1.GET("component_status")
 		v1.POST("component_status")
 
-		v1.GET("incidents", a.GetIncidents)
-		v1.POST("incidents")
-		v1.GET("incidents/:id", a.GetIncident)
-		//v1.POST("incidents/<incident_id>")
+		v1.GET("incidents", a.GetIncidentsHandler)
+		v1.POST("incidents", a.ValidateComponentsMW(), a.PostIncidentHandler)
+		v1.GET("incidents/:id", a.GetIncidentHandler)
+		//v1.PUT("incidents/:id")
 
 		v1.GET("rss")
 		v1.GET("history")

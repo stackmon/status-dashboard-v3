@@ -24,7 +24,7 @@ func New(c *conf.Config) (*DB, error) {
 
 func (db *DB) GetIncidents() ([]Incident, error) {
 	var incidents []Incident
-	r := db.g.Model(&Incident{}).Preload("Updates").Find(&incidents)
+	r := db.g.Model(&Incident{}).Preload("Statuses").Find(&incidents)
 
 	if r.Error != nil {
 		return nil, r.Error
@@ -32,14 +32,35 @@ func (db *DB) GetIncidents() ([]Incident, error) {
 	return incidents, nil
 }
 
-func (db *DB) GetIncident(id uint) (*Incident, error) {
-	inc := Incident{Id: id}
+func (db *DB) GetIncident(id int) (*Incident, error) {
+	inc := Incident{Id: uint(id)}
 
-	r := db.g.Model(&Incident{}).Where(inc).Preload("Updates").Find(&inc)
+	r := db.g.Model(&Incident{}).Where(inc).Preload("Statuses").Preload("Components").Find(&inc)
 
 	if r.Error != nil {
 		return nil, r.Error
 	}
 
 	return &inc, nil
+}
+
+func (db *DB) SaveIncident(inc *Incident) (uint, error) {
+	r := db.g.Debug().Create(inc)
+
+	if r.Error != nil {
+		return 0, r.Error
+	}
+
+	return inc.Id, nil
+}
+
+func (db *DB) GetComponents() ([]Component, error) {
+	var components []Component
+	r := db.g.Model(&Component{}).Find(&components)
+
+	if r.Error != nil {
+		return nil, r.Error
+	}
+
+	return components, nil
 }
