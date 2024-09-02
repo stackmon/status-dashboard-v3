@@ -2,9 +2,10 @@ package conf
 
 import (
 	"fmt"
+	"strconv"
+
 	"github.com/joho/godotenv"
 	"github.com/kelseyhightower/envconfig"
-	"strconv"
 )
 
 const osPref = "SD"

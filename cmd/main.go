@@ -3,13 +3,15 @@ package main
 import (
 	"context"
 	"errors"
-	"github.com/stackmon/otc-status-dashboard/internal/app"
-	"github.com/stackmon/otc-status-dashboard/internal/conf"
-	"go.uber.org/zap"
 	"log"
 	"net/http"
 	"os/signal"
 	"syscall"
+
+	"go.uber.org/zap"
+
+	"github.com/stackmon/otc-status-dashboard/internal/app"
+	"github.com/stackmon/otc-status-dashboard/internal/conf"
 )
 
 func main() {
@@ -30,7 +32,7 @@ func main() {
 	defer done()
 
 	go func() {
-		if err := s.Run(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		if err = s.Run(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			logger.Fatal("app is failed to run", zap.Error(err))
 		}
 	}()

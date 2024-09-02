@@ -1,9 +1,10 @@
 package db
 
 import (
-	"github.com/stackmon/otc-status-dashboard/internal/conf"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
+
+	"github.com/stackmon/otc-status-dashboard/internal/conf"
 )
 
 type DB struct {
@@ -33,7 +34,7 @@ func (db *DB) GetIncidents() ([]Incident, error) {
 }
 
 func (db *DB) GetIncident(id int) (*Incident, error) {
-	inc := Incident{Id: uint(id)}
+	inc := Incident{ID: uint(id)}
 
 	r := db.g.Model(&Incident{}).Where(inc).Preload("Statuses").Preload("Components").Find(&inc)
 
@@ -51,7 +52,7 @@ func (db *DB) SaveIncident(inc *Incident) (uint, error) {
 		return 0, r.Error
 	}
 
-	return inc.Id, nil
+	return inc.ID, nil
 }
 
 func (db *DB) GetComponents() ([]Component, error) {

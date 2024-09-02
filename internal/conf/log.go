@@ -5,7 +5,7 @@ import (
 	"go.uber.org/zap/zapcore"
 )
 
-// NewLogger supports only debug level
+// NewLogger supports only debug level.
 func NewLogger(level string) *zap.Logger {
 	if level == DevelopMode {
 		log, _ := zap.NewDevelopment()

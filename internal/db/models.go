@@ -5,7 +5,7 @@ import (
 )
 
 type Component struct {
-	Id    uint            `json:"id" gorm:"many2many:incident_component_relation"`
+	ID    uint            `json:"id" gorm:"many2many:incident_component_relation"`
 	Name  string          `json:"name"`
 	Attrs []ComponentAttr `json:"attrs"`
 }
@@ -15,8 +15,8 @@ func (c *Component) TableName() string {
 }
 
 type ComponentAttr struct {
-	Id          uint   `json:"-"`
-	ComponentId uint   `json:"-"`
+	ID          uint   `json:"-"`
+	ComponentID uint   `json:"-"`
 	Name        string `json:"name"`
 	Value       string `json:"value"`
 }
@@ -25,19 +25,9 @@ func (c *ComponentAttr) TableName() string {
 	return "component_attribute"
 }
 
-//
-//type IncidentComponentRelation struct {
-//	ComponentId uint `json:"component_id"`
-//	IncidentId  uint `json:"incident_id"`
-//}
-//
-//func (i *IncidentComponentRelation) TableName() string {
-//	return "incident_component_relation"
-//}
-
 // Incident is a db table representation.
 type Incident struct {
-	Id         uint             `json:"id"`
+	ID         uint             `json:"id"`
 	Text       string           `json:"text"`
 	StartDate  time.Time        `json:"start_date"`
 	EndDate    *time.Time       `json:"end_date"`
@@ -53,8 +43,8 @@ func (in *Incident) TableName() string {
 
 // IncidentStatus is a db table representation.
 type IncidentStatus struct {
-	Id         uint      `json:"id"`
-	IncidentId uint      `json:"-"`
+	ID         uint      `json:"id"`
+	IncidentID uint      `json:"-"`
 	Status     string    `json:"status"`
 	Text       string    `json:"text"`
 	Timestamp  time.Time `json:"timestamp"`

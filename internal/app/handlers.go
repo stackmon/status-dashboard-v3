@@ -1,14 +1,16 @@
 package app
 
 import (
-	"github.com/gin-gonic/gin"
-	"github.com/stackmon/otc-status-dashboard/internal/db"
 	"net/http"
 	"time"
+
+	"github.com/gin-gonic/gin"
+
+	"github.com/stackmon/otc-status-dashboard/internal/db"
 )
 
-type IncidentId struct {
-	Id int `json:"id" uri:"id" binding:"required,gte=0"`
+type IncidentID struct {
+	ID int `json:"id" uri:"id" binding:"required,gte=0"`
 }
 
 type IncidentData struct {
@@ -29,35 +31,35 @@ type IncidentData struct {
 }
 
 type Incident struct {
-	IncidentId
+	IncidentID
 	IncidentData
 }
 
 func (a *App) GetIncidentsHandler(c *gin.Context) {
 	r, err := a.DB.GetIncidents()
 	if err != nil {
-		c.AbortWithError(http.StatusInternalServerError, err) //nolint
+		c.AbortWithError(http.StatusInternalServerError, err) //nolint:nolintlint,errcheck
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"data": r})
 }
 
 func (a *App) GetIncidentHandler(c *gin.Context) {
-	var incId IncidentId
-	if err := c.ShouldBindUri(&incId); err != nil {
-		c.AbortWithError(http.StatusBadRequest, err) //nolint
+	var incID IncidentID
+	if err := c.ShouldBindUri(&incID); err != nil {
+		c.AbortWithError(http.StatusBadRequest, err) //nolint:nolintlint,errcheck
 		return
 	}
 
-	r, err := a.DB.GetIncident(incId.Id)
+	r, err := a.DB.GetIncident(incID.ID)
 	if err != nil {
-		c.AbortWithError(http.StatusInternalServerError, err) //nolint
+		c.AbortWithError(http.StatusInternalServerError, err) //nolint:nolintlint,errcheck
 		return
 	}
 
 	components := make([]int, len(r.Components))
 	for i, comp := range r.Components {
-		components[i] = int(comp.Id)
+		components[i] = int(comp.ID)
 	}
 
 	incData := IncidentData{
@@ -70,19 +72,19 @@ func (a *App) GetIncidentHandler(c *gin.Context) {
 		Updates:    r.Statuses,
 	}
 
-	c.JSON(http.StatusOK, &Incident{incId, incData})
+	c.JSON(http.StatusOK, &Incident{incID, incData})
 }
 
 func (a *App) PostIncidentHandler(c *gin.Context) {
 	var incData IncidentData
 	if err := c.ShouldBindBodyWithJSON(&incData); err != nil {
-		c.AbortWithError(http.StatusBadRequest, err) //nolint
+		c.AbortWithError(http.StatusBadRequest, err) //nolint:nolintlint,errcheck
 		return
 	}
 
 	components := make([]db.Component, len(incData.Components))
 	for i, comp := range incData.Components {
-		components[i] = db.Component{Id: uint(comp)}
+		components[i] = db.Component{ID: uint(comp)}
 	}
 
 	dbInc := db.Incident{
@@ -94,20 +96,20 @@ func (a *App) PostIncidentHandler(c *gin.Context) {
 		Components: components,
 	}
 
-	incidentId, err := a.DB.SaveIncident(&dbInc)
+	incidentID, err := a.DB.SaveIncident(&dbInc)
 	if err != nil {
-		c.AbortWithError(http.StatusInternalServerError, err) //nolint
+		c.AbortWithError(http.StatusInternalServerError, err) //nolint:nolintlint,errcheck
 		return
 	}
 
 	c.JSON(http.StatusOK, Incident{
-		IncidentId:   IncidentId{int(incidentId)},
+		IncidentID:   IncidentID{int(incidentID)},
 		IncidentData: incData,
 	})
 }
 
 type Component struct {
-	Id         int                  `json:"id" uri:"id"`
+	ID         int                  `json:"id" uri:"id"`
 	Attributes []ComponentAttribute `json:"attributes"`
 	Name       string               `json:"name"`
 }
@@ -118,10 +120,9 @@ type ComponentAttribute struct {
 }
 
 func (a *App) GetComponentsStatusHandler(c *gin.Context) {
-
 	r, err := a.DB.GetComponentsWithValues()
 	if err != nil {
-		c.AbortWithError(http.StatusInternalServerError, err) //nolint
+		c.AbortWithError(http.StatusInternalServerError, err) //nolint:nolintlint,errcheck
 		return
 	}
 

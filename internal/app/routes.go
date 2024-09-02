@@ -5,7 +5,6 @@ const (
 )
 
 func (a *App) InitRoutes() {
-
 	// setup v1 group routing
 	v1 := a.router.Group(v1Group)
 	{

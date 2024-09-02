@@ -3,11 +3,18 @@ package app
 import (
 	"context"
 	"fmt"
+	"net/http"
+	"time"
+
 	"github.com/gin-gonic/gin"
+	"go.uber.org/zap"
+
 	"github.com/stackmon/otc-status-dashboard/internal/conf"
 	"github.com/stackmon/otc-status-dashboard/internal/db"
-	"go.uber.org/zap"
-	"net/http"
+)
+
+const (
+	readHeaderTimeout = 3 * time.Second
 )
 
 type App struct {
@@ -38,8 +45,9 @@ func New(c *conf.Config, log *zap.Logger) (*App, error) {
 	r.NoRoute(Return404)
 
 	s := &http.Server{
-		Addr:    fmt.Sprintf(":%s", c.Port),
-		Handler: r,
+		Addr:              fmt.Sprintf(":%s", c.Port),
+		Handler:           r,
+		ReadHeaderTimeout: readHeaderTimeout,
 	}
 
 	a := &App{router: r, Log: log, conf: c, DB: d, srv: s}
