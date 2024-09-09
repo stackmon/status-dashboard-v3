@@ -78,8 +78,8 @@ func (db *DB) ModifyIncident(inc *Incident) error {
 
 	r := db.g.Updates(inc)
 
-	if components != nil {
-
+	if components != nil { //nolint:revive,staticcheck,nolintlint
+		// TODO: update components here
 	}
 
 	if r.Error != nil {

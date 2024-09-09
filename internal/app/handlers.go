@@ -149,7 +149,7 @@ type PatchIncidentData struct {
 func (a *App) PatchIncidentHandler(c *gin.Context) {
 	var incID IncidentID
 	if err := c.ShouldBindUri(&incID); err != nil {
-		c.AbortWithError(http.StatusBadRequest, err)
+		c.AbortWithError(http.StatusBadRequest, err) //nolint:nolintlint,errcheck
 	}
 
 	var incData PatchIncidentData

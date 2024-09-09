@@ -5,15 +5,15 @@ import (
 )
 
 func ReturnError(err error) error {
-	return &ErrorMsg{ErrMsg: err.Error()}
+	return &MsgError{Msg: err.Error()}
 }
 
-type ErrorMsg struct {
-	ErrMsg string `json:"errMsg"`
+type MsgError struct {
+	Msg string `json:"errMsg"`
 }
 
-func (e *ErrorMsg) Error() string {
-	return e.ErrMsg
+func (e *MsgError) Error() string {
+	return e.Msg
 }
 
 var ErrPageNotFound = errors.New("page not found")

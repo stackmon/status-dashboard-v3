@@ -10,7 +10,6 @@ import (
 
 func (a *App) ValidateComponentsMW() gin.HandlerFunc {
 	return func(c *gin.Context) {
-
 		type Components struct {
 			Components []int `json:"components"`
 		}
@@ -29,16 +28,15 @@ func (a *App) ValidateComponentsMW() gin.HandlerFunc {
 		err := a.IsPresentComponent(components.Components)
 		if err != nil {
 			if errors.Is(err, ErrComponentIsNotPresent) {
-				c.AbortWithError(http.StatusBadRequest, err)
+				c.AbortWithError(http.StatusBadRequest, err) //nolint:nolintlint,errcheck
 			}
-			c.AbortWithError(http.StatusInternalServerError, err)
+			c.AbortWithError(http.StatusInternalServerError, err) //nolint:nolintlint,errcheck
 		}
 		c.Next()
 	}
 }
 
 func (a *App) IsPresentComponent(components []int) error {
-
 	dbComps, err := a.DB.GetComponentsAsMap()
 	if err != nil {
 		return err

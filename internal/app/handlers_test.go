@@ -11,6 +11,7 @@ import (
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/stackmon/otc-status-dashboard/internal/db"
 )
@@ -24,14 +25,14 @@ func TestGetIncidentsHandler(t *testing.T) {
 	str := "2024-09-01T11:45:26.371Z"
 
 	testTime, err := time.Parse(time.RFC3339, str)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	prepareDB(t, testTime)
 
 	var response = `{"data":[{"id":1,"title":"Incident title","impact":0,"components":[150],"start_date":"%s","system":false,"updates":[{"id":1,"status":"resolved","text":"Issue solved.","timestamp":"%s"}]}]}`
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("GET", "/v1/incidents", nil)
+	req, _ := http.NewRequest(http.MethodGet, "/v1/incidents", nil)
 	testApp.router.ServeHTTP(w, req)
 
 	assert.Equal(t, 200, w.Code)
@@ -42,7 +43,7 @@ func TestGetIncidentsHandler(t *testing.T) {
 func TestReturn404Handler(t *testing.T) {
 	initTests(t)
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("GET", "/anyendpoint", nil)
+	req, _ := http.NewRequest(http.MethodGet, "/anyendpoint", nil)
 	testApp.router.ServeHTTP(w, req)
 
 	assert.Equal(t, 404, w.Code)
@@ -99,7 +100,7 @@ func initTests(t *testing.T) {
 	r.NoRoute(Return404)
 
 	d, m, err := db.NewWithMock()
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	testApp = &App{router: r, Log: nil, conf: nil, DB: d, srv: nil}
 	testApp.InitRoutes()

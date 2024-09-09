@@ -7,9 +7,9 @@ import (
 )
 
 func NewWithMock() (*DB, sqlmock.Sqlmock, error) {
-	mockDb, mock, _ := sqlmock.New()
+	mockDB, mock, _ := sqlmock.New()
 	dialector := postgres.New(postgres.Config{
-		Conn:       mockDb,
+		Conn:       mockDB,
 		DriverName: "postgres",
 	})
 

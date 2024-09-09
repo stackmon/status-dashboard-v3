@@ -345,3 +345,6 @@ issues:
         - gosec
         - noctx
         - wrapcheck
+        - gochecknoglobals
+        - testpackage
+        - lll
