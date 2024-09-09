@@ -41,7 +41,28 @@ func (a *App) GetIncidentsHandler(c *gin.Context) {
 		c.AbortWithError(http.StatusInternalServerError, err) //nolint:nolintlint,errcheck
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"data": r})
+	incidents := make([]*Incident, len(r))
+	for i, inc := range r {
+		components := make([]int, len(inc.Components))
+		for ind, comp := range inc.Components {
+			components[ind] = int(comp.ID)
+		}
+
+		incidents[i] = &Incident{
+			IncidentID: IncidentID{int(inc.ID)},
+			IncidentData: IncidentData{
+				Title:      *inc.Text,
+				Impact:     inc.Impact,
+				Components: components,
+				StartDate:  *inc.StartDate,
+				EndDate:    inc.EndDate,
+				System:     *inc.System,
+				Updates:    inc.Statuses,
+			},
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{"data": incidents})
 }
 
 func (a *App) GetIncidentHandler(c *gin.Context) {
@@ -63,12 +84,12 @@ func (a *App) GetIncidentHandler(c *gin.Context) {
 	}
 
 	incData := IncidentData{
-		Title:      r.Text,
-		Impact:     &r.Impact,
+		Title:      *r.Text,
+		Impact:     r.Impact,
 		Components: components,
-		StartDate:  r.StartDate,
+		StartDate:  *r.StartDate,
 		EndDate:    r.EndDate,
-		System:     r.System,
+		System:     *r.System,
 		Updates:    r.Statuses,
 	}
 
@@ -88,11 +109,11 @@ func (a *App) PostIncidentHandler(c *gin.Context) {
 	}
 
 	dbInc := db.Incident{
-		Text:       incData.Title,
-		StartDate:  incData.StartDate,
+		Text:       &incData.Title,
+		StartDate:  &incData.StartDate,
 		EndDate:    incData.EndDate,
-		Impact:     *incData.Impact,
-		System:     incData.System,
+		Impact:     incData.Impact,
+		System:     &incData.System,
 		Components: components,
 	}
 
@@ -106,6 +127,68 @@ func (a *App) PostIncidentHandler(c *gin.Context) {
 		IncidentID:   IncidentID{int(incidentID)},
 		IncidentData: incData,
 	})
+}
+
+type PatchIncidentData struct {
+	Title *string `json:"title,omitempty"`
+	//    INCIDENT_IMPACTS = {
+	//        0: Impact(0, "maintenance", "Scheduled maintenance"),
+	//        1: Impact(1, "minor", "Minor incident (i.e. performance impact)"),
+	//        2: Impact(2, "major", "Major incident"),
+	//        3: Impact(3, "outage", "Service outage"),
+	//    }
+	Impact     *int  `json:"impact,omitempty"`
+	Components []int `json:"components,omitempty"`
+	// Datetime format is standard: "2006-01-01T12:00:00Z"
+	StartDate *time.Time         `json:"start_date,omitempty"`
+	EndDate   *time.Time         `json:"end_date,omitempty"`
+	System    *bool              `json:"system,omitempty"`
+	Update    *db.IncidentStatus `json:"update,omitempty"`
+}
+
+func (a *App) PatchIncidentHandler(c *gin.Context) {
+	var incID IncidentID
+	if err := c.ShouldBindUri(&incID); err != nil {
+		c.AbortWithError(http.StatusBadRequest, err)
+	}
+
+	var incData PatchIncidentData
+	if err := c.ShouldBindBodyWithJSON(&incData); err != nil {
+		c.AbortWithError(http.StatusBadRequest, err) //nolint:nolintlint,errcheck
+		return
+	}
+
+	var components []db.Component
+	if len(incData.Components) != 0 {
+		components = make([]db.Component, len(incData.Components))
+		for i, comp := range incData.Components {
+			components[i] = db.Component{ID: uint(comp)}
+		}
+	}
+
+	var statuses []db.IncidentStatus
+	if incData.Update != nil {
+		statuses = append(statuses, *incData.Update)
+	}
+
+	dbInc := db.Incident{
+		ID:         uint(incID.ID),
+		Text:       incData.Title,
+		StartDate:  incData.StartDate,
+		EndDate:    incData.EndDate,
+		Impact:     incData.Impact,
+		System:     incData.System,
+		Components: components,
+		Statuses:   statuses,
+	}
+
+	err := a.DB.ModifyIncident(&dbInc)
+	if err != nil {
+		c.AbortWithError(http.StatusInternalServerError, err) //nolint:nolintlint,errcheck
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"msg": "incident updated"})
 }
 
 type Component struct {

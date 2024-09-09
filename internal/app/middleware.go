@@ -1,6 +1,7 @@
 package app
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 
@@ -9,41 +10,47 @@ import (
 
 func (a *App) ValidateComponentsMW() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		var incData IncidentData
-		if err := c.ShouldBindBodyWithJSON(&incData); err != nil {
+
+		type Components struct {
+			Components []int `json:"components"`
+		}
+
+		var components Components
+
+		if err := c.ShouldBindBodyWithJSON(&components); err != nil {
 			c.AbortWithError( //nolint:nolintlint,errcheck
 				http.StatusBadRequest,
-				fmt.Errorf("%w: %w", ErrComponentValidation, err))
+				fmt.Errorf("%w: %w", ErrComponentIsNotPresent, err))
 			return
 		}
 
 		// TODO: move this list to the memory cache
 		// We should check, that all components are presented in our db.
-		components, err := a.DB.GetComponents()
+		err := a.IsPresentComponent(components.Components)
 		if err != nil {
-			c.AbortWithError( //nolint:nolintlint,errcheck
-				http.StatusInternalServerError,
-				fmt.Errorf("%w: %w", ErrComponentValidation, err),
-			)
-		}
-
-		for _, comp := range incData.Components {
-			var isPresent bool
-
-			for _, dbComp := range components {
-				if uint(comp) == dbComp.ID {
-					isPresent = true
-				}
+			if errors.Is(err, ErrComponentIsNotPresent) {
+				c.AbortWithError(http.StatusBadRequest, err)
 			}
-			if !isPresent {
-				c.AbortWithError( //nolint:nolintlint,errcheck
-					http.StatusBadRequest,
-					fmt.Errorf("%w: component id %d is not presented", ErrComponentValidation, comp))
-			}
+			c.AbortWithError(http.StatusInternalServerError, err)
 		}
-
 		c.Next()
 	}
+}
+
+func (a *App) IsPresentComponent(components []int) error {
+
+	dbComps, err := a.DB.GetComponentsAsMap()
+	if err != nil {
+		return err
+	}
+
+	for _, comp := range components {
+		if _, ok := dbComps[comp]; !ok {
+			return ErrComponentIsNotPresent
+		}
+	}
+
+	return nil
 }
 
 func ErrorHandle() gin.HandlerFunc {
@@ -54,12 +61,10 @@ func ErrorHandle() gin.HandlerFunc {
 			return
 		}
 
-		c.JSON(-1, gin.H{
-			"errorMsg": err.Error(),
-		})
+		c.JSON(-1, ReturnError(err))
 	}
 }
 
 func Return404(c *gin.Context) {
-	c.JSON(http.StatusNotFound, gin.H{"errorMsg": "page not found"})
+	c.JSON(http.StatusNotFound, ReturnError(ErrPageNotFound))
 }

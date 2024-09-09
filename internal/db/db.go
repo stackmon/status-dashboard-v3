@@ -25,7 +25,13 @@ func New(c *conf.Config) (*DB, error) {
 
 func (db *DB) GetIncidents() ([]Incident, error) {
 	var incidents []Incident
-	r := db.g.Model(&Incident{}).Preload("Statuses").Find(&incidents)
+	r := db.g.Model(&Incident{}).
+		Preload("Statuses").
+		Preload(
+			"Components", func(db *gorm.DB) *gorm.DB {
+				return db.Select("ID")
+			}).
+		Find(&incidents)
 
 	if r.Error != nil {
 		return nil, r.Error
@@ -36,7 +42,14 @@ func (db *DB) GetIncidents() ([]Incident, error) {
 func (db *DB) GetIncident(id int) (*Incident, error) {
 	inc := Incident{ID: uint(id)}
 
-	r := db.g.Model(&Incident{}).Where(inc).Preload("Statuses").Preload("Components").Find(&inc)
+	r := db.g.Model(&Incident{}).
+		Where(inc).
+		Preload("Statuses").
+		Preload(
+			"Components", func(db *gorm.DB) *gorm.DB {
+				return db.Select("ID")
+			}).
+		Find(&inc)
 
 	if r.Error != nil {
 		return nil, r.Error
@@ -46,13 +59,34 @@ func (db *DB) GetIncident(id int) (*Incident, error) {
 }
 
 func (db *DB) SaveIncident(inc *Incident) (uint, error) {
-	r := db.g.Debug().Create(inc)
+	r := db.g.Create(inc)
 
 	if r.Error != nil {
 		return 0, r.Error
 	}
 
 	return inc.ID, nil
+}
+
+func (db *DB) ModifyIncident(inc *Incident) error {
+	var components []Component
+
+	if inc.Components != nil {
+		components = inc.Components
+		inc.Components = nil
+	}
+
+	r := db.g.Updates(inc)
+
+	if components != nil {
+
+	}
+
+	if r.Error != nil {
+		return r.Error
+	}
+
+	return nil
 }
 
 func (db *DB) GetComponents() ([]Component, error) {
@@ -64,6 +98,22 @@ func (db *DB) GetComponents() ([]Component, error) {
 	}
 
 	return components, nil
+}
+
+func (db *DB) GetComponentsAsMap() (map[int]*Component, error) {
+	var components []Component
+	r := db.g.Model(&Component{}).Find(&components)
+
+	if r.Error != nil {
+		return nil, r.Error
+	}
+
+	var compMap = make(map[int]*Component)
+	for _, comp := range components {
+		compMap[int(comp.ID)] = &comp
+	}
+
+	return compMap, nil
 }
 
 func (db *DB) GetComponentsWithValues() ([]Component, error) {

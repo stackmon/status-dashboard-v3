@@ -3,14 +3,14 @@ info:
   title: Status Dashboard API
   version: 1.0.0
 servers:
-  - url: http://localhost:8000/v1
+  - url: http://localhost:8000
 tags:
   - name: incidents
     description: Incident management
   - name: components
     description: Operations about components
 paths:
-  /v1/component_status:
+  /v1/components:
     get:
       summary: Get all components.
       tags:
@@ -31,13 +31,9 @@ paths:
       responses:
         '200':
           description: API under development.
-          content:
-            application/json:
-              schema:
-                type: null
   /v1/incidents:
-    summary: Get all incidents.
     get:
+      summary: Get all incidents.
       tags:
         - incidents
       responses:
@@ -46,9 +42,7 @@ paths:
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/Incident'
+                $ref: '#/components/schemas/Incidents'
     post:
       summary: Create an incident.
       tags:
@@ -91,7 +85,7 @@ paths:
           description: Invalid ID supplied
         '404':
           description: Incident not found.
-    post:
+    patch:
       summary: Update an incident.
       tags:
         - incidents
@@ -107,7 +101,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/IncidentEdit'
+              $ref: '#/components/schemas/IncidentPost'
         required: true
       responses:
         '200':
@@ -152,6 +146,13 @@ components:
         value:
           type: string
           example: "Storage"
+    Incidents:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Incident'
     Incident:
       type: object
       required:
@@ -190,7 +191,7 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/IncidentStatus'
-    IncidentEdit:
+    IncidentPost:
       type: object
       required:
         - title
@@ -213,7 +214,7 @@ components:
         updates:
           type: array
           items:
-            $ref: '#/components/schemas/IncidentStatusEdit'
+            $ref: '#/components/schemas/IncidentStatusPost'
     IncidentStatus:
       type: object
       allOf:
@@ -224,8 +225,8 @@ components:
               format: int64
               nullable: true
               example: 163
-        - $ref: '#/components/schemas/IncidentStatusEdit'
-    IncidentStatusEdit:
+        - $ref: '#/components/schemas/IncidentStatusPost'
+    IncidentStatusPost:
       type: object
       properties:
         status:
