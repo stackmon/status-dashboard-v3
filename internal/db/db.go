@@ -1,8 +1,12 @@
 package db
 
 import (
+	"errors"
+
+	"go.uber.org/zap"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
+	"moul.io/zapgorm2"
 
 	"github.com/stackmon/otc-status-dashboard/internal/conf"
 )
@@ -15,7 +19,15 @@ func New(c *conf.Config) (*DB, error) {
 	psql := postgres.New(postgres.Config{
 		DSN: c.DB,
 	})
-	g, err := gorm.Open(psql)
+
+	gConf := &gorm.Config{}
+
+	if c.LogLevel != conf.DevelopMode {
+		logger := zapgorm2.New(zap.L())
+		gConf.Logger = logger
+	}
+
+	g, err := gorm.Open(psql, gConf)
 	if err != nil {
 		return nil, err
 	}
@@ -49,9 +61,12 @@ func (db *DB) GetIncident(id int) (*Incident, error) {
 			"Components", func(db *gorm.DB) *gorm.DB {
 				return db.Select("ID")
 			}).
-		Find(&inc)
+		First(&inc)
 
 	if r.Error != nil {
+		if errors.Is(r.Error, gorm.ErrRecordNotFound) {
+			return nil, ErrDBIncidentDSNotExist
+		}
 		return nil, r.Error
 	}
 
@@ -89,15 +104,18 @@ func (db *DB) ModifyIncident(inc *Incident) error {
 	return nil
 }
 
-func (db *DB) GetComponents() ([]Component, error) {
-	var components []Component
-	r := db.g.Model(&Component{}).Find(&components)
+func (db *DB) GetComponent(id int) (*Component, error) {
+	comp := &Component{ID: uint(id)}
+	r := db.g.Model(&Component{}).Preload("Attrs").First(comp)
 
 	if r.Error != nil {
+		if errors.Is(r.Error, gorm.ErrRecordNotFound) {
+			return nil, ErrDBComponentDSNotExist
+		}
 		return nil, r.Error
 	}
 
-	return components, nil
+	return comp, nil
 }
 
 func (db *DB) GetComponentsAsMap() (map[int]*Component, error) {

@@ -1,6 +1,7 @@
 package app
 
 import (
+	"errors"
 	"net/http"
 	"time"
 
@@ -26,7 +27,7 @@ type IncidentData struct {
 	// Datetime format is standard: "2006-01-01T12:00:00Z"
 	StartDate time.Time           `json:"start_date" binding:"required"`
 	EndDate   *time.Time          `json:"end_date,omitempty"`
-	System    bool                `json:"system,omitempty"`
+	System    *bool               `json:"system,omitempty"`
 	Updates   []db.IncidentStatus `json:"updates,omitempty"`
 }
 
@@ -38,9 +39,10 @@ type Incident struct {
 func (a *App) GetIncidentsHandler(c *gin.Context) {
 	r, err := a.DB.GetIncidents()
 	if err != nil {
-		c.AbortWithError(http.StatusInternalServerError, err) //nolint:nolintlint,errcheck
+		raiseInternalErr(c, err)
 		return
 	}
+
 	incidents := make([]*Incident, len(r))
 	for i, inc := range r {
 		components := make([]int, len(inc.Components))
@@ -56,7 +58,7 @@ func (a *App) GetIncidentsHandler(c *gin.Context) {
 				Components: components,
 				StartDate:  *inc.StartDate,
 				EndDate:    inc.EndDate,
-				System:     *inc.System,
+				System:     inc.System,
 				Updates:    inc.Statuses,
 			},
 		}
@@ -68,13 +70,17 @@ func (a *App) GetIncidentsHandler(c *gin.Context) {
 func (a *App) GetIncidentHandler(c *gin.Context) {
 	var incID IncidentID
 	if err := c.ShouldBindUri(&incID); err != nil {
-		c.AbortWithError(http.StatusBadRequest, err) //nolint:nolintlint,errcheck
+		raiseBadRequestErr(c, err)
 		return
 	}
 
 	r, err := a.DB.GetIncident(incID.ID)
 	if err != nil {
-		c.AbortWithError(http.StatusInternalServerError, err) //nolint:nolintlint,errcheck
+		if errors.Is(err, db.ErrDBIncidentDSNotExist) {
+			raiseStatusNotFoundErr(c, ErrIncidentDSNotExist)
+			return
+		}
+		raiseInternalErr(c, err)
 		return
 	}
 
@@ -89,7 +95,7 @@ func (a *App) GetIncidentHandler(c *gin.Context) {
 		Components: components,
 		StartDate:  *r.StartDate,
 		EndDate:    r.EndDate,
-		System:     *r.System,
+		System:     r.System,
 		Updates:    r.Statuses,
 	}
 
@@ -99,7 +105,7 @@ func (a *App) GetIncidentHandler(c *gin.Context) {
 func (a *App) PostIncidentHandler(c *gin.Context) {
 	var incData IncidentData
 	if err := c.ShouldBindBodyWithJSON(&incData); err != nil {
-		c.AbortWithError(http.StatusBadRequest, err) //nolint:nolintlint,errcheck
+		raiseBadRequestErr(c, err)
 		return
 	}
 
@@ -113,13 +119,13 @@ func (a *App) PostIncidentHandler(c *gin.Context) {
 		StartDate:  &incData.StartDate,
 		EndDate:    incData.EndDate,
 		Impact:     incData.Impact,
-		System:     &incData.System,
+		System:     incData.System,
 		Components: components,
 	}
 
 	incidentID, err := a.DB.SaveIncident(&dbInc)
 	if err != nil {
-		c.AbortWithError(http.StatusInternalServerError, err) //nolint:nolintlint,errcheck
+		raiseInternalErr(c, err)
 		return
 	}
 
@@ -149,12 +155,13 @@ type PatchIncidentData struct {
 func (a *App) PatchIncidentHandler(c *gin.Context) {
 	var incID IncidentID
 	if err := c.ShouldBindUri(&incID); err != nil {
-		c.AbortWithError(http.StatusBadRequest, err) //nolint:nolintlint,errcheck
+		raiseBadRequestErr(c, err)
+		return
 	}
 
 	var incData PatchIncidentData
 	if err := c.ShouldBindBodyWithJSON(&incData); err != nil {
-		c.AbortWithError(http.StatusBadRequest, err) //nolint:nolintlint,errcheck
+		raiseBadRequestErr(c, err)
 		return
 	}
 
@@ -184,7 +191,7 @@ func (a *App) PatchIncidentHandler(c *gin.Context) {
 
 	err := a.DB.ModifyIncident(&dbInc)
 	if err != nil {
-		c.AbortWithError(http.StatusInternalServerError, err) //nolint:nolintlint,errcheck
+		raiseInternalErr(c, err)
 		return
 	}
 
@@ -192,9 +199,13 @@ func (a *App) PatchIncidentHandler(c *gin.Context) {
 }
 
 type Component struct {
-	ID         int                  `json:"id" uri:"id"`
+	ComponentID
 	Attributes []ComponentAttribute `json:"attributes"`
 	Name       string               `json:"name"`
+}
+
+type ComponentID struct {
+	ID int `json:"id" uri:"id" binding:"required,gte=0"`
 }
 
 type ComponentAttribute struct {
@@ -205,7 +216,27 @@ type ComponentAttribute struct {
 func (a *App) GetComponentsStatusHandler(c *gin.Context) {
 	r, err := a.DB.GetComponentsWithValues()
 	if err != nil {
-		c.AbortWithError(http.StatusInternalServerError, err) //nolint:nolintlint,errcheck
+		raiseInternalErr(c, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, r)
+}
+
+func (a *App) GetComponentHandler(c *gin.Context) {
+	var compID ComponentID
+	if err := c.ShouldBindUri(&compID); err != nil {
+		raiseBadRequestErr(c, ErrComponentInvalidFormat)
+		return
+	}
+
+	r, err := a.DB.GetComponent(compID.ID)
+	if err != nil {
+		if errors.Is(err, db.ErrDBComponentDSNotExist) {
+			raiseStatusNotFoundErr(c, ErrComponentDSNotExist)
+			return
+		}
+		raiseInternalErr(c, err)
 		return
 	}
 

@@ -8,6 +8,8 @@ func (a *App) InitRoutes() {
 	// setup v1 group routing
 	v1 := a.router.Group(v1Group)
 	{
+		v1.GET("components", a.GetComponentsStatusHandler)
+		v1.GET("components/:id", a.GetComponentHandler)
 		v1.GET("component_status", a.GetComponentsStatusHandler)
 		v1.POST("component_status", a.PostComponentStatusHandler)
 

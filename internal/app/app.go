@@ -40,7 +40,8 @@ func New(c *conf.Config, log *zap.Logger) (*App, error) {
 		return nil, err
 	}
 
-	r := gin.Default()
+	r := gin.New()
+	r.Use(Logger(log), gin.Recovery())
 	r.Use(ErrorHandle())
 	r.NoRoute(Return404)
 

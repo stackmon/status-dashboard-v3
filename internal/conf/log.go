@@ -14,7 +14,7 @@ func NewLogger(level string) *zap.Logger {
 
 	encoderCfg := zap.NewProductionEncoderConfig()
 	encoderCfg.TimeKey = "timestamp"
-	encoderCfg.EncodeTime = zapcore.ISO8601TimeEncoder
+	encoderCfg.EncodeTime = zapcore.RFC3339TimeEncoder
 
 	config := zap.Config{
 		Level:             zap.NewAtomicLevelAt(zap.DebugLevel),

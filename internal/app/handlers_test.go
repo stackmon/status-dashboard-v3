@@ -47,7 +47,7 @@ func TestReturn404Handler(t *testing.T) {
 	testApp.router.ServeHTTP(w, req)
 
 	assert.Equal(t, 404, w.Code)
-	assert.Equal(t, `{"errorMsg":"page not found"}`, w.Body.String())
+	assert.Equal(t, `{"errMsg":"page not found"}`, w.Body.String())
 }
 
 func prepareDB(t *testing.T, testTime time.Time) {
