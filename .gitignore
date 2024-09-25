@@ -1,0 +1,10 @@
+.idea
+*.bkp
+*.exe
+bin/
+/pkg/
+*.backup
+*.log
+*.bak
+*.test
+*.txt
