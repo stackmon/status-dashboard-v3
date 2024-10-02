@@ -9,8 +9,10 @@ tags:
     description: Incident management
   - name: components
     description: Operations about components
+  - name: v1
+    description: Deprecated API schema for backward compatibility
 paths:
-  /v1/components:
+  /v2/components:
     get:
       summary: Get all components.
       tags:
@@ -31,7 +33,7 @@ paths:
       responses:
         '200':
           description: API under development.
-  /v1/components/{component_id}:
+  /v2/components/{component_id}:
     get:
       summary: Get target component.
       tags:
@@ -60,7 +62,35 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/InternalServerError'
-  /v1/incidents:
+    patch:
+      summary: Update target component.
+      tags:
+        - components
+      responses:
+        '200':
+          description: Successful operation.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Component'
+        '404':
+          description: The component is not found.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  errMsg:
+                    type: string
+                    example: component does not exist
+
+        '500':
+          description: internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InternalServerError'
+  /v2/incidents:
     get:
       summary: Get all incidents.
       tags:
@@ -89,7 +119,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Incident'
-  /v1/incidents/{incident_id}:
+  /v2/incidents/{incident_id}:
     get:
       summary: Find an incident by id.
       description: Returns a single incident.
@@ -143,6 +173,49 @@ paths:
           description: Invalid ID supplied
         '404':
           description: Incident not found.
+  /v1/component_status:
+    get:
+      summary: Get all components.
+      tags:
+        - v1
+      responses:
+        '200':
+          description: Successful operation.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ComponentV1'
+    post:
+      summary: Update component status.
+      tags:
+        - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ComponentPostV1'
+      responses:
+        '201':
+          description: Successful operation.
+          content:
+            application/json:
+              schema:
+                  $ref: '#/components/schemas/IncidentV1'
+
+  /v1/incidents:
+    get:
+      summary: Get all incidents.
+      tags:
+        - v1
+      responses:
+        '200':
+          description: Successful operation.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IncidentsV1'
 
 components:
   schemas:
@@ -273,6 +346,103 @@ components:
         timestamp:
           type: string
           format: date-time
+    IncidentsV1:
+      type: array
+      items:
+        $ref: '#/components/schemas/IncidentV1'
+    IncidentV1:
+      type: object
+      required:
+        - text
+        - impact
+        - start_date
+      properties:
+        id:
+          type: integer
+          format: int64
+          example: 200
+        text:
+          type: string
+          example: "OpenStack Upgrade in regions EU-DE/EU-NL"
+        impact:
+          type: integer
+          enum: [ 0,1,2,3 ]
+          example: 1
+        start_date:
+          type: string
+          example: "2006-01-13 17:02"
+        end_date:
+          type: string
+          example: "2006-01-14 17:10"
+        updates:
+          type: array
+          items:
+            $ref: '#/components/schemas/IncidentStatusPostV1'
+    IncidentStatusPostV1:
+      type: object
+      properties:
+        status:
+          type: string
+          example: "resolved"
+        text:
+          type: string
+          example: "issue resolved"
+        timestamp:
+          type: string
+          example: "2006-01-14 17:10"
+    ComponentV1:
+      type: object
+      required:
+        - id
+        - name
+        - attrs
+      properties:
+        id:
+          type: integer
+          format: int64
+          example: 218
+        name:
+          type: string
+          example: "Object Storage Service"
+        attrs:
+          $ref: '#/components/schemas/ComponentAttrV1'
+        incidents:
+          $ref: '#/components/schemas/IncidentsV1'
+    ComponentPostV1:
+      type: object
+      required:
+        - name
+        - impact
+      properties:
+        text:
+          type: string
+          example: Incident
+        name:
+          type: string
+          example: "cmp1"
+        impact:
+          type: integer
+          enum:
+            - 0
+            - 1
+            - 2
+            - 3
+          example: 1
+        attributes:
+          $ref: '#/components/schemas/ComponentAttrV1'
+    ComponentAttrV1:
+      type: object
+      properties:
+        name:
+          type: string
+          enum:
+            - category
+            - region
+            - type
+          example: "category"
+        value:
+          type: string
+          example: "Storage"
     InternalServerError:
       type: object
       properties:
