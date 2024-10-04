@@ -6,6 +6,9 @@ on:
       - master
   pull_request:
 
+env:
+  GO_VERSION: '1.22'
+
 permissions:
   contents: read
 
@@ -30,5 +33,5 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version: stable
+          go-version: ${{ env.GO_VERSION }}
       - run: make test
