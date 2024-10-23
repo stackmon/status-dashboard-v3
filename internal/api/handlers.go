@@ -1,4 +1,4 @@
-package app
+package api
 
 import (
 	"errors"
@@ -7,6 +7,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	apiErrors "github.com/stackmon/otc-status-dashboard/internal/api/errors"
 	"github.com/stackmon/otc-status-dashboard/internal/db"
 )
 
@@ -36,10 +37,10 @@ type Incident struct {
 	IncidentData
 }
 
-func (a *App) GetIncidentsHandler(c *gin.Context) {
-	r, err := a.DB.GetIncidents()
+func (a *API) GetIncidentsHandler(c *gin.Context) {
+	r, err := a.db.GetIncidents()
 	if err != nil {
-		raiseInternalErr(c, err)
+		apiErrors.RaiseInternalErr(c, err)
 		return
 	}
 
@@ -58,7 +59,7 @@ func (a *App) GetIncidentsHandler(c *gin.Context) {
 				Components: components,
 				StartDate:  *inc.StartDate,
 				EndDate:    inc.EndDate,
-				System:     inc.System,
+				System:     &inc.System,
 				Updates:    inc.Statuses,
 			},
 		}
@@ -67,20 +68,20 @@ func (a *App) GetIncidentsHandler(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"data": incidents})
 }
 
-func (a *App) GetIncidentHandler(c *gin.Context) {
+func (a *API) GetIncidentHandler(c *gin.Context) {
 	var incID IncidentID
 	if err := c.ShouldBindUri(&incID); err != nil {
-		raiseBadRequestErr(c, err)
+		apiErrors.RaiseBadRequestErr(c, err)
 		return
 	}
 
-	r, err := a.DB.GetIncident(incID.ID)
+	r, err := a.db.GetIncident(incID.ID)
 	if err != nil {
 		if errors.Is(err, db.ErrDBIncidentDSNotExist) {
-			raiseStatusNotFoundErr(c, ErrIncidentDSNotExist)
+			apiErrors.RaiseStatusNotFoundErr(c, apiErrors.ErrIncidentDSNotExist)
 			return
 		}
-		raiseInternalErr(c, err)
+		apiErrors.RaiseInternalErr(c, err)
 		return
 	}
 
@@ -95,17 +96,17 @@ func (a *App) GetIncidentHandler(c *gin.Context) {
 		Components: components,
 		StartDate:  *r.StartDate,
 		EndDate:    r.EndDate,
-		System:     r.System,
+		System:     &r.System,
 		Updates:    r.Statuses,
 	}
 
 	c.JSON(http.StatusOK, &Incident{incID, incData})
 }
 
-func (a *App) PostIncidentHandler(c *gin.Context) {
+func (a *API) PostIncidentHandler(c *gin.Context) {
 	var incData IncidentData
 	if err := c.ShouldBindBodyWithJSON(&incData); err != nil {
-		raiseBadRequestErr(c, err)
+		apiErrors.RaiseBadRequestErr(c, err)
 		return
 	}
 
@@ -119,13 +120,13 @@ func (a *App) PostIncidentHandler(c *gin.Context) {
 		StartDate:  &incData.StartDate,
 		EndDate:    incData.EndDate,
 		Impact:     incData.Impact,
-		System:     incData.System,
+		System:     *incData.System,
 		Components: components,
 	}
 
-	incidentID, err := a.DB.SaveIncident(&dbInc)
+	incidentID, err := a.db.SaveIncident(&dbInc)
 	if err != nil {
-		raiseInternalErr(c, err)
+		apiErrors.RaiseInternalErr(c, err)
 		return
 	}
 
@@ -152,16 +153,16 @@ type PatchIncidentData struct {
 	Update    *db.IncidentStatus `json:"update,omitempty"`
 }
 
-func (a *App) PatchIncidentHandler(c *gin.Context) {
+func (a *API) PatchIncidentHandler(c *gin.Context) {
 	var incID IncidentID
 	if err := c.ShouldBindUri(&incID); err != nil {
-		raiseBadRequestErr(c, err)
+		apiErrors.RaiseBadRequestErr(c, err)
 		return
 	}
 
 	var incData PatchIncidentData
 	if err := c.ShouldBindBodyWithJSON(&incData); err != nil {
-		raiseBadRequestErr(c, err)
+		apiErrors.RaiseBadRequestErr(c, err)
 		return
 	}
 
@@ -184,14 +185,14 @@ func (a *App) PatchIncidentHandler(c *gin.Context) {
 		StartDate:  incData.StartDate,
 		EndDate:    incData.EndDate,
 		Impact:     incData.Impact,
-		System:     incData.System,
+		System:     *incData.System,
 		Components: components,
 		Statuses:   statuses,
 	}
 
-	err := a.DB.ModifyIncident(&dbInc)
+	err := a.db.ModifyIncident(&dbInc)
 	if err != nil {
-		raiseInternalErr(c, err)
+		apiErrors.RaiseInternalErr(c, err)
 		return
 	}
 
@@ -213,30 +214,30 @@ type ComponentAttribute struct {
 	Value string `json:"value"`
 }
 
-func (a *App) GetComponentsStatusHandler(c *gin.Context) {
-	r, err := a.DB.GetComponentsWithValues()
+func (a *API) GetComponentsStatusHandler(c *gin.Context) {
+	r, err := a.db.GetComponentsWithValues()
 	if err != nil {
-		raiseInternalErr(c, err)
+		apiErrors.RaiseInternalErr(c, err)
 		return
 	}
 
 	c.JSON(http.StatusOK, r)
 }
 
-func (a *App) GetComponentHandler(c *gin.Context) {
+func (a *API) GetComponentHandler(c *gin.Context) {
 	var compID ComponentID
 	if err := c.ShouldBindUri(&compID); err != nil {
-		raiseBadRequestErr(c, ErrComponentInvalidFormat)
+		apiErrors.RaiseBadRequestErr(c, apiErrors.ErrComponentInvalidFormat)
 		return
 	}
 
-	r, err := a.DB.GetComponent(compID.ID)
+	r, err := a.db.GetComponent(compID.ID)
 	if err != nil {
 		if errors.Is(err, db.ErrDBComponentDSNotExist) {
-			raiseStatusNotFoundErr(c, ErrComponentDSNotExist)
+			apiErrors.RaiseStatusNotFoundErr(c, apiErrors.ErrComponentDSNotExist)
 			return
 		}
-		raiseInternalErr(c, err)
+		apiErrors.RaiseInternalErr(c, err)
 		return
 	}
 
@@ -269,6 +270,6 @@ func (a *App) GetComponentHandler(c *gin.Context) {
 //	  will be closed by the system.
 //	  The movement of a component and the closure of an incident
 //	  will be reflected in the incident statuses.
-func (a *App) PostComponentStatusHandler(c *gin.Context) {
+func (a *API) PostComponentStatusHandler(c *gin.Context) {
 	c.JSON(http.StatusOK, map[string]string{"status": "in development"})
 }

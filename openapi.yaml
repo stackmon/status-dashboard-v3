@@ -405,7 +405,9 @@ components:
           type: string
           example: "Object Storage Service"
         attrs:
-          $ref: '#/components/schemas/ComponentAttrV1'
+          type: array
+          items:
+            $ref: '#/components/schemas/ComponentAttrV1'
         incidents:
           $ref: '#/components/schemas/IncidentsV1'
     ComponentPostV1:

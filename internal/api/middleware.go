@@ -1,4 +1,4 @@
-package app
+package api
 
 import (
 	"errors"
@@ -9,9 +9,11 @@ import (
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
+
+	errors2 "github.com/stackmon/otc-status-dashboard/internal/api/errors"
 )
 
-func (a *App) ValidateComponentsMW() gin.HandlerFunc {
+func (a *API) ValidateComponentsMW() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		type Components struct {
 			Components []int `json:"components"`
@@ -20,7 +22,7 @@ func (a *App) ValidateComponentsMW() gin.HandlerFunc {
 		var components Components
 
 		if err := c.ShouldBindBodyWithJSON(&components); err != nil {
-			raiseBadRequestErr(c, fmt.Errorf("%w: %w", ErrComponentInvalidFormat, err))
+			errors2.RaiseBadRequestErr(c, fmt.Errorf("%w: %w", errors2.ErrComponentInvalidFormat, err))
 			return
 		}
 
@@ -28,25 +30,25 @@ func (a *App) ValidateComponentsMW() gin.HandlerFunc {
 		// We should check, that all components are presented in our db.
 		err := a.IsPresentComponent(components.Components)
 		if err != nil {
-			if errors.Is(err, ErrComponentDSNotExist) {
-				raiseBadRequestErr(c, err)
+			if errors.Is(err, errors2.ErrComponentDSNotExist) {
+				errors2.RaiseBadRequestErr(c, err)
 			} else {
-				raiseInternalErr(c, err)
+				errors2.RaiseInternalErr(c, err)
 			}
 		}
 		c.Next()
 	}
 }
 
-func (a *App) IsPresentComponent(components []int) error {
-	dbComps, err := a.DB.GetComponentsAsMap()
+func (a *API) IsPresentComponent(components []int) error {
+	dbComps, err := a.db.GetComponentsAsMap()
 	if err != nil {
 		return err
 	}
 
 	for _, comp := range components {
 		if _, ok := dbComps[comp]; !ok {
-			return ErrComponentDSNotExist
+			return errors2.ErrComponentDSNotExist
 		}
 	}
 
@@ -65,10 +67,10 @@ func ErrorHandle() gin.HandlerFunc {
 		var err error
 		err = c.Errors.Last()
 		if status >= http.StatusInternalServerError {
-			err = ErrInternalError
+			err = errors2.ErrInternalError
 		}
 
-		c.JSON(-1, ReturnError(err))
+		c.JSON(-1, errors2.ReturnError(err))
 	}
 }
 
@@ -98,7 +100,7 @@ func Logger(log *zap.Logger) gin.HandlerFunc {
 
 		switch {
 		case c.Writer.Status() >= http.StatusInternalServerError:
-			msg := fmt.Sprintf("panic was recovered, %s", ErrInternalError)
+			msg := fmt.Sprintf("panic was recovered, %s", errors2.ErrInternalError)
 			if c.Errors.Last() != nil {
 				msg = c.Errors.Last().Error()
 			}
@@ -110,5 +112,24 @@ func Logger(log *zap.Logger) gin.HandlerFunc {
 		default:
 			log.Info(path, fields...)
 		}
+	}
+}
+
+func CORSMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
+		c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
+		c.Writer.Header().Set(
+			"Access-Control-Allow-Headers",
+			"Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, "+
+				"Authorization, accept, origin, Cache-Control, X-Requested-With")
+		c.Writer.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS, GET, PUT")
+
+		if c.Request.Method == http.MethodOptions {
+			c.AbortWithStatus(http.StatusNoContent)
+			return
+		}
+
+		c.Next()
 	}
 }
