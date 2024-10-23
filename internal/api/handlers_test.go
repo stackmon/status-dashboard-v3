@@ -1,4 +1,4 @@
-package app
+package api
 
 import (
 	"database/sql/driver"
@@ -13,10 +13,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/stackmon/otc-status-dashboard/internal/api/errors"
 	"github.com/stackmon/otc-status-dashboard/internal/db"
 )
 
-var testApp *App
+var testAPI *API
 var mock sqlmock.Sqlmock
 
 func TestGetIncidentsHandler(t *testing.T) {
@@ -33,7 +34,7 @@ func TestGetIncidentsHandler(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest(http.MethodGet, "/v1/incidents", nil)
-	testApp.router.ServeHTTP(w, req)
+	testAPI.r.ServeHTTP(w, req)
 
 	assert.Equal(t, 200, w.Code)
 
@@ -44,7 +45,7 @@ func TestReturn404Handler(t *testing.T) {
 	initTests(t)
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest(http.MethodGet, "/anyendpoint", nil)
-	testApp.router.ServeHTTP(w, req)
+	testAPI.r.ServeHTTP(w, req)
 
 	assert.Equal(t, 404, w.Code)
 	assert.Equal(t, `{"errMsg":"page not found"}`, w.Body.String())
@@ -90,19 +91,19 @@ func prepareDB(t *testing.T, testTime time.Time) {
 func initTests(t *testing.T) {
 	t.Helper()
 
-	if testApp != nil && mock != nil {
-		t.Log("testApp and mock are initialized")
+	if testAPI != nil && mock != nil {
+		t.Log("testAPI and mock are initialized")
 	}
 
 	t.Log("start initialisation")
 	r := gin.Default()
 	r.Use(ErrorHandle())
-	r.NoRoute(Return404)
+	r.NoRoute(errors.Return404)
 
 	d, m, err := db.NewWithMock()
 	require.NoError(t, err)
 
-	testApp = &App{router: r, Log: nil, conf: nil, DB: d, srv: nil}
-	testApp.InitRoutes()
+	testAPI = &API{r: r, db: d}
+	testAPI.initRoutes()
 	mock = m
 }
