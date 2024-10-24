@@ -44,9 +44,9 @@ type IncidentsParams struct {
 
 func (db *DB) GetIncidents(params ...*IncidentsParams) ([]*Incident, error) {
 	var incidents []*Incident
-	var param *IncidentsParams
-	if len(params) != 0 && params[0] != nil {
-		param = params[0]
+	var param IncidentsParams
+	if params != nil && params[0] != nil {
+		param = *params[0]
 	}
 
 	r := db.g.Debug().Model(&Incident{}).

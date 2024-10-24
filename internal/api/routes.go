@@ -1,13 +1,16 @@
 package api
 
-import v1 "github.com/stackmon/otc-status-dashboard/internal/api/v1"
+import (
+	v1 "github.com/stackmon/otc-status-dashboard/internal/api/v1"
+	v2 "github.com/stackmon/otc-status-dashboard/internal/api/v2"
+)
 
 const (
 	v1Group = "v1"
 	v2Group = "v2"
 )
 
-func (a *API) initRoutes() {
+func (a *API) InitRoutes() {
 	v1Api := a.r.Group(v1Group)
 	{
 		v1Api.GET("component_status", v1.GetComponentsStatusHandler(a.db, a.log))
@@ -15,27 +18,28 @@ func (a *API) initRoutes() {
 
 		v1Api.GET("incidents", v1.GetIncidentsHandler(a.db, a.log))
 	}
-	//nolint:gocritic
+
 	// setup v2 group routing
-	//v2 := a.router.Group(v2Group)
-	//{
-	//	v2.GET("components", a.GetComponentsStatusHandler)
-	//	v2.GET("components/:id", a.GetComponentHandler)
-	//	v2.GET("component_status", a.GetComponentsStatusHandler)
-	//	v2.POST("component_status", a.PostComponentStatusHandler)
-	//
-	//	v2.GET("incidents", a.GetIncidentsHandler)
-	//	v2.POST("incidents", a.ValidateComponentsMW(), a.PostIncidentHandler)
-	//	v2.GET("incidents/:id", a.GetIncidentHandler)
-	//	v2.PATCH("incidents/:id", a.ValidateComponentsMW(), a.PatchIncidentHandler)
-	//
-	//	v2.GET("rss")
-	//	v2.GET("history")
-	//	v2.GET("availability")
-	//	v2.GET("/separate/<incident_id>/<component_id>") - > investigate it!!!
-	//
-	//	v2.GET("/login/:name")
-	//	v2.GET("/auth/:name")
-	//	v2.GET("/logout")
-	//}
+	v2Api := a.r.Group(v2Group)
+	{
+		v2Api.GET("components", v2.GetComponentsStatusHandler(a.db, a.log))
+		v2Api.GET("components/:id", v2.GetComponentHandler(a.db, a.log))
+		v2Api.GET("component_status", v2.GetComponentsStatusHandler(a.db, a.log))
+		v2Api.POST("component_status", v2.PostComponentStatusHandler(a.db, a.log))
+
+		v2Api.GET("incidents", v2.GetIncidentsHandler(a.db, a.log))
+		v2Api.POST("incidents", a.ValidateComponentsMW(), v2.PostIncidentHandler(a.db, a.log))
+		v2Api.GET("incidents/:id", v2.GetIncidentHandler(a.db, a.log))
+		v2Api.PATCH("incidents/:id", a.ValidateComponentsMW(), v2.PatchIncidentHandler(a.db, a.log))
+
+		//nolint:gocritic
+		//v2Api.GET("rss")
+		//v2Api.GET("history")
+		//v2Api.GET("availability")
+		//v2Api.GET("/separate/<incident_id>/<component_id>") - > investigate it!!!
+		//
+		//v2Api.GET("/login/:name")
+		//v2Api.GET("/auth/:name")
+		//v2Api.GET("/logout")
+	}
 }

@@ -27,7 +27,7 @@ func New(cfg *conf.Config, log *zap.Logger, database *db.DB) *API {
 	r.NoRoute(errors.Return404)
 
 	a := &API{r: r, db: database, log: log}
-	a.initRoutes()
+	a.InitRoutes()
 	return a
 }
 
