@@ -10,7 +10,7 @@ import (
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 
-	errors2 "github.com/stackmon/otc-status-dashboard/internal/api/errors"
+	apiErrors "github.com/stackmon/otc-status-dashboard/internal/api/errors"
 )
 
 func (a *API) ValidateComponentsMW() gin.HandlerFunc {
@@ -22,7 +22,7 @@ func (a *API) ValidateComponentsMW() gin.HandlerFunc {
 		var components Components
 
 		if err := c.ShouldBindBodyWithJSON(&components); err != nil {
-			errors2.RaiseBadRequestErr(c, fmt.Errorf("%w: %w", errors2.ErrComponentInvalidFormat, err))
+			apiErrors.RaiseBadRequestErr(c, fmt.Errorf("%w: %w", apiErrors.ErrComponentInvalidFormat, err))
 			return
 		}
 
@@ -30,10 +30,10 @@ func (a *API) ValidateComponentsMW() gin.HandlerFunc {
 		// We should check, that all components are presented in our db.
 		err := a.IsPresentComponent(components.Components)
 		if err != nil {
-			if errors.Is(err, errors2.ErrComponentDSNotExist) {
-				errors2.RaiseBadRequestErr(c, err)
+			if errors.Is(err, apiErrors.ErrComponentDSNotExist) {
+				apiErrors.RaiseBadRequestErr(c, err)
 			} else {
-				errors2.RaiseInternalErr(c, err)
+				apiErrors.RaiseInternalErr(c, err)
 			}
 		}
 		c.Next()
@@ -48,7 +48,7 @@ func (a *API) IsPresentComponent(components []int) error {
 
 	for _, comp := range components {
 		if _, ok := dbComps[comp]; !ok {
-			return errors2.ErrComponentDSNotExist
+			return apiErrors.ErrComponentDSNotExist
 		}
 	}
 
@@ -67,10 +67,10 @@ func ErrorHandle() gin.HandlerFunc {
 		var err error
 		err = c.Errors.Last()
 		if status >= http.StatusInternalServerError {
-			err = errors2.ErrInternalError
+			err = apiErrors.ErrInternalError
 		}
 
-		c.JSON(-1, errors2.ReturnError(err))
+		c.JSON(-1, apiErrors.ReturnError(err))
 	}
 }
 
@@ -100,7 +100,7 @@ func Logger(log *zap.Logger) gin.HandlerFunc {
 
 		switch {
 		case c.Writer.Status() >= http.StatusInternalServerError:
-			msg := fmt.Sprintf("panic was recovered, %s", errors2.ErrInternalError)
+			msg := fmt.Sprintf("panic was recovered, %s", apiErrors.ErrInternalError)
 			if c.Errors.Last() != nil {
 				msg = c.Errors.Last().Error()
 			}
