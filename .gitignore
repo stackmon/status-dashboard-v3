@@ -8,3 +8,4 @@ bin/
 *.bak
 *.test
 *.txt
+.env
