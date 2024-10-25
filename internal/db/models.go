@@ -1,17 +1,34 @@
 package db
 
 import (
+	"fmt"
 	"time"
 )
 
 type Component struct {
-	ID    uint            `json:"id" gorm:"many2many:incident_component_relation"`
-	Name  string          `json:"name,omitempty"`
-	Attrs []ComponentAttr `json:"attrs,omitempty"`
+	ID        uint            `json:"id"`
+	Name      string          `json:"name,omitempty"`
+	Attrs     []ComponentAttr `json:"attributes,omitempty"`
+	Incidents []*Incident     `json:"incidents,omitempty" gorm:"many2many:incident_component_relation"`
 }
 
 func (c *Component) TableName() string {
 	return "component"
+}
+
+func (c *Component) PrintAttrs() string {
+	var category, region, compType string
+	for _, a := range c.Attrs {
+		switch a.Name {
+		case "category":
+			category = a.Value
+		case "region":
+			region = a.Value
+		case "type":
+			compType = a.Value
+		}
+	}
+	return fmt.Sprintf("%s (%s, %s, %s)", c.Name, category, region, compType)
 }
 
 type ComponentAttr struct {
@@ -33,12 +50,16 @@ type Incident struct {
 	EndDate    *time.Time       `json:"end_date"`
 	Impact     *int             `json:"impact" gorm:"not null"`
 	Statuses   []IncidentStatus `json:"updates"`
-	System     *bool            `json:"system" gorm:"not null"`
+	System     bool             `json:"system" gorm:"not null"`
 	Components []Component      `json:"components" gorm:"many2many:incident_component_relation"`
 }
 
 func (in *Incident) TableName() string {
 	return "incident"
+}
+
+func (in *Incident) Link() string {
+	return fmt.Sprintf("<a href='/incidents/%d'>%s</a>", in.ID, *in.Text)
 }
 
 // IncidentStatus is a db table representation.
