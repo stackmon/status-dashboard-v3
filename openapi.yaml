@@ -3,6 +3,7 @@ info:
   title: Status Dashboard API
   version: 1.0.0
 servers:
+  - url: http://80.158.108.251:8000
   - url: http://localhost:8000
 tags:
   - name: incidents
