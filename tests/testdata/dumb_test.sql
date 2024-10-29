@@ -264,7 +264,7 @@ COPY public.component_attribute (id, component_id, name, value) FROM stdin;
 --
 
 COPY public.incident (id, text, start_date, end_date, impact, system) FROM stdin;
-1	Opened incident without any update	2024-10-24 10:12:42	\N	1	f
+1	Closed incident without any update	2024-10-24 10:12:42	2024-10-24 11:12:42	1	f
 \.
 
 
@@ -282,6 +282,7 @@ COPY public.incident_component_relation (incident_id, component_id) FROM stdin;
 --
 
 COPY public.incident_status (id, incident_id, "timestamp", text, status) FROM stdin;
+1	1	2024-10-24 11:12:42.559346	close incident	resolved
 \.
 
 
@@ -310,7 +311,7 @@ SELECT pg_catalog.setval('public.incident_id_seq', 1, true);
 -- Name: incident_status_id_seq; Type: SEQUENCE SET; Schema: public; Owner: pg
 --
 
-SELECT pg_catalog.setval('public.incident_status_id_seq', 1, false);
+SELECT pg_catalog.setval('public.incident_status_id_seq', 2, true);
 
 
 --

@@ -100,7 +100,6 @@ func (db *DB) SaveIncident(inc *Incident) (uint, error) {
 	return inc.ID, nil
 }
 
-// TODO: check this function for patching incident
 func (db *DB) ModifyIncident(inc *Incident) error {
 	r := db.g.Updates(inc)
 
@@ -392,7 +391,7 @@ func (db *DB) ExtractComponentToNewIncident(
 
 func (db *DB) IncreaseIncidentImpact(inc *Incident, impact int) (*Incident, error) {
 	timeNow := time.Now()
-	text := fmt.Sprintf("impact changed from %d to %d", inc.Impact, impact)
+	text := fmt.Sprintf("impact changed from %d to %d", *inc.Impact, impact)
 	inc.Statuses = append(inc.Statuses, IncidentStatus{
 		IncidentID: inc.ID,
 		Status:     statusSYSTEM,
@@ -401,7 +400,7 @@ func (db *DB) IncreaseIncidentImpact(inc *Incident, impact int) (*Incident, erro
 	})
 	inc.Impact = &impact
 
-	if r := db.g.Save(inc); r.Error != nil {
+	if r := db.g.Updates(inc); r.Error != nil {
 		return nil, r.Error
 	}
 

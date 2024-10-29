@@ -8,7 +8,7 @@ test:
 	@echo running unit tests
 	go test ./internal/... -count 1
 
-integ_test:
+test-acc:
 	@echo running integrational tests with docker and db
 	go test ./tests/... -count 1
 

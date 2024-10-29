@@ -71,6 +71,8 @@ func initTests(t *testing.T) (*gin.Engine, *db.DB) { //nolint:unparam
 
 	d, err := db.New(&conf.Config{
 		DB: databaseURL,
+		// if you want to debug gorm, uncomment it
+		//LogLevel: conf.DevelopMode,
 	})
 	require.NoError(t, err)
 
