@@ -110,6 +110,32 @@ func GetIncidentHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 	}
 }
 
+// PostIncidentHandler creates an incident.
+// TODO: copy-paste from the legacy, it's implemented, but only for API. We should discuss about this functionality.
+//
+//	 Process component status update and open new incident if required:
+//
+//	- current active maintenance for the component - do nothing
+//	- current active incident for the component - do nothing
+//	- current active incident NOT for the component - add component into
+//	  the list of affected components
+//	- no active incidents - create new one
+//	- current active incident for the component and requested
+//	  impact > current impact - run handling:
+//
+//	  If a component exists in an incident, but the requested
+//	  impact is higher than the current one, then the component
+//	  will be moved to another incident if it exists with the
+//	  requested impact, otherwise a new incident will be created
+//	  and the component will be moved to the new incident.
+//	  If there is only one component in an incident, and an
+//	  incident with the requested impact does not exist,
+//	  then the impact of the incident will be changed to a higher
+//	  one, otherwise the component will be moved to an existing
+//	  incident with the requested impact, and the current incident
+//	  will be closed by the system.
+//	  The movement of a component and the closure of an incident
+//	  will be reflected in the incident statuses.
 func PostIncidentHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		logger.Debug("create an incident")
@@ -223,12 +249,24 @@ type ComponentID struct {
 	ID int `json:"id" uri:"id" binding:"required,gte=0"`
 }
 
+// ComponentAttribute provides additional attributes for component.
+// Available list of possible attributes are:
+// 1. type
+// 2. region
+// 3. category
+// All of them are required for creation.
 type ComponentAttribute struct {
 	Name  string `json:"name"`
 	Value string `json:"value"`
 }
 
-func GetComponentsStatusHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
+var availableAttrs = map[string]struct{}{ //nolint:gochecknoglobals
+	"type":     {},
+	"region":   {},
+	"category": {},
+}
+
+func GetComponentsHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		logger.Debug("retrieve components")
 
@@ -266,34 +304,69 @@ func GetComponentHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 	}
 }
 
-// PostComponentStatusHandler creates a new component.
-// TODO: copy-paste from the legacy, it's implemented, but only for API. We should discuss about this functionality.
-//
-//	 Process component status update and open new incident if required:
-//
-//	- current active maintenance for the component - do nothing
-//	- current active incident for the component - do nothing
-//	- current active incident NOT for the component - add component into
-//	  the list of affected components
-//	- no active incidents - create new one
-//	- current active incident for the component and requested
-//	  impact > current impact - run handling:
-//
-//	  If a component exists in an incident, but the requested
-//	  impact is higher than the current one, then the component
-//	  will be moved to another incident if it exists with the
-//	  requested impact, otherwise a new incident will be created
-//	  and the component will be moved to the new incident.
-//	  If there is only one component in an incident, and an
-//	  incident with the requested impact does not exist,
-//	  then the impact of the incident will be changed to a higher
-//	  one, otherwise the component will be moved to an existing
-//	  incident with the requested impact, and the current incident
-//	  will be closed by the system.
-//	  The movement of a component and the closure of an incident
-//	  will be reflected in the incident statuses.
-func PostComponentStatusHandler(_ *db.DB, _ *zap.Logger) gin.HandlerFunc {
+type PostComponentData struct {
+	Attributes []ComponentAttribute `json:"attrs" binding:"required"`
+	Name       string               `json:"name" binding:"required"`
+}
+
+// PostComponentHandler creates a new component.
+func PostComponentHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		c.JSON(http.StatusOK, map[string]string{"status": "in development"})
+		logger.Debug("create a component")
+
+		var component PostComponentData
+		if err := c.ShouldBindBodyWithJSON(&component); err != nil {
+			apiErrors.RaiseBadRequestErr(c, err)
+			return
+		}
+
+		if err := checkComponentAttrs(component.Attributes); err != nil {
+			apiErrors.RaiseBadRequestErr(c, err)
+			return
+		}
+
+		attrs := make([]db.ComponentAttr, len(component.Attributes))
+		for i, attr := range component.Attributes {
+			attrs[i] = db.ComponentAttr{
+				Name:  attr.Name,
+				Value: attr.Value,
+			}
+		}
+
+		compDB := &db.Component{
+			Name:  component.Name,
+			Attrs: attrs,
+		}
+
+		componentID, err := dbInst.SaveComponent(compDB)
+		if err != nil {
+			if errors.Is(err, db.ErrDBComponentExists) {
+				apiErrors.RaiseBadRequestErr(c, apiErrors.ErrComponentExist)
+			}
+			apiErrors.RaiseInternalErr(c, err)
+			return
+		}
+
+		c.JSON(http.StatusCreated, Component{
+			ComponentID: ComponentID{int(componentID)},
+			Attributes:  component.Attributes,
+			Name:        component.Name,
+		})
 	}
+}
+
+func checkComponentAttrs(attrs []ComponentAttribute) error {
+	//nolint:nolintlint,mnd
+	// this magic number will be changed in the next iteration
+	if len(attrs) != 3 {
+		return apiErrors.ErrComponentAttrInvalidFormat
+	}
+	for _, attr := range attrs {
+		_, ok := availableAttrs[attr.Name]
+		if !ok {
+			return apiErrors.ErrComponentAttrInvalidFormat
+		}
+	}
+
+	return nil
 }

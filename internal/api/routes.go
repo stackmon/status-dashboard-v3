@@ -22,10 +22,9 @@ func (a *API) InitRoutes() {
 	// setup v2 group routing
 	v2Api := a.r.Group(v2Group)
 	{
-		v2Api.GET("components", v2.GetComponentsStatusHandler(a.db, a.log))
+		v2Api.GET("components", v2.GetComponentsHandler(a.db, a.log))
+		v2Api.POST("components", v2.PostComponentHandler(a.db, a.log))
 		v2Api.GET("components/:id", v2.GetComponentHandler(a.db, a.log))
-		v2Api.GET("component_status", v2.GetComponentsStatusHandler(a.db, a.log))
-		v2Api.POST("component_status", v2.PostComponentStatusHandler(a.db, a.log))
 
 		v2Api.GET("incidents", v2.GetIncidentsHandler(a.db, a.log))
 		v2Api.POST("incidents", a.ValidateComponentsMW(), v2.PostIncidentHandler(a.db, a.log))
