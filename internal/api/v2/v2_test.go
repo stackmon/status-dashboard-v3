@@ -71,10 +71,10 @@ func initRoutes(t *testing.T, c *gin.Engine, dbInst *db.DB, log *zap.Logger) {
 
 	v2Api := c.Group("v2")
 	{
-		v2Api.GET("components", GetComponentsStatusHandler(dbInst, log))
+		v2Api.GET("components", GetComponentsHandler(dbInst, log))
 		v2Api.GET("components/:id", GetComponentHandler(dbInst, log))
-		v2Api.GET("component_status", GetComponentsStatusHandler(dbInst, log))
-		v2Api.POST("component_status", PostComponentStatusHandler(dbInst, log))
+		v2Api.GET("component_status", GetComponentsHandler(dbInst, log))
+		v2Api.POST("component_status", PostComponentHandler(dbInst, log))
 
 		v2Api.GET("incidents", GetIncidentsHandler(dbInst, log))
 		v2Api.POST("incidents", PostIncidentHandler(dbInst, log))

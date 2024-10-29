@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -32,8 +33,8 @@ type IncidentData struct {
 	Impact *int `json:"impact" binding:"required,gte=0,lte=3"`
 	// datetime format is "2006-01-01 12:00"
 	StartDate SD2Time           `json:"start_date" binding:"required"`
-	EndDate   *SD2Time          `json:"end_date,omitempty"`
-	Updates   []*IncidentStatus `json:"updates,omitempty"`
+	EndDate   *SD2Time          `json:"end_date"`
+	Updates   []*IncidentStatus `json:"updates"`
 }
 
 // IncidentStatus is a db table representation.
@@ -58,7 +59,16 @@ func (s *SD2Time) MarshalJSON() ([]byte, error) {
 }
 
 func (s *SD2Time) UnmarshalJSON(data []byte) error {
-	t, err := time.Parse(timeLayout, string(data))
+	strData := string(data)
+	if strData == "null" {
+		*s = SD2Time{}
+		return nil
+	}
+	if strings.HasPrefix(strData, "\"") {
+		runes := []rune(strData)
+		strData = string(runes[1 : len(runes)-1])
+	}
+	t, err := time.Parse(timeLayout, strData)
 	if err != nil {
 		return err
 	}
@@ -86,14 +96,19 @@ func GetIncidentsHandler(db *db.DB, logger *zap.Logger) gin.HandlerFunc {
 				}
 			}
 
-			endDate := SD2Time(*inc.EndDate)
+			var endDate *SD2Time
+			if inc.EndDate != nil {
+				sd2T := SD2Time(*inc.EndDate)
+				endDate = &sd2T
+			}
+
 			incidents[i] = &Incident{
 				IncidentID: IncidentID{int(inc.ID)},
 				IncidentData: IncidentData{
 					Text:      *inc.Text,
 					Impact:    inc.Impact,
 					StartDate: SD2Time(*inc.StartDate),
-					EndDate:   &endDate,
+					EndDate:   endDate,
 					Updates:   updates,
 				},
 			}
@@ -142,9 +157,10 @@ func GetComponentsStatusHandler(db *db.DB, logger *zap.Logger) gin.HandlerFunc {
 
 			incidents := make([]*Incident, len(component.Incidents))
 			for i, inc := range component.Incidents {
-				var endDate SD2Time
+				var endDate *SD2Time
 				if inc.EndDate != nil {
-					endDate = SD2Time(*inc.EndDate)
+					sd2T := SD2Time(*inc.EndDate)
+					endDate = &sd2T
 				}
 
 				newInc := &Incident{
@@ -153,7 +169,7 @@ func GetComponentsStatusHandler(db *db.DB, logger *zap.Logger) gin.HandlerFunc {
 						Text:      *inc.Text,
 						Impact:    inc.Impact,
 						StartDate: SD2Time(*inc.StartDate),
-						EndDate:   &endDate,
+						EndDate:   endDate,
 						Updates:   nil,
 					},
 				}
@@ -220,7 +236,7 @@ type ComponentStatusPost struct {
 func PostComponentStatusHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc { //nolint:gocognit
 	return func(c *gin.Context) {
 		var inComponent ComponentStatusPost
-		attrs, err := extractComponentAttr(c, &inComponent)
+		attr, err := extractComponentAttr(c, &inComponent)
 		if err != nil {
 			apiErrors.RaiseBadRequestErr(c, err)
 			return
@@ -229,7 +245,7 @@ func PostComponentStatusHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFu
 		log := logger.With(zap.Any("component", inComponent))
 
 		log.Info("get component from name and attributes")
-		storedComponent, err := dbInst.GetComponentFromNameAttrs(inComponent.Name, attrs)
+		storedComponent, err := dbInst.GetComponentFromNameAttrs(inComponent.Name, attr)
 		if err != nil {
 			if errors.Is(err, db.ErrDBComponentDSNotExist) {
 				apiErrors.RaiseBadRequestErr(c, apiErrors.ErrComponentDSNotExist)

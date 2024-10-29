@@ -189,25 +189,58 @@ func (db *DB) GetComponentsWithIncidents() ([]Component, error) {
 	return components, nil
 }
 
-func (db *DB) GetComponentFromNameAttrs(name string, attrs *ComponentAttr) (*Component, error) {
+// GetComponentFromNameAttrs returns the Component from its name and region attribute.
+func (db *DB) GetComponentFromNameAttrs(name string, attr *ComponentAttr) (*Component, error) {
 	comp := Component{}
 	//nolint:lll
 	// You can reproduce this raw request
 	// select * from component join component_attribute ca on component.id=ca.component_id
 	// where component.id =
 	// (select component.id from component join component_attribute ca on component.id = ca.component_id and ca.value='EU-DE' and component.name='Cloud Container Engine');
-	r := db.g.Model(&Component{}).
-		Where(&Component{Name: name}).
-		Preload("Attrs", func(db *gorm.DB) *gorm.DB {
-			return db.Where("name=?", attrs.Name).Where("value=?", attrs.Value)
-		}).
-		Preload("Attrs").Find(&comp)
+	subQuery := db.g.Model(&Component{}).
+		Select("component.id").
+		Joins("JOIN component_attribute ca ON ca.component_id = component.id").
+		Where("ca.value = ?", attr.Value).
+		Where("component.name = ?", name)
+	r := db.g.Model(&Component{}).Where("name = ?", name).
+		Where("id = (?)", subQuery).
+		Preload("Attrs").
+		First(&comp)
 
 	if r.Error != nil {
+		if errors.Is(r.Error, gorm.ErrRecordNotFound) {
+			return nil, ErrDBComponentDSNotExist
+		}
 		return nil, r.Error
 	}
 
 	return &comp, nil
+}
+
+func (db *DB) SaveComponent(comp *Component) (uint, error) {
+	var regIndex int
+	for i, attr := range comp.Attrs {
+		if attr.Name == "region" {
+			regIndex = i
+		}
+	}
+
+	_, err := db.GetComponentFromNameAttrs(comp.Name, &comp.Attrs[regIndex])
+	if err == nil {
+		return 0, ErrDBComponentExists
+	}
+
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return 0, err
+	}
+
+	r := db.g.Create(comp)
+
+	if r.Error != nil {
+		return 0, r.Error
+	}
+
+	return comp.ID, nil
 }
 
 const statusSYSTEM = "SYSTEM"

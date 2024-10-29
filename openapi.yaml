@@ -395,7 +395,7 @@ components:
       required:
         - id
         - name
-        - attrs
+        - attributes
       properties:
         id:
           type: integer
@@ -404,7 +404,7 @@ components:
         name:
           type: string
           example: "Object Storage Service"
-        attrs:
+        attributes:
           type: array
           items:
             $ref: '#/components/schemas/ComponentAttrV1'
