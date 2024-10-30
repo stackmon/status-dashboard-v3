@@ -457,13 +457,13 @@ func moveIncidentToHigherImpact(
 
 	if len(incident.Components) == 1 {
 		log.Info("move component to the incident with the found impact, close current incident")
-		return dbInst.AddComponentToNewIncidentAndCloseOld(storedComponent, incident, incWithHighImpact)
+		return dbInst.MoveComponentFromOldToAnotherIncident(storedComponent, incident, incWithHighImpact, true)
 	}
 
 	// In that case we have the existed incident with target impact (greater where component is presented)
 	// And count of components is more than one. We should move component from old to new.
 	log.Info("move component to the incident with the higher impact")
-	return dbInst.MoveComponentFromOldToAnotherIncident(storedComponent, incident, incWithHighImpact)
+	return dbInst.MoveComponentFromOldToAnotherIncident(storedComponent, incident, incWithHighImpact, false)
 }
 
 func findIncidentByImpact(impact int, incidents []*db.Incident) *db.Incident {
