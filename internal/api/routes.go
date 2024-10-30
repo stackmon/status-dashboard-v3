@@ -17,6 +17,7 @@ func (a *API) InitRoutes() {
 		v1Api.POST("component_status", v1.PostComponentStatusHandler(a.db, a.log))
 
 		v1Api.GET("incidents", v1.GetIncidentsHandler(a.db, a.log))
+
 	}
 
 	// setup v2 group routing
