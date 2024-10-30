@@ -445,6 +445,103 @@ components:
         value:
           type: string
           example: "Storage"
+    IncidentsV1:
+      type: array
+      items:
+        $ref: '#/components/schemas/IncidentV1'
+    IncidentV1:
+      type: object
+      required:
+        - text
+        - impact
+        - start_date
+      properties:
+        id:
+          type: integer
+          format: int64
+          example: 200
+        text:
+          type: string
+          example: "OpenStack Upgrade in regions EU-DE/EU-NL"
+        impact:
+          type: integer
+          enum: [ 0,1,2,3 ]
+          example: 1
+        start_date:
+          type: string
+          example: "2006-01-13 17:02"
+        end_date:
+          type: string
+          example: "2006-01-14 17:10"
+        updates:
+          type: array
+          items:
+            $ref: '#/components/schemas/IncidentStatusPostV1'
+    IncidentStatusPostV1:
+      type: object
+      properties:
+        status:
+          type: string
+          example: "resolved"
+        text:
+          type: string
+          example: "issue resolved"
+        timestamp:
+          type: string
+          example: "2006-01-14 17:10"
+    ComponentV1:
+      type: object
+      required:
+        - id
+        - name
+        - attrs
+      properties:
+        id:
+          type: integer
+          format: int64
+          example: 218
+        name:
+          type: string
+          example: "Object Storage Service"
+        attrs:
+          $ref: '#/components/schemas/ComponentAttrV1'
+        incidents:
+          $ref: '#/components/schemas/IncidentsV1'
+    ComponentPostV1:
+      type: object
+      required:
+        - name
+        - impact
+      properties:
+        text:
+          type: string
+          example: Incident
+        name:
+          type: string
+          example: "cmp1"
+        impact:
+          type: integer
+          enum:
+            - 0
+            - 1
+            - 2
+            - 3
+          example: 1
+        attributes:
+          $ref: '#/components/schemas/ComponentAttrV1'
+    ComponentAttrV1:
+      type: object
+      properties:
+        name:
+          type: string
+          enum:
+            - category
+            - region
+            - type
+          example: "category"
+        value:
+          type: string
+          example: "Storage"
     InternalServerError:
       type: object
       properties:
