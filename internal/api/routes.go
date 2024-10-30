@@ -17,7 +17,6 @@ func (a *API) InitRoutes() {
 		v1Api.POST("component_status", v1.PostComponentStatusHandler(a.db, a.log))
 
 		v1Api.GET("incidents", v1.GetIncidentsHandler(a.db, a.log))
-
 	}
 
 	// setup v2 group routing
@@ -32,12 +31,13 @@ func (a *API) InitRoutes() {
 		v2Api.GET("incidents/:id", v2.GetIncidentHandler(a.db, a.log))
 		v2Api.PATCH("incidents/:id", a.ValidateComponentsMW(), v2.PatchIncidentHandler(a.db, a.log))
 
+		v2Api.GET("availability", v2.GetComponentsAvailabilityHandler(a.db, a.log))
+
 		//nolint:gocritic
 		//v2Api.GET("rss")
 		//v2Api.GET("history")
-		//v2Api.GET("availability")
+
 		//v2Api.GET("/separate/<incident_id>/<component_id>") - > investigate it!!!
-		//
 		//v2Api.GET("/login/:name")
 		//v2Api.GET("/auth/:name")
 		//v2Api.GET("/logout")

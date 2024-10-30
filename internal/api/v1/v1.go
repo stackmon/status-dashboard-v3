@@ -120,10 +120,9 @@ func GetIncidentsHandler(db *db.DB, logger *zap.Logger) gin.HandlerFunc {
 
 type Component struct {
 	ComponentID
-	Attrs        []*ComponentAttribute `json:"attributes"`
-	Name         string                `json:"name"`
-	Incidents    []*Incident           `json:"incidents"`
-	Availability []*AvailabilityData   `json:"availability"`
+	Attrs     []*ComponentAttribute `json:"attributes"`
+	Name      string                `json:"name"`
+	Incidents []*Incident           `json:"incidents"`
 }
 
 type ComponentID struct {
@@ -133,15 +132,6 @@ type ComponentID struct {
 type ComponentAttribute struct {
 	Name  string `json:"name"`
 	Value string `json:"value"`
-}
-
-type AvailabilityData struct {
-	MonthlyAvailability []MonthlyAvailability `json:"monthly_availability"`
-}
-
-type MonthlyAvailability struct {
-	Month      string  `json:"month"`      // Name of the month, "2023-01"
-	Percentage float64 `json:"percentage"` // Percent (0.0 - 100.0)
 }
 
 func GetComponentsStatusHandler(db *db.DB, logger *zap.Logger) gin.HandlerFunc {
@@ -155,28 +145,8 @@ func GetComponentsStatusHandler(db *db.DB, logger *zap.Logger) gin.HandlerFunc {
 
 		// We can't change this logic, because of date representation.
 		// Will be changed in the V2.
-
-		// needs to uncomment after debugging:
-		//components := make([]*Component, len(r))
-		//for index, component := range r {
-		//	attrs := make([]*ComponentAttribute, len(component.Attrs))
-		//	for i, attr := range component.Attrs {
-		//		attrs[i] = &ComponentAttribute{
-		//			Name:  attr.Name,
-		//			Value: attr.Value,
-		//		}
-		//	}
-		// needs to uncomment after debugging <-
-
-		// needs to remove after debugging:
-		var components []*Component
-		for _, component := range r {
-			// Name checking
-			if component.Name != "Auto Scaling" {
-				continue // Skip
-			}
-			// needs to remove after debugging <-
-
+		components := make([]*Component, len(r))
+		for index, component := range r {
 			attrs := make([]*ComponentAttribute, len(component.Attrs))
 			for i, attr := range component.Attrs {
 				attrs[i] = &ComponentAttribute{
@@ -218,112 +188,16 @@ func GetComponentsStatusHandler(db *db.DB, logger *zap.Logger) gin.HandlerFunc {
 				incidents[i] = newInc
 			}
 
-			availability, _ := calculateAvailability(&component)
-
-			components = append(components, &Component{
-				ComponentID:  ComponentID{int(component.ID)},
-				Attrs:        attrs,
-				Name:         component.Name,
-				Incidents:    incidents,
-				Availability: []*AvailabilityData{{MonthlyAvailability: availability}},
-			})
-			// needs to uncomment after debugging:
-			//components[index] = &Component{
-			//	ComponentID:  ComponentID{int(component.ID)},
-			//	Attrs:        attrs,
-			//	Name:         component.Name,
-			//	Incidents:    incidents,
-			//	Availability: []*AvailabilityData{{MonthlyAvailability: availability}},
-			//}
-			// needs to uncomment after debugging <-
+			components[index] = &Component{
+				ComponentID: ComponentID{int(component.ID)},
+				Attrs:       attrs,
+				Name:        component.Name,
+				Incidents:   incidents,
+			}
 		}
 
 		c.JSON(http.StatusOK, components)
 	}
-}
-
-// Function calculates the availability of a component over the last
-// year based only on completed incidents and an impact of 3
-func calculateAvailability(component *db.Component) ([]MonthlyAvailability, error) {
-	// Get the current date and starting point (12 months ago)
-	currentDate := time.Now()
-	startDate := currentDate.AddDate(0, -11, 0) // a year ago, including current the month
-	monthlyDowntime := make(map[string]float64)
-	for d := startDate; !d.After(currentDate); d = d.AddDate(0, 1, 0) {
-		month := d.Format("2006-01")
-		monthlyDowntime[month] = 0
-	}
-
-	for _, inc := range component.Incidents {
-		if inc.EndDate == nil || inc.Impact == nil || *inc.Impact != 3 {
-			continue
-		}
-
-		incidentStart := time.Time(*inc.StartDate)
-		incidentEnd := time.Time(*inc.EndDate)
-
-		if incidentEnd.Before(startDate) || incidentStart.After(currentDate) {
-			continue
-		}
-
-		if incidentStart.Before(startDate) {
-			incidentStart = startDate
-		}
-		if incidentEnd.After(currentDate) {
-			incidentEnd = currentDate
-		}
-
-		for d := incidentStart; d.Before(incidentEnd); d = d.AddDate(0, 1, 0) {
-			month := d.Format("2006-01")
-			monthStart := time.Date(d.Year(), d.Month(), 1, 0, 0, 0, 0, d.Location())
-			monthEnd := monthStart.AddDate(0, 1, 0)
-
-			downtimeStart := maxTime(incidentStart, monthStart)
-			downtimeEnd := minTime(incidentEnd, monthEnd)
-			downtime := downtimeEnd.Sub(downtimeStart).Hours()
-
-			monthlyDowntime[month] += downtime
-		}
-	}
-
-	monthlyAvailability := make([]MonthlyAvailability, 0, len(monthlyDowntime))
-	for month, downtime := range monthlyDowntime {
-		totalHours := hoursInMonth(month)
-		availability := 100 - (downtime / totalHours * 100)
-		// rounding the availability value to the nearest hundredth
-		availability = float64(int(availability*100+0.5)) / 100
-		monthlyAvailability = append(monthlyAvailability, MonthlyAvailability{
-			Month:      month,
-			Percentage: availability,
-		})
-	}
-
-	return monthlyAvailability, nil
-}
-
-func minTime(start, end time.Time) time.Time {
-	if start.Before(end) {
-		return start
-	}
-	return end
-}
-
-func maxTime(start, end time.Time) time.Time {
-	if start.After(end) {
-		return start
-	}
-	return end
-}
-
-func hoursInMonth(month string) float64 {
-	parsedTime, err := time.Parse("2006-01", month)
-	if err != nil {
-		return 0
-	}
-	firstDay := time.Date(parsedTime.Year(), parsedTime.Month(), 1, 0, 0, 0, 0, parsedTime.Location())
-	nextMonth := firstDay.AddDate(0, 1, 0)
-
-	return float64(nextMonth.Sub(firstDay).Hours())
 }
 
 type ComponentStatusPost struct {

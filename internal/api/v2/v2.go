@@ -3,6 +3,7 @@ package v2
 import (
 	"errors"
 	"net/http"
+	"sort"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -245,6 +246,13 @@ type Component struct {
 	Name       string               `json:"name"`
 }
 
+type ComponentAvailability struct {
+	ComponentID
+	Name         string                `json:"name"`
+	Availability []MonthlyAvailability `json:"availability"`
+	Region       string                `json:"region"`
+}
+
 type ComponentID struct {
 	ID int `json:"id" uri:"id" binding:"required,gte=0"`
 }
@@ -264,6 +272,12 @@ var availableAttrs = map[string]struct{}{ //nolint:gochecknoglobals
 	"type":     {},
 	"region":   {},
 	"category": {},
+}
+
+type MonthlyAvailability struct {
+	Year       int     `json:"year"`
+	Month      int     `json:"month"`      // Number of the month (1 - 12)
+	Percentage float64 `json:"percentage"` // Percent (0 - 100 / example: 95.23478)
 }
 
 func GetComponentsHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
@@ -369,4 +383,163 @@ func checkComponentAttrs(attrs []ComponentAttribute) error {
 	}
 
 	return nil
+}
+
+func GetComponentsAvailabilityHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		logger.Debug("retrieve availability of components")
+
+		components, err := dbInst.GetComponentsWithIncidents()
+		if err != nil {
+			apiErrors.RaiseInternalErr(c, err)
+			return
+		}
+
+		availability := make([]*ComponentAvailability, len(components))
+		for index, comp := range components {
+			attrs := make([]ComponentAttribute, len(comp.Attrs))
+			for i, attr := range comp.Attrs {
+				attrs[i] = ComponentAttribute{
+					Name:  attr.Name,
+					Value: attr.Value,
+				}
+			}
+			regionValue := ""
+			for _, attr := range attrs {
+				if attr.Name == "region" {
+					regionValue = attr.Value
+					break
+				}
+			}
+
+			incidents := make([]*Incident, len(comp.Incidents))
+			for i, inc := range comp.Incidents {
+
+				newInc := &Incident{
+					IncidentID: IncidentID{int(inc.ID)},
+					IncidentData: IncidentData{
+						Title:     *inc.Text,
+						Impact:    inc.Impact,
+						StartDate: *inc.StartDate,
+						EndDate:   inc.EndDate,
+						Updates:   nil,
+					},
+				}
+
+				incidents[i] = newInc
+			}
+
+			compAvailability, err := calculateAvailability(&comp)
+			if err != nil {
+				apiErrors.RaiseInternalErr(c, err)
+				return
+			}
+
+			sort.Slice(compAvailability, func(i, j int) bool {
+				if compAvailability[i].Year == compAvailability[j].Year {
+					return compAvailability[i].Month > compAvailability[j].Month
+				}
+				return compAvailability[i].Year > compAvailability[j].Year
+			})
+
+			availability[index] = &ComponentAvailability{
+				ComponentID:  ComponentID{int(comp.ID)},
+				Region:       regionValue,
+				Name:         comp.Name,
+				Availability: compAvailability,
+			}
+		}
+
+		c.JSON(http.StatusOK, gin.H{"data": availability})
+	}
+}
+
+// TODO: add filters for GET request
+// TODO: add comments about logic how it's calculated
+func calculateAvailability(component *db.Component) ([]MonthlyAvailability, error) {
+	periodEndDate := time.Now()
+	// Get the current date and starting point (12 months ago)
+	periodStartDate := periodEndDate.AddDate(0, -11, 0) // a year ago, including current the month
+	monthlyDowntime := make([]float64, 12)              // 12 months
+
+	for _, inc := range component.Incidents {
+		if inc.EndDate == nil || *inc.Impact != 3 {
+			continue
+		}
+
+		incidentStart := *inc.StartDate
+		incidentEnd := *inc.EndDate
+
+		// here we skip all incidents that are not correspond to our period
+		if incidentEnd.Before(periodStartDate) || incidentStart.After(periodEndDate) {
+			continue
+		}
+
+		// if the incident started before availability period (as example the incident was started at 01:00 31/12 and finished at 02:00 01/01),
+		// we cut the beginning to the period start date, and do the same for the period ending
+		if incidentStart.Before(periodStartDate) {
+			incidentStart = periodStartDate
+		}
+		if incidentEnd.After(periodEndDate) {
+			incidentEnd = periodEndDate
+		}
+
+		current := incidentStart
+		for current.Before(incidentEnd) {
+			monthStart := time.Date(current.Year(), current.Month(), 1, 0, 0, 0, 0, time.UTC)
+			monthEnd := monthStart.AddDate(0, 1, 0)
+
+			if monthEnd.Before(periodStartDate) || monthStart.After(periodEndDate) {
+				break
+			}
+
+			downtimeStart := maxTime(incidentStart, monthStart)
+			downtimeEnd := minTime(incidentEnd, monthEnd)
+			downtime := downtimeEnd.Sub(downtimeStart).Hours()
+
+			monthIndex := int(downtimeStart.Year()-periodStartDate.Year())*12 + int(downtimeStart.Month()-periodStartDate.Month())
+			if monthIndex >= 0 && monthIndex < len(monthlyDowntime) {
+				monthlyDowntime[monthIndex] += downtime
+			}
+
+			current = monthEnd
+		}
+	}
+
+	monthlyAvailability := make([]MonthlyAvailability, 0, 12)
+	for i := 0; i < 12; i++ {
+		monthDate := periodStartDate.AddDate(0, i, 0)
+		totalHours := hoursInMonth(monthDate.Year(), int(monthDate.Month()))
+		availability := 100 - (monthlyDowntime[i] / totalHours * 100)
+		availability = float64(int(availability*100000+0.5)) / 100000
+
+		monthlyAvailability = append(monthlyAvailability, MonthlyAvailability{
+			Year:       monthDate.Year(),
+			Month:      int(monthDate.Month()),
+			Percentage: availability,
+		})
+	}
+
+	return monthlyAvailability, nil
+}
+
+func minTime(start, end time.Time) time.Time {
+	if start.Before(end) {
+		return start
+	}
+	return end
+}
+
+func maxTime(start, end time.Time) time.Time {
+	if start.After(end) {
+		return start
+	}
+	return end
+}
+
+func hoursInMonth(year int, month int) float64 {
+	firstDay := time.Date(year, time.Month(month), 1, 0, 0, 0, 0, time.UTC)
+	nextMonth := firstDay.AddDate(0, 1, 0)
+
+	return float64(nextMonth.Sub(firstDay).Hours())
 }
