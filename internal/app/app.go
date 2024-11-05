@@ -6,9 +6,9 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 
+	"github.com/stackmon/otc-status-dashboard/internal/api"
 	"github.com/stackmon/otc-status-dashboard/internal/conf"
 	"github.com/stackmon/otc-status-dashboard/internal/db"
 )
@@ -21,7 +21,7 @@ type App struct {
 	// Configuration
 	conf *conf.Config
 	// Router
-	router *gin.Engine
+	api *api.API
 	// zap logger
 	Log *zap.Logger
 	// db connection
@@ -31,28 +31,21 @@ type App struct {
 }
 
 func New(c *conf.Config, log *zap.Logger) (*App, error) {
-	if c.LogLevel != conf.DevelopMode {
-		gin.SetMode(gin.ReleaseMode)
-	}
-
-	d, err := db.New(c)
+	dbNew, err := db.New(c)
 	if err != nil {
 		return nil, err
 	}
 
-	r := gin.New()
-	r.Use(Logger(log), gin.Recovery())
-	r.Use(ErrorHandle())
-	r.NoRoute(Return404)
+	apiNew := api.New(c, log, dbNew)
 
 	s := &http.Server{
 		Addr:              fmt.Sprintf(":%s", c.Port),
-		Handler:           r,
+		Handler:           apiNew.Router(),
 		ReadHeaderTimeout: readHeaderTimeout,
 	}
 
-	a := &App{router: r, Log: log, conf: c, DB: d, srv: s}
-	a.InitRoutes()
+	a := &App{api: apiNew, Log: log, conf: c, DB: dbNew, srv: s}
+
 	return a, nil
 }
 

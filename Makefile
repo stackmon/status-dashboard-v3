@@ -5,8 +5,12 @@ SHELL=/bin/bash
 SD_DB?="postgresql://pg:pass@localhost:5432/status_dashboard?sslmode=disable"
 
 test:
-	@echo running tests
-	go test ./... -count 1
+	@echo running unit tests
+	go test ./internal/... -count 1
+
+test-acc:
+	@echo running integrational tests with docker and db
+	go test ./tests/... -count 1
 
 build:
 	@echo build app

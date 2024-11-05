@@ -1,4 +1,4 @@
-package app
+package errors
 
 import (
 	"errors"
@@ -26,21 +26,26 @@ var ErrInternalError = errors.New("internal server error")
 var ErrIncidentDSNotExist = errors.New("incident does not exist")
 
 var ErrComponentDSNotExist = errors.New("component does not exist")
+var ErrComponentExist = errors.New("component already exists")
 var ErrComponentInvalidFormat = errors.New("component invalid format")
+var ErrComponentAttrInvalidFormat = errors.New("component attribute has invalid format")
+var ErrComponentRegionAttrMissing = errors.New("component attribute region is missing or invalid")
+var ErrComponentTypeAttrMissing = errors.New("component attribute type is missing or invalid")
+var ErrComponentCategoryAttrMissing = errors.New("component attribute category is missing or invalid")
 
 func Return404(c *gin.Context) {
 	c.JSON(http.StatusNotFound, ReturnError(ErrPageNotFound))
 }
 
-func raiseInternalErr(c *gin.Context, err error) {
+func RaiseInternalErr(c *gin.Context, err error) {
 	intErr := fmt.Errorf("%w: %w", ErrInternalError, err)
 	_ = c.AbortWithError(http.StatusInternalServerError, ReturnError(intErr))
 }
 
-func raiseBadRequestErr(c *gin.Context, err error) {
+func RaiseBadRequestErr(c *gin.Context, err error) {
 	_ = c.AbortWithError(http.StatusBadRequest, ReturnError(err))
 }
 
-func raiseStatusNotFoundErr(c *gin.Context, err error) {
+func RaiseStatusNotFoundErr(c *gin.Context, err error) {
 	_ = c.AbortWithError(http.StatusNotFound, ReturnError(err))
 }
