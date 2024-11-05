@@ -26,7 +26,7 @@ import (
 
 const (
 	pgImage   = "postgres:15-alpine"
-	pgDump    = "dumb_test.sql"
+	pgDump    = "dump_test.sql"
 	pgDumpDir = "testdata"
 
 	dbName     = "status_dashboard"
