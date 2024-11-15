@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/joho/godotenv"
 	"github.com/kelseyhightower/envconfig"
 )
 
@@ -36,53 +35,17 @@ func (c *Config) Validate() error {
 	return nil
 }
 
-// LoadConf loads configuration from .env file and environment.
-// Env variables are preferred.
+// LoadConf loads configuration from environment.
 func LoadConf() (*Config, error) {
-	envMap, err := godotenv.Read()
-	if err != nil {
-		return nil, err
-	}
-
 	var c Config
-	err = envconfig.Process(osPref, &c)
+	err := envconfig.Process(osPref, &c)
 	if err != nil {
 		return nil, err
 	}
-
-	mergeConfigs(envMap, &c)
 
 	if err = c.Validate(); err != nil {
 		return nil, err
 	}
 
 	return &c, nil
-}
-
-func mergeConfigs(env map[string]string, c *Config) {
-	// TODO: use reflect to automate it
-	if c.DB == "" {
-		v, ok := env["SD_DB"]
-		if ok {
-			c.DB = v
-		}
-	}
-	if c.Cache == "" {
-		v, ok := env["SD_CACHE"]
-		if ok {
-			c.Cache = v
-		}
-	}
-	if c.LogLevel == "" {
-		v, ok := env["SD_LOG_LEVEL"]
-		if ok {
-			c.LogLevel = v
-		}
-	}
-	if c.Port == "" {
-		v, ok := env["SD_PORT"]
-		if ok {
-			c.Port = v
-		}
-	}
 }
