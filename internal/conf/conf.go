@@ -33,19 +33,21 @@ func (c *Config) Validate() error {
 	if p < 1024 || p > 50000 {
 		return fmt.Errorf("wrong port for http server")
 	}
+
+	if c.LogLevel == "" {
+		c.LogLevel = DevelopMode
+	}
 	return nil
 }
 
 // LoadConf loads configuration from .env file and environment.
 // Env variables are preferred.
 func LoadConf() (*Config, error) {
-	envMap, err := godotenv.Read()
-	if err != nil {
-		return nil, err
-	}
+	var envMap map[string]string
+	envMap, _ = godotenv.Read()
 
 	var c Config
-	err = envconfig.Process(osPref, &c)
+	err := envconfig.Process(osPref, &c)
 	if err != nil {
 		return nil, err
 	}
@@ -60,6 +62,9 @@ func LoadConf() (*Config, error) {
 }
 
 func mergeConfigs(env map[string]string, c *Config) {
+	if env == nil {
+		return
+	}
 	// TODO: use reflect to automate it
 	if c.DB == "" {
 		v, ok := env["SD_DB"]
