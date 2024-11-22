@@ -2,12 +2,14 @@ package v2
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 
+	"github.com/stackmon/otc-status-dashboard/internal/api/common"
 	apiErrors "github.com/stackmon/otc-status-dashboard/internal/api/errors"
 	"github.com/stackmon/otc-status-dashboard/internal/db"
 )
@@ -18,6 +20,8 @@ type IncidentID struct {
 
 type IncidentData struct {
 	Title string `json:"title" binding:"required"`
+	//TODO: this field only valid for incident creation (legacy), but it should be an additional field in DB.
+	Description string `json:"description,omitempty"`
 	//    INCIDENT_IMPACTS = {
 	//        0: Impact(0, "maintenance", "Scheduled maintenance"),
 	//        1: Impact(1, "minor", "Minor incident (i.e. performance impact)"),
@@ -138,19 +142,26 @@ func GetIncidentHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 //	  will be reflected in the incident statuses.
 func PostIncidentHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		logger.Debug("create an incident")
-		var incData IncidentData
-		if err := c.ShouldBindBodyWithJSON(&incData); err != nil {
+		var incData *IncidentData
+		if err := validateIncidentCreation(c, incData); err != nil {
 			apiErrors.RaiseBadRequestErr(c, err)
 			return
 		}
+
+		log := logger.With(zap.Any("incident", incData))
+		log.Info("start to create an incident")
 
 		components := make([]db.Component, len(incData.Components))
 		for i, comp := range incData.Components {
 			components[i] = db.Component{ID: uint(comp)}
 		}
 
-		dbInc := db.Incident{
+		if incData.System == nil {
+			var system bool
+			incData.System = &system
+		}
+
+		incIn := db.Incident{
 			Text:       &incData.Title,
 			StartDate:  &incData.StartDate,
 			EndDate:    incData.EndDate,
@@ -159,17 +170,145 @@ func PostIncidentHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 			Components: components,
 		}
 
-		incidentID, err := dbInst.SaveIncident(&dbInc)
+		log.Info("get opened incidents")
+		openedIncidents, err := dbInst.GetIncidents(&db.IncidentsParams{IsOpened: true})
 		if err != nil {
 			apiErrors.RaiseInternalErr(c, err)
 			return
 		}
 
-		c.JSON(http.StatusOK, Incident{
-			IncidentID:   IncidentID{int(incidentID)},
-			IncidentData: incData,
-		})
+		if len(openedIncidents) == 0 {
+			log.Info("there are no opened incidents")
+			incCreated, errCreation := createIncident(dbInst, log, &incIn, incData.Description)
+			if errCreation != nil {
+				apiErrors.RaiseInternalErr(c, err)
+				return
+			}
+			c.JSON(http.StatusCreated, incCreated)
+			return
+		}
+
+		log.Info("start to check incidents for given components", zap.Ints("components", incData.Components))
+
+		//var wg sync.WaitGroup
+		//respCh := make(chan *incResp, len(incIn.Components))
+		//ctx, cancel := context.WithTimeout(context.Background(), time.Second * 30)
+
+		for _, comp := range incIn.Components {
+			//wg.Add(1)
+			_, _ = processComponent(&comp, &incIn, openedIncidents, log, dbInst, incData.Description)
+		}
+
+		//<-respCh
+		//wg.Done()
+
 	}
+}
+
+type ProcessComponentResp struct {
+	ComponentID int
+	IncidentID  int
+	Error       error
+}
+
+func processComponent(comp *db.Component, inc *db.Incident, openedIncidents []*db.Incident, logger *zap.Logger, dbInst *db.DB, desc string) (*db.Incident, error) {
+	log := logger.With(zap.Any("component", comp))
+
+	log.Info("find opened incident with the component")
+
+	incident := common.GetIncidentWithComponent(comp.ID, openedIncidents)
+	if incident == nil {
+		log.Info("there are no incidents with given component, find an incident with incoming impact")
+		incByImpact := common.FindIncidentByImpact(*inc.Impact, openedIncidents)
+		if incByImpact != nil {
+			log.Info(
+				"found an incident with given impact, add the component to the incident",
+				zap.Intp("impact", incByImpact.Impact),
+			)
+			incByImpact.Components = append(incByImpact.Components, *comp)
+			incByImpact.Statuses = append(incByImpact.Statuses, db.IncidentStatus{
+				IncidentID: incByImpact.ID,
+				Status:     "SYSTEM",
+				Text:       fmt.Sprintf("%s added", comp.PrintAttrs()),
+				Timestamp:  time.Now(),
+			})
+			err := dbInst.ModifyIncident(incByImpact)
+			if err != nil {
+				return nil, err
+			}
+			return incByImpact, nil
+		}
+
+		log.Info("there are no incidents with given component and impact, create an incident")
+		incCreated, errCreation := createIncident(dbInst, log, inc, desc)
+		if errCreation != nil {
+			return nil, errCreation
+		}
+		return incCreated, nil
+	}
+
+	if *incident.Impact == 0 {
+		log.Info("the incident with component in the maintenance status, skip it")
+		return nil, apiErrors.ErrIncidentCreationMaintenanceExists
+	}
+	if *incident.Impact >= *inc.Impact {
+		return nil, apiErrors.ErrIncidentCreationLowImpact
+	}
+
+	storedIncident, err := common.MoveIncidentToHigherImpact(
+		dbInst, log, comp,
+		incident, openedIncidents,
+		*inc.Impact, *inc.Text)
+	if err != nil {
+		return nil, err
+	}
+
+	return storedIncident, nil
+}
+
+func validateIncidentCreation(c *gin.Context, incData *IncidentData) error {
+	if err := c.ShouldBindBodyWithJSON(&incData); err != nil {
+		return err
+	}
+
+	if *incData.Impact != 0 && incData.EndDate != nil {
+		return apiErrors.ErrIncidentEndDateShouldBeEmpty
+	}
+
+	if len(incData.Updates) != 0 {
+		return apiErrors.ErrIncidentUpdatesShouldBeEmpty
+	}
+
+	return nil
+}
+
+func createIncident(dbInst *db.DB, log *zap.Logger, inc *db.Incident, description string) (*db.Incident, error) {
+	log.Info("start to create an incident")
+	id, err := dbInst.SaveIncident(inc)
+	if err != nil {
+		return nil, err
+	}
+
+	inc.ID = id
+
+	if *inc.Impact == 0 && description != "" {
+		log.Info("the incident is maintenance for component, add description")
+
+		inc.Statuses = append(inc.Statuses, db.IncidentStatus{
+			IncidentID: inc.ID,
+			// TODO: add another status for this action, legacy
+			Status:    "description",
+			Text:      description,
+			Timestamp: time.Now(),
+		})
+
+		err = dbInst.ModifyIncident(inc)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return inc, nil
 }
 
 type PatchIncidentData struct {

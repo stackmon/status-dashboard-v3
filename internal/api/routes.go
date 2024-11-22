@@ -33,7 +33,6 @@ func (a *API) InitRoutes() {
 
 		//nolint:gocritic
 		//v2Api.GET("rss")
-		//v2Api.GET("history")
 		//v2Api.GET("availability")
 		//v2Api.GET("/separate/<incident_id>/<component_id>") - > investigate it!!!
 		//
