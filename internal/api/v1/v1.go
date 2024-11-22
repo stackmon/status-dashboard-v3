@@ -11,6 +11,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 
+	"github.com/stackmon/otc-status-dashboard/internal/api/common"
 	apiErrors "github.com/stackmon/otc-status-dashboard/internal/api/errors"
 	"github.com/stackmon/otc-status-dashboard/internal/db"
 )
@@ -276,10 +277,10 @@ func PostComponentStatusHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFu
 
 		log.Info("find opened incident with the component")
 		// the strange logic, because we will get the first incident with component, but we can have another one
-		incident := getIncidentWithComponent(storedComponent.ID, openedIncidents)
+		incident := common.GetIncidentWithComponent(storedComponent.ID, openedIncidents)
 		if incident == nil {
 			log.Info("there are no incidents with given component, find an incident with incoming impact")
-			incByImpact := findIncidentByImpact(inComponent.Impact, openedIncidents)
+			incByImpact := common.FindIncidentByImpact(inComponent.Impact, openedIncidents)
 			if incByImpact != nil {
 				log.Info(
 					"found an incident with given impact, add the component to the incident",
@@ -324,7 +325,7 @@ func PostComponentStatusHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFu
 			return
 		}
 
-		storedIncident, err := moveIncidentToHigherImpact(
+		storedIncident, err := common.MoveIncidentToHigherImpact(
 			dbInst, log, storedComponent,
 			incident, openedIncidents,
 			inComponent.Impact, inComponent.Text)
@@ -404,18 +405,6 @@ func createIncident(
 	return toAPIIncident(inc), nil
 }
 
-func getIncidentWithComponent(componentID uint, incidents []*db.Incident) *db.Incident {
-	for i, incident := range incidents {
-		for _, component := range incident.Components {
-			if componentID == component.ID {
-				return incidents[i]
-			}
-		}
-	}
-
-	return nil
-}
-
 func toAPIIncident(incident *db.Incident) *Incident {
 	updates := make([]*IncidentStatus, len(incident.Statuses))
 	for i, s := range incident.Statuses {
@@ -434,43 +423,4 @@ func toAPIIncident(incident *db.Incident) *Incident {
 			Updates:   updates,
 		},
 	}
-}
-
-func moveIncidentToHigherImpact(
-	dbInst *db.DB, log *zap.Logger,
-	storedComponent *db.Component, incident *db.Incident, incidents []*db.Incident,
-	impact int, text string,
-) (*db.Incident, error) {
-	incWithHighImpact := findIncidentByImpact(impact, incidents)
-	if incWithHighImpact == nil {
-		if len(incident.Components) > 1 {
-			log.Info("no active incidents with requested impact, opening the new one")
-			return dbInst.ExtractComponentToNewIncident(storedComponent, incident, impact, text)
-		}
-		log.Info(
-			"only one component in the incident, increase impact",
-			zap.Intp("oldImpact", incident.Impact),
-			zap.Int("newImpact", impact),
-		)
-		return dbInst.IncreaseIncidentImpact(incident, impact)
-	}
-
-	if len(incident.Components) == 1 {
-		log.Info("move component to the incident with the found impact, close current incident")
-		return dbInst.MoveComponentFromOldToAnotherIncident(storedComponent, incident, incWithHighImpact, true)
-	}
-
-	// In that case we have the existed incident with target impact (greater where component is presented)
-	// And count of components is more than one. We should move component from old to new.
-	log.Info("move component to the incident with the higher impact")
-	return dbInst.MoveComponentFromOldToAnotherIncident(storedComponent, incident, incWithHighImpact, false)
-}
-
-func findIncidentByImpact(impact int, incidents []*db.Incident) *db.Incident {
-	for _, incident := range incidents {
-		if *incident.Impact == impact {
-			return incident
-		}
-	}
-	return nil
 }
