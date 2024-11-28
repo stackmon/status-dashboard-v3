@@ -10,29 +10,10 @@ type Component struct {
 	Name      string          `json:"name,omitempty"`
 	Attrs     []ComponentAttr `json:"attributes,omitempty"`
 	Incidents []*Incident     `json:"incidents,omitempty" gorm:"many2many:incident_component_relation"`
-	ID        uint            `json:"id"`
-	Name      string          `json:"name,omitempty"`
-	Attrs     []ComponentAttr `json:"attributes,omitempty"`
-	Incidents []*Incident     `json:"incidents,omitempty" gorm:"many2many:incident_component_relation"`
 }
 
 func (c *Component) TableName() string {
 	return "component"
-}
-
-func (c *Component) PrintAttrs() string {
-	var category, region, compType string
-	for _, a := range c.Attrs {
-		switch a.Name {
-		case "category":
-			category = a.Value
-		case "region":
-			region = a.Value
-		case "type":
-			compType = a.Value
-		}
-	}
-	return fmt.Sprintf("%s (%s, %s, %s)", c.Name, category, region, compType)
 }
 
 func (c *Component) PrintAttrs() string {
