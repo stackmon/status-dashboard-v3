@@ -30,14 +30,12 @@ func (a *API) InitRoutes() {
 		v2Api.POST("incidents", a.ValidateComponentsMW(), v2.PostIncidentHandler(a.db, a.log))
 		v2Api.GET("incidents/:id", v2.GetIncidentHandler(a.db, a.log))
 		v2Api.PATCH("incidents/:id", a.ValidateComponentsMW(), v2.PatchIncidentHandler(a.db, a.log))
-
 		v2Api.GET("availability", v2.GetComponentsAvailabilityHandler(a.db, a.log))
-
 		//nolint:gocritic
 		//v2Api.GET("rss")
 		//v2Api.GET("history")
-
 		//v2Api.GET("/separate/<incident_id>/<component_id>") - > investigate it!!!
+		//
 		//v2Api.GET("/login/:name")
 		//v2Api.GET("/auth/:name")
 		//v2Api.GET("/logout")

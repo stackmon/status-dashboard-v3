@@ -3,6 +3,7 @@ package v1
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -257,12 +258,12 @@ func PostComponentStatusHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFu
 
 		log.Info("get opened incidents")
 		openedIncidents, err := dbInst.GetIncidents(&db.IncidentsParams{IsOpened: true})
-		if err != nil && !errors.Is(err, db.ErrDBIncidentDSNotExist) {
+		if err != nil {
 			apiErrors.RaiseInternalErr(c, err)
 			return
 		}
 
-		if err != nil && errors.Is(err, db.ErrDBIncidentDSNotExist) {
+		if len(openedIncidents) == 0 {
 			log.Info("there are no opened incidents")
 			inc, errCreation := createIncident(dbInst, log, storedComponent, &inComponent)
 			if errCreation != nil {
@@ -280,8 +281,17 @@ func PostComponentStatusHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFu
 			log.Info("there are no incidents with given component, find an incident with incoming impact")
 			incByImpact := findIncidentByImpact(inComponent.Impact, openedIncidents)
 			if incByImpact != nil {
-				// add component to the founded incident
+				log.Info(
+					"found an incident with given impact, add the component to the incident",
+					zap.Intp("impact", incByImpact.Impact),
+				)
 				incByImpact.Components = append(incByImpact.Components, *storedComponent)
+				incByImpact.Statuses = append(incByImpact.Statuses, db.IncidentStatus{
+					IncidentID: incByImpact.ID,
+					Status:     "SYSTEM",
+					Text:       fmt.Sprintf("%s added", storedComponent.PrintAttrs()),
+					Timestamp:  time.Now(),
+				})
 				err = dbInst.ModifyIncident(incByImpact)
 				if err != nil {
 					apiErrors.RaiseInternalErr(c, err)
@@ -349,13 +359,26 @@ func extractComponentAttr(c *gin.Context, in *ComponentStatusPost) (*db.Componen
 	return dbAttr, nil
 }
 
-func returnConflictResponse(comp *db.Component, inc *db.Incident) map[string]any {
-	return map[string]any{
-		"message":               "Incident with this the component already exists",
-		"targetComponent":       comp,
-		"existingIncidentId":    inc.ID,
-		"existingIncidentTitle": inc.Text,
-		"details":               "Check your request parameters",
+type ConflictResponse struct {
+	Msg                   string        `json:"message"`
+	TargetComponent       *db.Component `json:"targetComponent"`
+	ExistingIncidentID    int           `json:"existingIncidentId"`
+	ExistingIncidentTitle string        `json:"existingIncidentTitle"`
+	Details               string        `json:"details"`
+}
+
+const (
+	conflictMsg     = "Incident with this the component already exists"
+	conflictDetails = "Check your request parameters"
+)
+
+func returnConflictResponse(comp *db.Component, inc *db.Incident) *ConflictResponse {
+	return &ConflictResponse{
+		Msg:                   conflictMsg,
+		TargetComponent:       comp,
+		ExistingIncidentID:    int(inc.ID),
+		ExistingIncidentTitle: *inc.Text,
+		Details:               conflictDetails,
 	}
 }
 
@@ -424,19 +447,23 @@ func moveIncidentToHigherImpact(
 			log.Info("no active incidents with requested impact, opening the new one")
 			return dbInst.ExtractComponentToNewIncident(storedComponent, incident, impact, text)
 		}
-		log.Info("only one component in the incident, increase impact")
+		log.Info(
+			"only one component in the incident, increase impact",
+			zap.Intp("oldImpact", incident.Impact),
+			zap.Int("newImpact", impact),
+		)
 		return dbInst.IncreaseIncidentImpact(incident, impact)
 	}
 
 	if len(incident.Components) == 1 {
 		log.Info("move component to the incident with the found impact, close current incident")
-		return dbInst.AddComponentToNewIncidentAndCloseOld(storedComponent, incident, incWithHighImpact)
+		return dbInst.MoveComponentFromOldToAnotherIncident(storedComponent, incident, incWithHighImpact, true)
 	}
 
 	// In that case we have the existed incident with target impact (greater where component is presented)
 	// And count of components is more than one. We should move component from old to new.
 	log.Info("move component to the incident with the higher impact")
-	return dbInst.MoveComponentFromOldToAnotherIncident(storedComponent, incident, incWithHighImpact)
+	return dbInst.MoveComponentFromOldToAnotherIncident(storedComponent, incident, incWithHighImpact, false)
 }
 
 func findIncidentByImpact(impact int, incidents []*db.Incident) *db.Incident {

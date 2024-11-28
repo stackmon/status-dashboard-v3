@@ -19,13 +19,14 @@ import (
 	"github.com/stackmon/otc-status-dashboard/internal/api"
 	"github.com/stackmon/otc-status-dashboard/internal/api/errors"
 	v1 "github.com/stackmon/otc-status-dashboard/internal/api/v1"
+	v2 "github.com/stackmon/otc-status-dashboard/internal/api/v2"
 	"github.com/stackmon/otc-status-dashboard/internal/conf"
 	"github.com/stackmon/otc-status-dashboard/internal/db"
 )
 
 const (
 	pgImage   = "postgres:15-alpine"
-	pgDump    = "dumb_test.sql"
+	pgDump    = "dump_test.sql"
 	pgDumpDir = "testdata"
 
 	dbName     = "status_dashboard"
@@ -65,12 +66,14 @@ func TestMain(m *testing.M) {
 	m.Run()
 }
 
-func initTests(t *testing.T) (*gin.Engine, *db.DB) { //nolint:unparam
+func initTests(t *testing.T) (*gin.Engine, *db.DB) {
 	t.Helper()
 	t.Log("init structs")
 
 	d, err := db.New(&conf.Config{
 		DB: databaseURL,
+		// if you want to debug gorm, uncomment it
+		//LogLevel: conf.DevelopMode,
 	})
 	require.NoError(t, err)
 
@@ -96,4 +99,6 @@ func initRoutesV1(t *testing.T, c *gin.Engine, dbInst *db.DB, log *zap.Logger) {
 
 		v1Api.GET("incidents", v1.GetIncidentsHandler(dbInst, log))
 	}
+	v2Api := c.Group("v2")
+	v2Api.PATCH("incidents/:id", v2.PatchIncidentHandler(dbInst, log))
 }

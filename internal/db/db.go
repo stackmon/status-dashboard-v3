@@ -3,7 +3,6 @@ package db
 import (
 	"errors"
 	"fmt"
-	"slices"
 	"time"
 
 	"go.uber.org/zap"
@@ -49,7 +48,7 @@ func (db *DB) GetIncidents(params ...*IncidentsParams) ([]*Incident, error) {
 		param = *params[0]
 	}
 
-	r := db.g.Debug().Model(&Incident{}).
+	r := db.g.Model(&Incident{}).
 		Preload("Statuses").
 		Preload("Components", func(db *gorm.DB) *gorm.DB { return db.Select("ID") })
 
@@ -245,7 +244,9 @@ func (db *DB) SaveComponent(comp *Component) (uint, error) {
 
 const statusSYSTEM = "SYSTEM"
 
-func (db *DB) MoveComponentFromOldToAnotherIncident(comp *Component, incOld, incNew *Incident) (*Incident, error) {
+func (db *DB) MoveComponentFromOldToAnotherIncident(
+	comp *Component, incOld, incNew *Incident, closeOld bool,
+) (*Incident, error) {
 	timeNow := time.Now()
 
 	incNew.Components = append(incNew.Components, *comp)
@@ -257,22 +258,28 @@ func (db *DB) MoveComponentFromOldToAnotherIncident(comp *Component, incOld, inc
 		Timestamp:  timeNow,
 	})
 
-	var indexToRemove int
-	for i, c := range incOld.Components {
-		if c.ID == comp.ID {
-			indexToRemove = i
-		}
-	}
-	incOld.Components = slices.Delete(incOld.Components, indexToRemove, indexToRemove+1)
 	text = fmt.Sprintf("%s moved to %s", comp.PrintAttrs(), incNew.Link())
+	if closeOld {
+		text = fmt.Sprintf("%s, Incident closed by system", text)
+	}
+
 	incOld.Statuses = append(incOld.Statuses, IncidentStatus{
 		IncidentID: incOld.ID,
 		Status:     statusSYSTEM,
 		Text:       text,
 		Timestamp:  timeNow,
 	})
+	if closeOld {
+		incOld.EndDate = &timeNow
+	}
 
 	err := db.g.Transaction(func(tx *gorm.DB) error {
+		if !closeOld {
+			if err := tx.Model(incOld).Association("Components").Delete(comp); err != nil {
+				return err
+			}
+		}
+
 		if r := tx.Save(incNew); r.Error != nil {
 			return r.Error
 		}
@@ -290,52 +297,8 @@ func (db *DB) MoveComponentFromOldToAnotherIncident(comp *Component, incOld, inc
 	return incNew, nil
 }
 
-func (db *DB) AddComponentToNewIncidentAndCloseOld(comp *Component, incToClose, inc *Incident) (*Incident, error) {
-	if len(inc.Components) == 0 {
-		var comps []Component
-		inc.Components = comps
-	}
-	inc.Components = append(inc.Components, *comp)
-
-	timeNow := time.Now()
-
-	text := fmt.Sprintf("%s moved from %s", comp.PrintAttrs(), inc.Link())
-	inc.Statuses = append(inc.Statuses, IncidentStatus{
-		IncidentID: inc.ID,
-		Status:     statusSYSTEM,
-		Text:       text,
-		Timestamp:  timeNow,
-	})
-
-	closedText := fmt.Sprintf("%s moved to %s, Incident closed by system", comp.PrintAttrs(), inc.Link())
-	incToClose.Statuses = append(incToClose.Statuses, IncidentStatus{
-		IncidentID: incToClose.ID,
-		Status:     statusSYSTEM,
-		Text:       closedText,
-		Timestamp:  timeNow,
-	})
-	incToClose.EndDate = &timeNow
-
-	err := db.g.Transaction(func(tx *gorm.DB) error {
-		if r := tx.Save(inc); r.Error != nil {
-			return r.Error
-		}
-		if r := tx.Save(incToClose); r.Error != nil {
-			return r.Error
-		}
-
-		return nil
-	})
-
-	if err != nil {
-		return nil, err
-	}
-
-	return inc, nil
-}
-
 func (db *DB) ExtractComponentToNewIncident(
-	comp *Component, oldIncident *Incident, impact int, text string,
+	comp *Component, incOld *Incident, impact int, text string,
 ) (*Incident, error) {
 	timeNow := time.Now()
 
@@ -344,7 +307,7 @@ func (db *DB) ExtractComponentToNewIncident(
 		StartDate:  &timeNow,
 		EndDate:    nil,
 		Impact:     &impact,
-		Statuses:   nil,
+		Statuses:   []IncidentStatus{},
 		System:     false,
 		Components: []Component{*comp},
 	}
@@ -354,7 +317,7 @@ func (db *DB) ExtractComponentToNewIncident(
 		return nil, err
 	}
 
-	incText := fmt.Sprintf("%s moved from %s", comp.PrintAttrs(), oldIncident.Link())
+	incText := fmt.Sprintf("%s moved from %s", comp.PrintAttrs(), incOld.Link())
 	inc.Statuses = append(inc.Statuses, IncidentStatus{
 		IncidentID: id,
 		Status:     statusSYSTEM,
@@ -367,22 +330,20 @@ func (db *DB) ExtractComponentToNewIncident(
 		return nil, err
 	}
 
-	var indexToRemove int
-	for i, c := range oldIncident.Components {
-		if c.ID == comp.ID {
-			indexToRemove = i
-		}
+	err = db.g.Model(incOld).Association("Components").Delete(comp)
+	if err != nil {
+		return nil, err
 	}
-	oldIncident.Components = slices.Delete(oldIncident.Components, indexToRemove, indexToRemove+1)
+
 	incText = fmt.Sprintf("%s moved to %s", comp.PrintAttrs(), inc.Link())
-	oldIncident.Statuses = append(oldIncident.Statuses, IncidentStatus{
+	incOld.Statuses = append(incOld.Statuses, IncidentStatus{
 		IncidentID: inc.ID,
 		Status:     statusSYSTEM,
 		Text:       incText,
 		Timestamp:  timeNow,
 	})
 
-	err = db.ModifyIncident(oldIncident)
+	err = db.ModifyIncident(incOld)
 	if err != nil {
 		return nil, err
 	}
@@ -392,7 +353,7 @@ func (db *DB) ExtractComponentToNewIncident(
 
 func (db *DB) IncreaseIncidentImpact(inc *Incident, impact int) (*Incident, error) {
 	timeNow := time.Now()
-	text := fmt.Sprintf("impact changed from %d to %d", inc.Impact, impact)
+	text := fmt.Sprintf("impact changed from %d to %d", *inc.Impact, impact)
 	inc.Statuses = append(inc.Statuses, IncidentStatus{
 		IncidentID: inc.ID,
 		Status:     statusSYSTEM,
@@ -401,7 +362,7 @@ func (db *DB) IncreaseIncidentImpact(inc *Incident, impact int) (*Incident, erro
 	})
 	inc.Impact = &impact
 
-	if r := db.g.Save(inc); r.Error != nil {
+	if r := db.g.Updates(inc); r.Error != nil {
 		return nil, r.Error
 	}
 
