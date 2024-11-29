@@ -47,12 +47,9 @@ func TestReturn404Handler(t *testing.T) {
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, 404, w.Code)
-	assert.Equal(t, `{"errMsg":"page not found"}`, w.Body.String())
+	assert.JSONEq(t, `{"errMsg":"page not found"}`, w.Body.String())
 }
 
-// Test plan:
-// 1. API response, what should be there: 200 + valid JSON
-// 2. check
 func TestGetComponentsAvailabilityHandler(t *testing.T) {
 	r, m := initTests(t)
 	// Mocking data for testing
@@ -67,14 +64,14 @@ func TestGetComponentsAvailabilityHandler(t *testing.T) {
 	getYearAndMonth := func(year, month, offset int) (int, int) {
 		newMonth := month - offset
 		for newMonth <= 0 {
-			year -= 1
+			year--
 			newMonth += 12
 		}
 		return year, newMonth
 	}
 
 	expectedAvailability := ""
-	for i := 0; i < 12; i++ {
+	for i := range [12]int{} {
 		availYear, availMonth := getYearAndMonth(year, int(month), i)
 		percentage := 100
 		// For the second month (current month in test setup), set percentage to 0
@@ -130,7 +127,7 @@ func TestCalculateAvailability(t *testing.T) {
 			Result: func() []*MonthlyAvailability {
 				results := make([]*MonthlyAvailability, 12)
 
-				for i := 0; i < 12; i++ {
+				for i := range [12]int{} {
 					year, month := getYearAndMonth(time.Now().Year(), int(time.Now().Month()), 12-i-1)
 					results[i] = &MonthlyAvailability{
 						Year:       year,
@@ -163,7 +160,7 @@ func TestCalculateAvailability(t *testing.T) {
 
 		assert.Len(t, result, 12)
 		for i, r := range result {
-			assert.Equal(t, tc.Result[i].Percentage, r.Percentage)
+			assert.InEpsilon(t, tc.Result[i].Percentage, r.Percentage, 0.0001)
 		}
 	}
 }

@@ -2,6 +2,7 @@ package v2
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"sort"
 	"time"
@@ -414,7 +415,6 @@ func GetComponentsAvailabilityHandler(dbInst *db.DB, logger *zap.Logger) gin.Han
 
 			incidents := make([]*Incident, len(comp.Incidents))
 			for i, inc := range comp.Incidents {
-
 				newInc := &Incident{
 					IncidentID: IncidentID{int(inc.ID)},
 					IncidentData: IncidentData{
@@ -425,22 +425,22 @@ func GetComponentsAvailabilityHandler(dbInst *db.DB, logger *zap.Logger) gin.Han
 						Updates:   nil,
 					},
 				}
-
 				incidents[i] = newInc
 			}
 
-			compAvailability, err := calculateAvailability(&comp)
-			if err != nil {
-				apiErrors.RaiseInternalErr(c, err)
+			compAvailability, calcErr := calculateAvailability(&comp)
+			if calcErr != nil {
+				apiErrors.RaiseInternalErr(c, calcErr)
 				return
 			}
 
-			sort.Slice(compAvailability, func(i, j int) bool {
-				if compAvailability[i].Year == compAvailability[j].Year {
-					return compAvailability[i].Month > compAvailability[j].Month
-				}
-				return compAvailability[i].Year > compAvailability[j].Year
-			})
+			sortComponentAvailability(compAvailability)
+			// sort.Slice(compAvailability, func(i, j int) bool {
+			// 	if compAvailability[i].Year == compAvailability[j].Year {
+			// 		return compAvailability[i].Month > compAvailability[j].Month
+			// 	}
+			// 	return compAvailability[i].Year > compAvailability[j].Year
+			// })
 
 			availability[index] = &ComponentAvailability{
 				ComponentID:  ComponentID{int(comp.ID)},
@@ -454,34 +454,56 @@ func GetComponentsAvailabilityHandler(dbInst *db.DB, logger *zap.Logger) gin.Han
 	}
 }
 
+func sortComponentAvailability(availabilities []MonthlyAvailability) {
+	sort.Slice(availabilities, func(i, j int) bool {
+		if availabilities[i].Year == availabilities[j].Year {
+			return availabilities[i].Month > availabilities[j].Month
+		}
+		return availabilities[i].Year > availabilities[j].Year
+	})
+}
+
 // TODO: add filters for GET request
-// TODO: add comments about logic how it's calculated
 func calculateAvailability(component *db.Component) ([]MonthlyAvailability, error) {
+	const (
+		monthsInYear       = 12
+		precisionFactor    = 100000
+		fullPercentage     = 100
+		availabilityMonths = 11
+		roundFactor        = 0.5
+	)
+
+	if component == nil {
+		return nil, fmt.Errorf("component is nil")
+	}
+
+	if len(component.Incidents) == 0 {
+		return nil, nil
+	}
+
 	periodEndDate := time.Now()
 	// Get the current date and starting point (12 months ago)
-	periodStartDate := periodEndDate.AddDate(0, -11, 0) // a year ago, including current the month
-	monthlyDowntime := make([]float64, 12)              // 12 months
+	periodStartDate := periodEndDate.AddDate(0, -availabilityMonths, 0) // a year ago, including current the month
+	monthlyDowntime := make([]float64, monthsInYear)                    // 12 months
 
 	for _, inc := range component.Incidents {
 		if inc.EndDate == nil || *inc.Impact != 3 {
 			continue
 		}
 
-		incidentStart := *inc.StartDate
-		incidentEnd := *inc.EndDate
-
 		// here we skip all incidents that are not correspond to our period
-		if incidentEnd.Before(periodStartDate) || incidentStart.After(periodEndDate) {
-			continue
-		}
-
-		// if the incident started before availability period (as example the incident was started at 01:00 31/12 and finished at 02:00 01/01),
+		// if the incident started before availability period
+		// (as example the incident was started at 01:00 31/12 and finished at 02:00 01/01),
 		// we cut the beginning to the period start date, and do the same for the period ending
-		if incidentStart.Before(periodStartDate) {
-			incidentStart = periodStartDate
-		}
-		if incidentEnd.After(periodEndDate) {
-			incidentEnd = periodEndDate
+
+		incidentStart, incidentEnd, valid := adjustIncidentPeriod(
+			*inc.StartDate,
+			*inc.EndDate,
+			periodStartDate,
+			periodEndDate,
+		)
+		if !valid {
+			continue
 		}
 
 		current := incidentStart
@@ -489,15 +511,12 @@ func calculateAvailability(component *db.Component) ([]MonthlyAvailability, erro
 			monthStart := time.Date(current.Year(), current.Month(), 1, 0, 0, 0, 0, time.UTC)
 			monthEnd := monthStart.AddDate(0, 1, 0)
 
-			if monthEnd.Before(periodStartDate) || monthStart.After(periodEndDate) {
-				break
-			}
-
 			downtimeStart := maxTime(incidentStart, monthStart)
 			downtimeEnd := minTime(incidentEnd, monthEnd)
 			downtime := downtimeEnd.Sub(downtimeStart).Hours()
 
-			monthIndex := int(downtimeStart.Year()-periodStartDate.Year())*12 + int(downtimeStart.Month()-periodStartDate.Month())
+			monthIndex := (downtimeStart.Year()-periodStartDate.Year())*monthsInYear +
+				int(downtimeStart.Month()-periodStartDate.Month())
 			if monthIndex >= 0 && monthIndex < len(monthlyDowntime) {
 				monthlyDowntime[monthIndex] += downtime
 			}
@@ -506,12 +525,12 @@ func calculateAvailability(component *db.Component) ([]MonthlyAvailability, erro
 		}
 	}
 
-	monthlyAvailability := make([]MonthlyAvailability, 0, 12)
-	for i := 0; i < 12; i++ {
+	monthlyAvailability := make([]MonthlyAvailability, 0, monthsInYear)
+	for i := range [monthsInYear]int{} {
 		monthDate := periodStartDate.AddDate(0, i, 0)
 		totalHours := hoursInMonth(monthDate.Year(), int(monthDate.Month()))
-		availability := 100 - (monthlyDowntime[i] / totalHours * 100)
-		availability = float64(int(availability*100000+0.5)) / 100000
+		availability := fullPercentage - (monthlyDowntime[i] / totalHours * fullPercentage)
+		availability = float64(int(availability*precisionFactor+roundFactor)) / precisionFactor
 
 		monthlyAvailability = append(monthlyAvailability, MonthlyAvailability{
 			Year:       monthDate.Year(),
@@ -521,6 +540,20 @@ func calculateAvailability(component *db.Component) ([]MonthlyAvailability, erro
 	}
 
 	return monthlyAvailability, nil
+}
+
+func adjustIncidentPeriod(incidentStart, incidentEnd, periodStart, periodEnd time.Time) (time.Time, time.Time, bool) {
+
+	if incidentEnd.Before(periodStart) || incidentStart.After(periodEnd) {
+		return time.Time{}, time.Time{}, false
+	}
+	if incidentStart.Before(periodStart) {
+		incidentStart = periodStart
+	}
+	if incidentEnd.After(periodEnd) {
+		incidentEnd = periodEnd
+	}
+	return incidentStart, incidentEnd, true
 }
 
 func minTime(start, end time.Time) time.Time {

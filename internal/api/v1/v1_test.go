@@ -22,7 +22,7 @@ func TestCustomTimeFormat(t *testing.T) {
 
 	data, err := json.Marshal(inc)
 	require.NoError(t, err)
-	assert.Equal(t, "{\"id\":0,\"text\":\"\",\"impact\":null,\"start_date\":\"2024-09-01 11:45\",\"end_date\":null,\"updates\":null}", string(data))
+	assert.JSONEq(t, "{\"id\":0,\"text\":\"\",\"impact\":null,\"start_date\":\"2024-09-01 11:45\",\"end_date\":null,\"updates\":null}", string(data))
 
 	inc = &Incident{}
 	err = json.Unmarshal(data, &inc)
