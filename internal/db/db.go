@@ -99,6 +99,7 @@ func (db *DB) SaveIncident(inc *Incident) (uint, error) {
 	return inc.ID, nil
 }
 
+// TODO: check this function for patching incident
 func (db *DB) ModifyIncident(inc *Incident) error {
 	r := db.g.Updates(inc)
 
