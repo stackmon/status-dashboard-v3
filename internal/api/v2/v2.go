@@ -543,7 +543,6 @@ func calculateAvailability(component *db.Component) ([]MonthlyAvailability, erro
 }
 
 func adjustIncidentPeriod(incidentStart, incidentEnd, periodStart, periodEnd time.Time) (time.Time, time.Time, bool) {
-
 	if incidentEnd.Before(periodStart) || incidentStart.After(periodEnd) {
 		return time.Time{}, time.Time{}, false
 	}
