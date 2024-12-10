@@ -64,7 +64,7 @@ func (in *Incident) Link() string {
 
 // IncidentStatus is a db table representation.
 type IncidentStatus struct {
-	ID         uint      `json:"id" gorm:"primaryKey;autoIncrement:true;"`
+	ID         uint      `json:"-" gorm:"primaryKey;autoIncrement:true;"`
 	IncidentID uint      `json:"-"`
 	Status     string    `json:"status"`
 	Text       string    `json:"text"`

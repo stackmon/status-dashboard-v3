@@ -28,9 +28,16 @@ var ErrIncidentEndDateShouldBeEmpty = errors.New("incident end_date should be em
 var ErrIncidentUpdatesShouldBeEmpty = errors.New("incident updates should be empty")
 
 var ErrIncidentCreationMaintenanceExists = errors.New("incident creation failed, component in maintenance incident")
-var ErrIncidentCreationLowImpact = errors.New("incident creation failed, exists the incident with higher impact for component")
+var ErrIncidentCreationLowImpact = errors.New(
+	"incident creation failed, exists the incident with higher impact for component",
+)
 
 var ErrComponentDSNotExist = errors.New("component does not exist")
+
+func NewErrComponentDSNotExist(componentID int) error {
+	return fmt.Errorf("%w, component_id: %d", ErrComponentDSNotExist, componentID)
+}
+
 var ErrComponentExist = errors.New("component already exists")
 var ErrComponentInvalidFormat = errors.New("component invalid format")
 var ErrComponentAttrInvalidFormat = errors.New("component attribute has invalid format")

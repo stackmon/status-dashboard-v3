@@ -11,6 +11,7 @@ import (
 	"go.uber.org/zap/zapcore"
 
 	apiErrors "github.com/stackmon/otc-status-dashboard/internal/api/errors"
+	"github.com/stackmon/otc-status-dashboard/internal/db"
 )
 
 func (a *API) ValidateComponentsMW() gin.HandlerFunc {
@@ -36,6 +37,38 @@ func (a *API) ValidateComponentsMW() gin.HandlerFunc {
 				apiErrors.RaiseInternalErr(c, err)
 			}
 		}
+		c.Next()
+	}
+}
+func ValidateComponentsMW(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		logger.Info("start to validate given components")
+		type Components struct {
+			Components []int `json:"components"`
+		}
+
+		var components Components
+
+		if err := c.ShouldBindBodyWithJSON(&components); err != nil {
+			apiErrors.RaiseBadRequestErr(c, fmt.Errorf("%w: %w", apiErrors.ErrComponentInvalidFormat, err))
+			return
+		}
+
+		// TODO: move this list to the memory cache
+		// We should check, that all components are presented in our db.
+		dbComps, err := dbInst.GetComponentsAsMap()
+		if err != nil {
+			apiErrors.RaiseInternalErr(c, err)
+			return
+		}
+
+		for _, comp := range components.Components {
+			if _, ok := dbComps[comp]; !ok {
+				apiErrors.RaiseBadRequestErr(c, apiErrors.NewErrComponentDSNotExist(comp))
+				return
+			}
+		}
+
 		c.Next()
 	}
 }
