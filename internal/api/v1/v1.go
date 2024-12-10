@@ -291,7 +291,7 @@ func PostComponentStatusHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFu
 					IncidentID: incByImpact.ID,
 					Status:     "SYSTEM",
 					Text:       fmt.Sprintf("%s added", storedComponent.PrintAttrs()),
-					Timestamp:  time.Now(),
+					Timestamp:  time.Now().UTC(),
 				})
 				err = dbInst.ModifyIncident(incByImpact)
 				if err != nil {
@@ -387,7 +387,7 @@ func createIncident(
 	dbInst *db.DB, log *zap.Logger, storedComponent *db.Component, inComponent *ComponentStatusPost,
 ) (*Incident, error) {
 	log.Info("start to create an incident")
-	startDate := time.Now()
+	startDate := time.Now().UTC()
 	comps := []db.Component{*storedComponent}
 	inc := &db.Incident{
 		Text:       &inComponent.Text,

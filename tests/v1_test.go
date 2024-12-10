@@ -17,7 +17,7 @@ import (
 	"github.com/stackmon/otc-status-dashboard/internal/db"
 )
 
-func TestGetIncidentsHandler(t *testing.T) {
+func TestV1GetIncidentsHandler(t *testing.T) {
 	t.Log("start to test GET /v1/incidents")
 	r, _ := initTests(t)
 
@@ -32,7 +32,7 @@ func TestGetIncidentsHandler(t *testing.T) {
 	assert.Equal(t, response, w.Body.String())
 }
 
-func TestGetComponentsStatusHandler(t *testing.T) {
+func TestV1GetComponentsStatusHandler(t *testing.T) {
 	t.Log("start to test GET /v1/component_status")
 	r, _ := initTests(t)
 
@@ -47,7 +47,7 @@ func TestGetComponentsStatusHandler(t *testing.T) {
 	assert.Equal(t, response, w.Body.String())
 }
 
-func TestPostComponentsStatusHandlerNegative(t *testing.T) {
+func TestV1PostComponentsStatusHandlerNegative(t *testing.T) {
 	t.Log("start to test incident creation and check json data for /v1/component_status")
 	r, _ := initTests(t)
 
@@ -87,7 +87,7 @@ func TestPostComponentsStatusHandlerNegative(t *testing.T) {
 	}
 }
 
-func TestPostComponentsStatusHandlerBL(t *testing.T) {
+func TestV1PostComponentsStatusHandler(t *testing.T) {
 	t.Log("start to test incident creation, modification by /v1/component_status")
 	r, dbIns := initTests(t)
 
@@ -105,19 +105,19 @@ func TestPostComponentsStatusHandlerBL(t *testing.T) {
 		Attributes: attrEUNL,
 	}
 
-	incID, _ := createIncidentByComponent(t, r, componentCreateData)
+	incID, _ := createIncidentByComponentV1(t, r, componentCreateData)
 
 	t.Log("create a new incident with the same component and the same impact, should get an error")
-	_, body := createIncidentByComponent(t, r, componentCreateData)
+	_, body := createIncidentByComponentV1(t, r, componentCreateData)
 	confStruct := &v1.ConflictResponse{}
 	err := json.Unmarshal(body, confStruct)
 	require.NoError(t, err)
 
-	checkConflictMsg(t, confStruct, incID, text)
+	checkConflictMsgV1(t, confStruct, incID, text)
 
 	t.Log("create a new incident with the same component and higher impact, should update the impact")
 	componentCreateData.Impact = 2
-	newIncID, body := createIncidentByComponent(t, r, componentCreateData)
+	newIncID, body := createIncidentByComponentV1(t, r, componentCreateData)
 	assert.Equal(t, incID, newIncID)
 	newInc := &v1.Incident{}
 	err = json.Unmarshal(body, newInc)
@@ -136,7 +136,7 @@ func TestPostComponentsStatusHandlerBL(t *testing.T) {
 		Text:       text,
 		Attributes: attrEUNL,
 	}
-	activeIncidentID, body := createIncidentByComponent(t, r, componentCreateData)
+	activeIncidentID, body := createIncidentByComponentV1(t, r, componentCreateData)
 	assert.Equal(t, incID, activeIncidentID)
 	newInc = &v1.Incident{}
 	err = json.Unmarshal(body, newInc)
@@ -160,12 +160,12 @@ func TestPostComponentsStatusHandlerBL(t *testing.T) {
 		Text:       text,
 		Attributes: attrEUNL,
 	}
-	newIncID, _ = createIncidentByComponent(t, r, componentCreateData)
+	newIncID, _ = createIncidentByComponentV1(t, r, componentCreateData)
 	assert.NotEqual(t, incID, newIncID)
 
 	t.Log("start to test component movement between incidents")
 	t.Log("close incident with impact 3")
-	closeIncident(t, r, dbIns, newIncID)
+	closeIncidentV1(t, r, dbIns, newIncID)
 
 	t.Log("extract component to the new incident with higher impact")
 	componentCreateData = &v1.ComponentStatusPost{
@@ -174,9 +174,9 @@ func TestPostComponentsStatusHandlerBL(t *testing.T) {
 		Text:       text,
 		Attributes: attrEUNL,
 	}
-	newIncID, _ = createIncidentByComponent(t, r, componentCreateData)
+	newIncID, _ = createIncidentByComponentV1(t, r, componentCreateData)
 	assert.NotEqual(t, newIncID, activeIncidentID)
-	checkIncidentsDataAfterMove(t, r)
+	checkIncidentsDataAfterMoveV1(t, r)
 
 	t.Log("extract component to the existed incident with higher impact, close the old incident")
 	componentCreateData = &v1.ComponentStatusPost{
@@ -185,12 +185,12 @@ func TestPostComponentsStatusHandlerBL(t *testing.T) {
 		Text:       text,
 		Attributes: attrEUNL,
 	}
-	newIncID, _ = createIncidentByComponent(t, r, componentCreateData)
+	newIncID, _ = createIncidentByComponentV1(t, r, componentCreateData)
 	assert.NotEqual(t, newIncID, activeIncidentID)
-	checkIncidentsDataAfterMoveAndClosedIncident(t, r)
+	checkIncidentsDataAfterMoveAndClosedIncidentV1(t, r)
 
 	t.Log("decrease incident impact from 3 to 2")
-	decreaseIncidentImpact(t, r, dbIns, newIncID)
+	decreaseIncidentImpactV1(t, r, dbIns, newIncID)
 
 	t.Log("create an incident with another components with higher impact")
 
@@ -203,14 +203,14 @@ func TestPostComponentsStatusHandlerBL(t *testing.T) {
 		Text:       text,
 		Attributes: attrEUDE,
 	}
-	newIncID, _ = createIncidentByComponent(t, r, componentCreateData)
+	newIncID, _ = createIncidentByComponentV1(t, r, componentCreateData)
 	assert.NotEqual(t, newIncID, activeIncidentID)
 
 	componentCreateData.Name = compName2
-	activeIncidentID, _ = createIncidentByComponent(t, r, componentCreateData)
+	activeIncidentID, _ = createIncidentByComponentV1(t, r, componentCreateData)
 	assert.Equal(t, activeIncidentID, newIncID)
 
-	incidents := getIncidentsAPI(t, r)
+	incidents := getIncidentsAPIV1(t, r)
 	assert.Len(t, incidents, 5)
 
 	t.Log("send create request, should move component to the incident with higher impact")
@@ -220,11 +220,11 @@ func TestPostComponentsStatusHandlerBL(t *testing.T) {
 		Text:       text,
 		Attributes: attrEUNL,
 	}
-	_, _ = createIncidentByComponent(t, r, componentCreateData)
-	checkIncidentsDataAfterMovingComponentBetweenIncidents(t, r, dbIns)
+	_, _ = createIncidentByComponentV1(t, r, componentCreateData)
+	checkIncidentsDataAfterMovingComponentBetweenIncidentsV1(t, r, dbIns)
 }
 
-func createIncidentByComponent(t *testing.T, r *gin.Engine, inc *v1.ComponentStatusPost) (int, []byte) {
+func createIncidentByComponentV1(t *testing.T, r *gin.Engine, inc *v1.ComponentStatusPost) (int, []byte) {
 	t.Helper()
 
 	data, err := json.Marshal(inc)
@@ -251,7 +251,7 @@ func createIncidentByComponent(t *testing.T, r *gin.Engine, inc *v1.ComponentSta
 	return respCreated.ID, w.Body.Bytes()
 }
 
-func checkConflictMsg(t *testing.T, confStruct *v1.ConflictResponse, incID int, text string) {
+func checkConflictMsgV1(t *testing.T, confStruct *v1.ConflictResponse, incID int, text string) {
 	t.Helper()
 	assert.Equal(t, "Incident with this the component already exists", confStruct.Msg)
 	assert.Equal(t, "Check your request parameters", confStruct.Details)
@@ -259,7 +259,7 @@ func checkConflictMsg(t *testing.T, confStruct *v1.ConflictResponse, incID int, 
 	assert.Equal(t, text, confStruct.ExistingIncidentTitle)
 }
 
-func closeIncident(t *testing.T, r *gin.Engine, dbIns *db.DB, id int) {
+func closeIncidentV1(t *testing.T, r *gin.Engine, dbIns *db.DB, id int) {
 	t.Helper()
 	tNow := time.Now()
 	inc := &db.Incident{
@@ -283,7 +283,7 @@ func closeIncident(t *testing.T, r *gin.Engine, dbIns *db.DB, id int) {
 	r.ServeHTTP(w, req)
 	assert.Equal(t, 200, w.Code)
 
-	incidents := getIncidentsAPI(t, r)
+	incidents := getIncidentsAPIV1(t, r)
 
 	for _, i := range incidents {
 		if i.ID == id {
@@ -296,10 +296,10 @@ func closeIncident(t *testing.T, r *gin.Engine, dbIns *db.DB, id int) {
 	}
 }
 
-func checkIncidentsDataAfterMove(t *testing.T, r *gin.Engine) {
+func checkIncidentsDataAfterMoveV1(t *testing.T, r *gin.Engine) {
 	t.Helper()
 
-	incidents := getIncidentsAPI(t, r)
+	incidents := getIncidentsAPIV1(t, r)
 
 	for _, inc := range incidents {
 		if inc.ID == 4 {
@@ -317,10 +317,10 @@ func checkIncidentsDataAfterMove(t *testing.T, r *gin.Engine) {
 	}
 }
 
-func checkIncidentsDataAfterMovingComponentBetweenIncidents(t *testing.T, r *gin.Engine, dbIns *db.DB) {
+func checkIncidentsDataAfterMovingComponentBetweenIncidentsV1(t *testing.T, r *gin.Engine, dbIns *db.DB) {
 	t.Helper()
 
-	incidents := getIncidentsAPI(t, r)
+	incidents := getIncidentsAPIV1(t, r)
 
 	for _, inc := range incidents {
 		if inc.ID == 4 {
@@ -345,10 +345,10 @@ func checkIncidentsDataAfterMovingComponentBetweenIncidents(t *testing.T, r *gin
 	assert.Len(t, inc.Components, 3)
 }
 
-func checkIncidentsDataAfterMoveAndClosedIncident(t *testing.T, r *gin.Engine) {
+func checkIncidentsDataAfterMoveAndClosedIncidentV1(t *testing.T, r *gin.Engine) {
 	t.Helper()
 
-	incidents := getIncidentsAPI(t, r)
+	incidents := getIncidentsAPIV1(t, r)
 
 	for _, inc := range incidents {
 		if inc.ID == 4 {
@@ -369,7 +369,7 @@ func checkIncidentsDataAfterMoveAndClosedIncident(t *testing.T, r *gin.Engine) {
 	}
 }
 
-func getIncidentsAPI(t *testing.T, r *gin.Engine) []*v1.Incident {
+func getIncidentsAPIV1(t *testing.T, r *gin.Engine) []*v1.Incident {
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest(http.MethodGet, "/v1/incidents", nil)
 
@@ -383,7 +383,7 @@ func getIncidentsAPI(t *testing.T, r *gin.Engine) []*v1.Incident {
 	return incidents
 }
 
-func decreaseIncidentImpact(t *testing.T, r *gin.Engine, dbIns *db.DB, id int) {
+func decreaseIncidentImpactV1(t *testing.T, r *gin.Engine, dbIns *db.DB, id int) {
 	t.Helper()
 	impact := 2
 	inc := &db.Incident{ID: uint(id), Impact: &impact}
@@ -391,7 +391,7 @@ func decreaseIncidentImpact(t *testing.T, r *gin.Engine, dbIns *db.DB, id int) {
 	err := dbIns.ModifyIncident(inc)
 	require.NoError(t, err)
 
-	incidents := getIncidentsAPI(t, r)
+	incidents := getIncidentsAPIV1(t, r)
 	for _, i := range incidents {
 		if i.ID == id {
 			assert.Equal(t, impact, *i.Impact)

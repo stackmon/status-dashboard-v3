@@ -246,7 +246,15 @@ const statusSYSTEM = "SYSTEM"
 func (db *DB) MoveComponentFromOldToAnotherIncident(
 	comp *Component, incOld, incNew *Incident, closeOld bool,
 ) (*Incident, error) {
-	timeNow := time.Now()
+	timeNow := time.Now().UTC()
+
+	if comp.Name == "" {
+		c, err := db.GetComponent(int(comp.ID))
+		if err != nil {
+			return nil, err
+		}
+		comp = c
+	}
 
 	incNew.Components = append(incNew.Components, *comp)
 	text := fmt.Sprintf("%s moved from %s", comp.PrintAttrs(), incOld.Link())
@@ -299,7 +307,7 @@ func (db *DB) MoveComponentFromOldToAnotherIncident(
 func (db *DB) ExtractComponentToNewIncident(
 	comp *Component, incOld *Incident, impact int, text string,
 ) (*Incident, error) {
-	timeNow := time.Now()
+	timeNow := time.Now().UTC()
 
 	inc := &Incident{
 		Text:       &text,
@@ -351,7 +359,7 @@ func (db *DB) ExtractComponentToNewIncident(
 }
 
 func (db *DB) IncreaseIncidentImpact(inc *Incident, impact int) (*Incident, error) {
-	timeNow := time.Now()
+	timeNow := time.Now().UTC()
 	text := fmt.Sprintf("impact changed from %d to %d", *inc.Impact, impact)
 	inc.Statuses = append(inc.Statuses, IncidentStatus{
 		IncidentID: inc.ID,

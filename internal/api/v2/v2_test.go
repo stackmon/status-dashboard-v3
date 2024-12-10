@@ -28,7 +28,7 @@ func TestGetIncidentsHandler(t *testing.T) {
 
 	prepareDB(t, m, testTime)
 
-	var response = `{"data":[{"id":1,"title":"Incident title","impact":0,"components":[150],"start_date":"%s","system":false,"updates":[{"id":1,"status":"resolved","text":"Issue solved.","timestamp":"%s"}]}]}`
+	var response = `{"data":[{"id":1,"title":"Incident title","impact":0,"components":[150],"start_date":"%s","system":false,"updates":[{"status":"resolved","text":"Issue solved.","timestamp":"%s"}]}]}`
 
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest(http.MethodGet, "/v2/incidents", nil)
