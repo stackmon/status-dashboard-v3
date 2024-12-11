@@ -25,15 +25,28 @@ func TestV2GetIncidentsHandler(t *testing.T) {
 	t.Log("start to test GET /v2/incidents")
 	r, _ := initTests(t)
 
-	var response = `{"data":[{"id":1,"title":"Closed incident without any update","impact":1,"components":[1],"start_date":"2024-10-24T10:12:42Z","end_date":"2024-10-24T11:12:42Z","system":false,"updates":[{"status":"resolved","text":"close incident","timestamp":"2024-10-24T11:12:42.559346Z"}]}]}`
+	incidentStr := `{"id":1,"title":"Closed incident without any update","impact":1,"components":[1],"start_date":"2024-10-24T10:12:42Z","end_date":"2024-10-24T11:12:42Z","system":false,"updates":[{"status":"resolved","text":"close incident","timestamp":"2024-10-24T11:12:42.559346Z"}]}`
 
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest(http.MethodGet, v2Incidents, nil)
 
 	r.ServeHTTP(w, req)
 
+	incidents := map[string][]*v2.Incident{}
+
 	assert.Equal(t, 200, w.Code)
-	assert.Equal(t, response, w.Body.String())
+
+	err := json.Unmarshal(w.Body.Bytes(), &incidents)
+	require.NoError(t, err)
+	for _, inc := range incidents["data"] {
+		if inc.ID == 1 {
+			b, errM := json.Marshal(inc)
+			require.NoError(t, errM)
+			assert.Equal(t, incidentStr, string(b))
+			return
+		}
+	}
+	require.NoError(t, fmt.Errorf("incident 1 is not found"))
 }
 
 func TestV2GetComponentsHandler(t *testing.T) {
@@ -158,6 +171,13 @@ func TestV2PostIncidentsHandler(t *testing.T) {
 	}
 
 	incidents := V2GetIncidents(t, r)
+	for _, inc := range incidents {
+		if inc.EndDate == nil {
+			endDate := inc.StartDate.Add(time.Hour * 1)
+			inc.EndDate = &endDate
+			V2PatchIncident(t, r, inc)
+		}
+	}
 
 	result := v2CreateIncident(t, r, &incidentCreateData)
 
@@ -177,28 +197,28 @@ func TestV2PostIncidentsHandler(t *testing.T) {
 
 	t.Log("create a new incident with the same components and the same impact, should close previous and move components to the new")
 	result = v2CreateIncident(t, r, &incidentCreateData)
-	assert.Equal(t, 3, result.Result[0].IncidentID)
-	assert.Equal(t, 3, result.Result[1].IncidentID)
+	assert.Equal(t, len(incidents)+2, result.Result[0].IncidentID)
+	assert.Equal(t, len(incidents)+2, result.Result[1].IncidentID)
 
-	oldIncident := V2GetIncident(t, r, 2)
+	oldIncident := V2GetIncident(t, r, result.Result[0].IncidentID-1)
 	assert.NotNil(t, oldIncident.EndDate)
 	assert.Len(t, oldIncident.Components, 1)
 	assert.NotNil(t, oldIncident.Updates)
 	assert.Len(t, oldIncident.Updates, 2)
 	assert.Equal(t, "SYSTEM", oldIncident.Updates[0].Status)
 	assert.Equal(t, "SYSTEM", oldIncident.Updates[1].Status)
-	assert.Equal(t, "Cloud Container Engine (Container, EU-DE, cce) moved to <a href='/incidents/3'>Test incident for dcs</a>", oldIncident.Updates[0].Text)
-	assert.Equal(t, "Cloud Container Engine (Container, EU-NL, cce) moved to <a href='/incidents/3'>Test incident for dcs</a>, Incident closed by system", oldIncident.Updates[1].Text)
+	assert.Equal(t, fmt.Sprintf("Cloud Container Engine (Container, EU-DE, cce) moved to <a href='/incidents/%d'>Test incident for dcs</a>", result.Result[0].IncidentID), oldIncident.Updates[0].Text)
+	assert.Equal(t, fmt.Sprintf("Cloud Container Engine (Container, EU-NL, cce) moved to <a href='/incidents/%d'>Test incident for dcs</a>, Incident closed by system", result.Result[0].IncidentID), oldIncident.Updates[1].Text)
 
-	incidentN3 := V2GetIncident(t, r, 3)
+	incidentN3 := V2GetIncident(t, r, result.Result[0].IncidentID)
 	assert.Nil(t, incidentN3.EndDate)
 	assert.Len(t, incidentN3.Components, 2)
 	assert.NotNil(t, incidentN3.Updates)
 	assert.Len(t, incidentN3.Updates, 2)
 	assert.Equal(t, "SYSTEM", incidentN3.Updates[0].Status)
 	assert.Equal(t, "SYSTEM", incidentN3.Updates[1].Status)
-	assert.Equal(t, "Cloud Container Engine (Container, EU-DE, cce) moved from <a href='/incidents/2'>Test incident for dcs</a>", incidentN3.Updates[0].Text)
-	assert.Equal(t, "Cloud Container Engine (Container, EU-NL, cce) moved from <a href='/incidents/2'>Test incident for dcs</a>", incidentN3.Updates[1].Text)
+	assert.Equal(t, fmt.Sprintf("Cloud Container Engine (Container, EU-DE, cce) moved from <a href='/incidents/%d'>Test incident for dcs</a>", result.Result[0].IncidentID-1), incidentN3.Updates[0].Text)
+	assert.Equal(t, fmt.Sprintf("Cloud Container Engine (Container, EU-NL, cce) moved from <a href='/incidents/%d'>Test incident for dcs</a>", result.Result[0].IncidentID-1), incidentN3.Updates[1].Text)
 
 	t.Log("create a new maintenance with the same components and higher impact, should create a new without components ")
 
@@ -210,10 +230,10 @@ func TestV2PostIncidentsHandler(t *testing.T) {
 	incidentCreateData.EndDate = &endDate
 
 	result = v2CreateIncident(t, r, &incidentCreateData)
-	assert.Equal(t, 4, result.Result[0].IncidentID)
-	assert.Equal(t, 4, result.Result[1].IncidentID)
+	assert.Equal(t, len(incidents)+3, result.Result[0].IncidentID)
+	assert.Equal(t, len(incidents)+3, result.Result[1].IncidentID)
 
-	maintenanceIncident := V2GetIncident(t, r, 4)
+	maintenanceIncident := V2GetIncident(t, r, result.Result[0].IncidentID)
 	assert.Equal(t, incidentCreateData.StartDate, maintenanceIncident.StartDate)
 	assert.Equal(t, incidentCreateData.EndDate, maintenanceIncident.EndDate)
 	assert.Equal(t, title, maintenanceIncident.Title)
@@ -222,15 +242,15 @@ func TestV2PostIncidentsHandler(t *testing.T) {
 	assert.Equal(t, incidentCreateData.Description, maintenanceIncident.Updates[0].Text)
 	assert.Equal(t, "description", maintenanceIncident.Updates[0].Status)
 
-	incidentN3 = V2GetIncident(t, r, 3)
+	incidentN3 = V2GetIncident(t, r, result.Result[0].IncidentID-1)
 	assert.Nil(t, incidentN3.EndDate)
 	assert.Len(t, incidentN3.Components, 2)
 	assert.NotNil(t, incidentN3.Updates)
 	assert.Len(t, incidentN3.Updates, 2)
 	assert.Equal(t, "SYSTEM", incidentN3.Updates[0].Status)
 	assert.Equal(t, "SYSTEM", incidentN3.Updates[1].Status)
-	assert.Equal(t, "Cloud Container Engine (Container, EU-DE, cce) moved from <a href='/incidents/2'>Test incident for dcs</a>", incidentN3.Updates[0].Text)
-	assert.Equal(t, "Cloud Container Engine (Container, EU-NL, cce) moved from <a href='/incidents/2'>Test incident for dcs</a>", incidentN3.Updates[1].Text)
+	assert.Equal(t, fmt.Sprintf("Cloud Container Engine (Container, EU-DE, cce) moved from <a href='/incidents/%d'>Test incident for dcs</a>", incidentN3.ID-1), incidentN3.Updates[0].Text)
+	assert.Equal(t, fmt.Sprintf("Cloud Container Engine (Container, EU-NL, cce) moved from <a href='/incidents/%d'>Test incident for dcs</a>", incidentN3.ID-1), incidentN3.Updates[1].Text)
 }
 
 func v2CreateIncident(t *testing.T, r *gin.Engine, inc *v2.IncidentData) *v2.PostIncidentResp {
@@ -287,4 +307,19 @@ func V2GetIncidents(t *testing.T, r *gin.Engine) []*v2.Incident {
 	require.NoError(t, err)
 
 	return data["data"]
+}
+
+func V2PatchIncident(t *testing.T, r *gin.Engine, inc *v2.Incident) {
+	t.Helper()
+
+	d, err := json.Marshal(inc)
+	require.NoError(t, err)
+
+	url := fmt.Sprintf("/v2/incidents/%d", inc.IncidentID.ID)
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodPatch, url, bytes.NewReader(d))
+
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, 200, w.Code)
 }
