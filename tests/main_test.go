@@ -84,21 +84,35 @@ func initTests(t *testing.T) (*gin.Engine, *db.DB) {
 
 	logger, _ := zap.NewDevelopment()
 	initRoutesV1(t, r, d, logger)
+	initRoutesV2(t, r, d, logger)
 
 	return r, d
 }
 
 func initRoutesV1(t *testing.T, c *gin.Engine, dbInst *db.DB, log *zap.Logger) {
 	t.Helper()
-	t.Log("init routes")
+	t.Log("init routes for V1")
 
 	v1Api := c.Group("v1")
-	{
-		v1Api.GET("component_status", v1.GetComponentsStatusHandler(dbInst, log))
-		v1Api.POST("component_status", v1.PostComponentStatusHandler(dbInst, log))
 
-		v1Api.GET("incidents", v1.GetIncidentsHandler(dbInst, log))
-	}
+	v1Api.GET("component_status", v1.GetComponentsStatusHandler(dbInst, log))
+	v1Api.POST("component_status", v1.PostComponentStatusHandler(dbInst, log))
+
+	v1Api.GET("incidents", v1.GetIncidentsHandler(dbInst, log))
+}
+
+func initRoutesV2(t *testing.T, c *gin.Engine, dbInst *db.DB, log *zap.Logger) {
+	t.Helper()
+	t.Log("init routes for V2")
+
 	v2Api := c.Group("v2")
-	v2Api.PATCH("incidents/:id", v2.PatchIncidentHandler(dbInst, log))
+
+	v2Api.GET("components", v2.GetComponentsHandler(dbInst, log))
+	v2Api.POST("components", v2.PostComponentHandler(dbInst, log))
+	v2Api.GET("components/:id", v2.GetComponentHandler(dbInst, log))
+
+	v2Api.GET("incidents", v2.GetIncidentsHandler(dbInst, log))
+	v2Api.POST("incidents", api.ValidateComponentsMW(dbInst, log), v2.PostIncidentHandler(dbInst, log))
+	v2Api.GET("incidents/:id", v2.GetIncidentHandler(dbInst, log))
+	v2Api.PATCH("incidents/:id", api.ValidateComponentsMW(dbInst, log), v2.PatchIncidentHandler(dbInst, log))
 }
