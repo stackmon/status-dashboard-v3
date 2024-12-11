@@ -170,12 +170,12 @@ func TestV2PostIncidentsHandler(t *testing.T) {
 		System:     &system,
 	}
 
-	incidents := V2GetIncidents(t, r)
+	incidents := v2GetIncidents(t, r)
 	for _, inc := range incidents {
 		if inc.EndDate == nil {
 			endDate := inc.StartDate.Add(time.Hour * 1)
 			inc.EndDate = &endDate
-			V2PatchIncident(t, r, inc)
+			v2PatchIncident(t, r, inc)
 		}
 	}
 
@@ -187,7 +187,7 @@ func TestV2PostIncidentsHandler(t *testing.T) {
 	assert.Equal(t, len(incidents)+1, result.Result[0].IncidentID)
 	assert.Equal(t, len(incidents)+1, result.Result[1].IncidentID)
 
-	incident := V2GetIncident(t, r, result.Result[0].IncidentID)
+	incident := v2GetIncident(t, r, result.Result[0].IncidentID)
 	assert.Equal(t, incidentCreateData.StartDate, incident.StartDate)
 	assert.Equal(t, title, incident.Title)
 	assert.Equal(t, impact, *incident.Impact)
@@ -200,7 +200,7 @@ func TestV2PostIncidentsHandler(t *testing.T) {
 	assert.Equal(t, len(incidents)+2, result.Result[0].IncidentID)
 	assert.Equal(t, len(incidents)+2, result.Result[1].IncidentID)
 
-	oldIncident := V2GetIncident(t, r, result.Result[0].IncidentID-1)
+	oldIncident := v2GetIncident(t, r, result.Result[0].IncidentID-1)
 	assert.NotNil(t, oldIncident.EndDate)
 	assert.Len(t, oldIncident.Components, 1)
 	assert.NotNil(t, oldIncident.Updates)
@@ -210,7 +210,7 @@ func TestV2PostIncidentsHandler(t *testing.T) {
 	assert.Equal(t, fmt.Sprintf("Cloud Container Engine (Container, EU-DE, cce) moved to <a href='/incidents/%d'>Test incident for dcs</a>", result.Result[0].IncidentID), oldIncident.Updates[0].Text)
 	assert.Equal(t, fmt.Sprintf("Cloud Container Engine (Container, EU-NL, cce) moved to <a href='/incidents/%d'>Test incident for dcs</a>, Incident closed by system", result.Result[0].IncidentID), oldIncident.Updates[1].Text)
 
-	incidentN3 := V2GetIncident(t, r, result.Result[0].IncidentID)
+	incidentN3 := v2GetIncident(t, r, result.Result[0].IncidentID)
 	assert.Nil(t, incidentN3.EndDate)
 	assert.Len(t, incidentN3.Components, 2)
 	assert.NotNil(t, incidentN3.Updates)
@@ -233,7 +233,7 @@ func TestV2PostIncidentsHandler(t *testing.T) {
 	assert.Equal(t, len(incidents)+3, result.Result[0].IncidentID)
 	assert.Equal(t, len(incidents)+3, result.Result[1].IncidentID)
 
-	maintenanceIncident := V2GetIncident(t, r, result.Result[0].IncidentID)
+	maintenanceIncident := v2GetIncident(t, r, result.Result[0].IncidentID)
 	assert.Equal(t, incidentCreateData.StartDate, maintenanceIncident.StartDate)
 	assert.Equal(t, incidentCreateData.EndDate, maintenanceIncident.EndDate)
 	assert.Equal(t, title, maintenanceIncident.Title)
@@ -242,7 +242,7 @@ func TestV2PostIncidentsHandler(t *testing.T) {
 	assert.Equal(t, incidentCreateData.Description, maintenanceIncident.Updates[0].Text)
 	assert.Equal(t, "description", maintenanceIncident.Updates[0].Status)
 
-	incidentN3 = V2GetIncident(t, r, result.Result[0].IncidentID-1)
+	incidentN3 = v2GetIncident(t, r, result.Result[0].IncidentID-1)
 	assert.Nil(t, incidentN3.EndDate)
 	assert.Len(t, incidentN3.Components, 2)
 	assert.NotNil(t, incidentN3.Updates)
@@ -251,6 +251,92 @@ func TestV2PostIncidentsHandler(t *testing.T) {
 	assert.Equal(t, "SYSTEM", incidentN3.Updates[1].Status)
 	assert.Equal(t, fmt.Sprintf("Cloud Container Engine (Container, EU-DE, cce) moved from <a href='/incidents/%d'>Test incident for dcs</a>", incidentN3.ID-1), incidentN3.Updates[0].Text)
 	assert.Equal(t, fmt.Sprintf("Cloud Container Engine (Container, EU-NL, cce) moved from <a href='/incidents/%d'>Test incident for dcs</a>", incidentN3.ID-1), incidentN3.Updates[1].Text)
+}
+
+func TestV2PatchIncidentHandlerNegative(t *testing.T) {
+	t.Log("start to test incident patching and check json data for /v2/incidents/42")
+	r, _ := initTests(t)
+
+	type testCase struct {
+		ExpectedCode int
+		Expected     string
+		JSON         string
+	}
+
+	jsEndPresent := `{
+  "title":"OpenStack Upgrade in regions EU-DE/EU-NL",
+  "impact":1,
+  "components":[
+    1
+  ],
+  "start_date":"2024-11-25T09:32:14.075Z",
+  "end_date":"2024-11-25T09:32:14.075Z",
+  "system":false,
+  "updates":[
+    {
+      "id":163,
+      "status":"resolved",
+      "text":"issue resolved",
+      "timestamp":"2024-11-25T09:32:14.075Z"
+    }
+  ]
+}`
+	jsUpdatesPresent := `{
+  "title":"OpenStack Upgrade in regions EU-DE/EU-NL",
+  "impact":1,
+  "components":[
+    1
+  ],
+  "start_date":"2024-11-25T09:32:14.075Z",
+  "system":false,
+  "updates":[
+    {
+      "id":163,
+      "status":"resolved",
+      "text":"issue resolved",
+      "timestamp":"2024-11-25T09:32:14.075Z"
+    }
+  ]
+}`
+	jsWrongComponents := `{
+  "title":"OpenStack Upgrade in regions EU-DE/EU-NL",
+  "impact":1,
+  "components":[
+    218,
+    254
+  ],
+  "start_date":"2024-11-25T09:32:14.075Z",
+  "system":false
+}`
+
+	testCases := map[string]*testCase{
+		"negative testcase, incident is not a maintenance and end_date is present": {
+			JSON:         jsEndPresent,
+			Expected:     `{"errMsg":"incident end_date should be empty"}`,
+			ExpectedCode: 400,
+		},
+		"negative testcase, updates are present": {
+			JSON:         jsUpdatesPresent,
+			Expected:     `{"errMsg":"incident updates should be empty"}`,
+			ExpectedCode: 400,
+		},
+		"negative testcase, wrong components ids": {
+			JSON:         jsWrongComponents,
+			Expected:     `{"errMsg":"component does not exist, component_id: 218"}`,
+			ExpectedCode: 400,
+		},
+	}
+
+	for title, c := range testCases {
+		t.Logf("start test case: %s\n", title)
+
+		w := httptest.NewRecorder()
+		req, _ := http.NewRequest(http.MethodPost, v2Incidents, strings.NewReader(c.JSON))
+		r.ServeHTTP(w, req)
+
+		assert.Equal(t, c.ExpectedCode, w.Code)
+		assert.Equal(t, c.Expected, w.Body.String())
+	}
 }
 
 func v2CreateIncident(t *testing.T, r *gin.Engine, inc *v2.IncidentData) *v2.PostIncidentResp {
@@ -276,7 +362,7 @@ func v2CreateIncident(t *testing.T, r *gin.Engine, inc *v2.IncidentData) *v2.Pos
 	return respCreated
 }
 
-func V2GetIncident(t *testing.T, r *gin.Engine, id int) *v2.Incident {
+func v2GetIncident(t *testing.T, r *gin.Engine, id int) *v2.Incident {
 	t.Helper()
 	url := fmt.Sprintf("/v2/incidents/%d", id)
 	w := httptest.NewRecorder()
@@ -292,7 +378,7 @@ func V2GetIncident(t *testing.T, r *gin.Engine, id int) *v2.Incident {
 	return &incident
 }
 
-func V2GetIncidents(t *testing.T, r *gin.Engine) []*v2.Incident {
+func v2GetIncidents(t *testing.T, r *gin.Engine) []*v2.Incident {
 	t.Helper()
 	url := "/v2/incidents"
 	w := httptest.NewRecorder()
@@ -309,7 +395,7 @@ func V2GetIncidents(t *testing.T, r *gin.Engine) []*v2.Incident {
 	return data["data"]
 }
 
-func V2PatchIncident(t *testing.T, r *gin.Engine, inc *v2.Incident) {
+func v2PatchIncident(t *testing.T, r *gin.Engine, inc *v2.Incident) {
 	t.Helper()
 
 	d, err := json.Marshal(inc)

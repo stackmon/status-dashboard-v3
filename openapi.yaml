@@ -177,7 +177,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/IncidentPost'
+              $ref: '#/components/schemas/IncidentPatch'
         required: true
       responses:
         '200':
@@ -219,7 +219,7 @@ paths:
           content:
             application/json:
               schema:
-                  $ref: '#/components/schemas/IncidentV1'
+                $ref: '#/components/schemas/IncidentV1'
 
   /v1/incidents:
     get:
@@ -333,13 +333,13 @@ components:
           example: "OpenStack Upgrade in regions EU-DE/EU-NL"
         impact:
           type: integer
-          enum: [0,1,2,3]
+          enum: [ 0,1,2,3 ]
           example: 1
         components:
           type: array
           items:
             type: string
-          example: [218, 254]
+          example: [ 218, 254 ]
         start_date:
           type: string
           format: date-time
@@ -405,6 +405,45 @@ components:
           format: int64
           nullable: false
           example: 123
+    IncidentPatch:
+      type: object
+      required:
+        - message
+        - status
+        - update_date
+      properties:
+        title:
+          type: string
+          example: "OpenStack Upgrade in regions EU-DE/EU-NL"
+        impact:
+          type: integer
+          enum: [ 0,1,2,3 ]
+          example: 1
+        message:
+          type: string
+          example: "Any message why the incident was updated."
+        status:
+          type: string
+          enum:
+            - "in progress"
+            - "modified"
+            - "completed"
+            - "analyzing"
+            - "fixing"
+            - "impact changed"
+            - "observing"
+            - "resolved"
+            - "reopened"
+            - "changed"
+        update_date:
+          type: string
+          format: date-time
+        start_date:
+          type: string
+          format: date-time
+        end_date:
+          type: string
+          format: date-time
     IncidentStatus:
       type: object
       allOf:
