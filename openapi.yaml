@@ -127,7 +127,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/Incident'
+              $ref: '#/components/schemas/IncidentPost'
         required: true
       responses:
         '200':
@@ -135,7 +135,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Incident'
+                $ref: '#/components/schemas/IncidentPostResponse'
   /v2/incidents/{incident_id}:
     get:
       summary: Find an incident by id.
@@ -359,11 +359,14 @@ components:
         - title
         - impact
         - components
-        - updates
+        - start_date
       properties:
         title:
           type: string
           example: "OpenStack Upgrade in regions EU-DE/EU-NL"
+        description:
+          type: string
+          example: "Any description for maintenance incident."
         impact:
           type: integer
           enum: [ 0,1,2,3 ]
@@ -373,10 +376,35 @@ components:
           items:
             type: string
           example: [ 218, 254 ]
-        updates:
+        start_date:
+          type: string
+          format: date-time
+        end_date:
+          type: string
+          format: date-time
+        system:
+          type: boolean
+          example: false
+    IncidentPostResponse:
+      type: object
+      properties:
+        result:
           type: array
           items:
-            $ref: '#/components/schemas/IncidentStatusPost'
+            $ref: "#/components/schemas/IncidentPostResult"
+    IncidentPostResult:
+      type: object
+      properties:
+        component_id:
+          type: integer
+          format: int64
+          nullable: false
+          example: 254
+        incident_id:
+          type: integer
+          format: int64
+          nullable: false
+          example: 123
     IncidentStatus:
       type: object
       allOf:
