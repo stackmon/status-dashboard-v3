@@ -20,3 +20,4 @@ var ErrIncidentPatchClosedStatus = errors.New("wrong status for closed incident"
 var ErrIncidentPatchOpenedStartDate = errors.New("can not change start date for open incident")
 var ErrIncidentPatchOpenedEndDateMissing = errors.New("wrong end date with resolved status")
 var ErrIncidentPatchImpactStatusWrong = errors.New("wrong status for changing impact")
+var ErrIncidentPatchImpactToMaintenanceForbidden = errors.New("can not change impact to maintenance")

@@ -16,7 +16,7 @@ var maintenanceStatuses = map[string]struct{}{
 
 // Incident actions for opened incidents.
 const (
-	IncidentAnalysing     = "analyzing"
+	IncidentAnalysing     = "analysing"
 	IncidentFixing        = "fixing"
 	IncidentImpactChanged = "impact changed"
 	IncidentObserving     = "observing"

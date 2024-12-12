@@ -254,8 +254,25 @@ func TestV2PostIncidentsHandler(t *testing.T) {
 }
 
 func TestV2PatchIncidentHandlerNegative(t *testing.T) {
-	t.Log("start to test incident patching and check json data for /v2/incidents/42")
+	t.Log("start to test negative cases for incident patching and check json data for /v2/incidents/42")
 	r, _ := initTests(t)
+
+	components := []int{1}
+	impact := 1
+	title := "Test incident for dcs"
+	startDate := time.Now().AddDate(0, 0, -1).UTC()
+	system := false
+
+	incidentCreateData := v2.IncidentData{
+		Title:      title,
+		Impact:     &impact,
+		Components: components,
+		StartDate:  startDate,
+		System:     &system,
+	}
+
+	resp := v2CreateIncident(t, r, &incidentCreateData)
+	incID := resp.Result[0].IncidentID
 
 	type testCase struct {
 		ExpectedCode int
@@ -263,80 +280,165 @@ func TestV2PatchIncidentHandlerNegative(t *testing.T) {
 		JSON         string
 	}
 
-	jsEndPresent := `{
-  "title":"OpenStack Upgrade in regions EU-DE/EU-NL",
-  "impact":1,
-  "components":[
-    1
-  ],
-  "start_date":"2024-11-25T09:32:14.075Z",
-  "end_date":"2024-11-25T09:32:14.075Z",
-  "system":false,
-  "updates":[
-    {
-      "id":163,
-      "status":"resolved",
-      "text":"issue resolved",
-      "timestamp":"2024-11-25T09:32:14.075Z"
-    }
-  ]
-}`
-	jsUpdatesPresent := `{
-  "title":"OpenStack Upgrade in regions EU-DE/EU-NL",
-  "impact":1,
-  "components":[
-    1
-  ],
-  "start_date":"2024-11-25T09:32:14.075Z",
-  "system":false,
-  "updates":[
-    {
-      "id":163,
-      "status":"resolved",
-      "text":"issue resolved",
-      "timestamp":"2024-11-25T09:32:14.075Z"
-    }
-  ]
-}`
-	jsWrongComponents := `{
-  "title":"OpenStack Upgrade in regions EU-DE/EU-NL",
-  "impact":1,
-  "components":[
-    218,
-    254
-  ],
-  "start_date":"2024-11-25T09:32:14.075Z",
-  "system":false
-}`
+	jsWrongOpenedStatus := `{
+		"title": "OpenStack Upgrade in regions EU-DE/EU-NL",
+	 	"impact": 1,
+	 	"message": "Any message why the incident was updated.",
+	 	"status": "in progress",
+	 	"update_date": "2024-12-11T14:46:03.877Z",
+	 	"start_date": "2024-12-11T14:46:03.877Z",
+	 	"end_date": "2024-12-11T14:46:03.877Z"
+	}`
 
+	jsWrongOpenedStartDate := `{
+	 "impact": 1,
+	 "message": "Any message why the incident was updated.",
+	 "status": "analysing",
+	 "update_date": "2024-12-11T14:46:03.877Z",
+	 "start_date": "2024-12-11T14:46:03.877Z"
+	}`
+	jsWrongOpenedStatusForChangingImpact := `{
+	"impact": 0,
+	"message": "Any message why the incident was updated.",
+	"status": "analysing",
+	"update_date": "2024-12-11T14:46:03.877Z"
+}`
+	jsWrongOpenedMaintenanceImpact := `{
+	 "impact": 0,
+	 "message": "Any message why the incident was updated.",
+	 "status": "impact changed",
+	 "update_date": "2024-12-11T14:46:03.877Z"
+	}`
 	testCases := map[string]*testCase{
-		"negative testcase, incident is not a maintenance and end_date is present": {
-			JSON:         jsEndPresent,
-			Expected:     `{"errMsg":"incident end_date should be empty"}`,
+		"negative testcase, wrong status for opened incident": {
+			JSON:         jsWrongOpenedStatus,
+			Expected:     `{"errMsg":"wrong status for incident"}`,
 			ExpectedCode: 400,
 		},
-		"negative testcase, updates are present": {
-			JSON:         jsUpdatesPresent,
-			Expected:     `{"errMsg":"incident updates should be empty"}`,
+		"negative testcase, wrong start date for opened incident": {
+			JSON:         jsWrongOpenedStartDate,
+			Expected:     `{"errMsg":"can not change start date for open incident"}`,
 			ExpectedCode: 400,
 		},
-		"negative testcase, wrong components ids": {
-			JSON:         jsWrongComponents,
-			Expected:     `{"errMsg":"component does not exist, component_id: 218"}`,
+		"negative testcase, wrong status for changing impact": {
+			JSON:         jsWrongOpenedStatusForChangingImpact,
+			Expected:     `{"errMsg":"wrong status for changing impact"}`,
+			ExpectedCode: 400,
+		},
+		"negative testcase, can't change impact from incident to maintenance": {
+			JSON:         jsWrongOpenedMaintenanceImpact,
+			Expected:     `{"errMsg":"can not change impact to maintenance"}`,
 			ExpectedCode: 400,
 		},
 	}
 
-	for title, c := range testCases {
-		t.Logf("start test case: %s\n", title)
+	for testName, c := range testCases {
+		t.Logf("start test case: %s\n", testName)
+
+		url := fmt.Sprintf("/v2/incidents/%d", incID)
 
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest(http.MethodPost, v2Incidents, strings.NewReader(c.JSON))
+		req, _ := http.NewRequest(http.MethodPatch, url, strings.NewReader(c.JSON))
 		r.ServeHTTP(w, req)
 
 		assert.Equal(t, c.ExpectedCode, w.Code)
 		assert.Equal(t, c.Expected, w.Body.String())
 	}
+}
+
+func TestV2PatchIncidentHandler(t *testing.T) {
+	t.Log("start to test incident patching")
+	r, _ := initTests(t)
+
+	components := []int{1}
+	impact := 1
+	title := "Test incident for patching test"
+	startDate := time.Now().AddDate(0, 0, -2).UTC()
+	system := false
+
+	internalPatch := func(id int, p *v2.PatchIncidentData) *v2.Incident {
+		d, err := json.Marshal(p)
+		require.NoError(t, err)
+
+		url := fmt.Sprintf("/v2/incidents/%d", id)
+		w := httptest.NewRecorder()
+		req, _ := http.NewRequest(http.MethodPatch, url, bytes.NewReader(d))
+
+		r.ServeHTTP(w, req)
+		assert.Equal(t, 200, w.Code)
+
+		inc := &v2.Incident{}
+		err = json.Unmarshal(w.Body.Bytes(), inc)
+		require.NoError(t, err)
+		return inc
+	}
+
+	incidentCreateData := v2.IncidentData{
+		Title:      title,
+		Impact:     &impact,
+		Components: components,
+		StartDate:  startDate,
+		System:     &system,
+	}
+
+	resp := v2CreateIncident(t, r, &incidentCreateData)
+	incID := resp.Result[0].IncidentID
+
+	newTitle := "patched incident title"
+	t.Logf("patching incident title, from %s to %s", title, newTitle)
+
+	pData := v2.PatchIncidentData{
+		Title:      &newTitle,
+		Message:    "update title",
+		Status:     "analysing",
+		UpdateDate: time.Now().UTC(),
+	}
+
+	inc := internalPatch(incID, &pData)
+	assert.Equal(t, newTitle, inc.Title)
+
+	newImpact := 2
+	t.Logf("patching incident impact, from %d to %d", impact, newImpact)
+
+	pData.Impact = &newImpact
+	pData.Status = v2.IncidentImpactChanged
+
+	inc = internalPatch(incID, &pData)
+	assert.Equal(t, newImpact, *inc.Impact)
+
+	t.Logf("close incident")
+	pData.Status = v2.IncidentResolved
+	updateDate := time.Now().UTC()
+	pData.UpdateDate = updateDate
+
+	inc = internalPatch(incID, &pData)
+	assert.Equal(t, updateDate, *inc.EndDate)
+
+	t.Logf("patching closed incident, change start date and end date")
+	startDate = time.Now().AddDate(0, 0, -1).UTC()
+	endDate := time.Now().UTC()
+
+	pData.Status = v2.IncidentChanged
+	pData.StartDate = &startDate
+	pData.EndDate = &endDate
+
+	inc = internalPatch(incID, &pData)
+	assert.Equal(t, startDate, inc.StartDate)
+	assert.Equal(t, endDate, *inc.EndDate)
+
+	t.Logf("reopen closed incident")
+
+	pData.Status = v2.IncidentReopened
+	pData.StartDate = nil
+	pData.EndDate = nil
+	inc = internalPatch(incID, &pData)
+	assert.Nil(t, inc.EndDate)
+
+	t.Logf("final close the test incident")
+
+	pData.Status = v2.IncidentResolved
+	inc = internalPatch(incID, &pData)
+	assert.NotNil(t, inc.EndDate)
 }
 
 func v2CreateIncident(t *testing.T, r *gin.Engine, inc *v2.IncidentData) *v2.PostIncidentResp {
@@ -398,7 +500,13 @@ func v2GetIncidents(t *testing.T, r *gin.Engine) []*v2.Incident {
 func v2PatchIncident(t *testing.T, r *gin.Engine, inc *v2.Incident) {
 	t.Helper()
 
-	d, err := json.Marshal(inc)
+	patch := v2.PatchIncidentData{
+		Message:    "closed",
+		Status:     "resolved",
+		UpdateDate: *inc.EndDate,
+	}
+
+	d, err := json.Marshal(patch)
 	require.NoError(t, err)
 
 	url := fmt.Sprintf("/v2/incidents/%d", inc.IncidentID.ID)

@@ -389,8 +389,12 @@ func checkPatchData(incoming *PatchIncidentData, stored *db.Incident) error {
 		return nil
 	}
 
-	if incoming.Impact != nil && incoming.Impact != stored.Impact && incoming.Status != IncidentImpactChanged {
+	if (incoming.Impact != nil && *incoming.Impact != *stored.Impact) && incoming.Status != IncidentImpactChanged {
 		return apiErrors.ErrIncidentPatchImpactStatusWrong
+	}
+
+	if incoming.Impact != nil && *incoming.Impact != *stored.Impact && *incoming.Impact == 0 {
+		return apiErrors.ErrIncidentPatchImpactToMaintenanceForbidden
 	}
 
 	if _, ok := incidentOpenStatuses[incoming.Status]; !ok {
