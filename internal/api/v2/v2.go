@@ -95,23 +95,27 @@ func GetIncidentHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 			return
 		}
 
-		components := make([]int, len(r.Components))
-		for i, comp := range r.Components {
-			components[i] = int(comp.ID)
-		}
-
-		incData := IncidentData{
-			Title:      *r.Text,
-			Impact:     r.Impact,
-			Components: components,
-			StartDate:  *r.StartDate,
-			EndDate:    r.EndDate,
-			System:     &r.System,
-			Updates:    r.Statuses,
-		}
-
-		c.JSON(http.StatusOK, &Incident{incID, incData})
+		c.JSON(http.StatusOK, toAPIIncident(r))
 	}
+}
+
+func toAPIIncident(inc *db.Incident) *Incident {
+	components := make([]int, len(inc.Components))
+	for i, comp := range inc.Components {
+		components[i] = int(comp.ID)
+	}
+
+	incData := IncidentData{
+		Title:      *inc.Text,
+		Impact:     inc.Impact,
+		Components: components,
+		StartDate:  *inc.StartDate,
+		EndDate:    inc.EndDate,
+		System:     &inc.System,
+		Updates:    inc.Statuses,
+	}
+
+	return &Incident{IncidentID{ID: int(inc.ID)}, incData}
 }
 
 // PostIncidentHandler creates an incident.
@@ -290,20 +294,13 @@ func createIncident(dbInst *db.DB, log *zap.Logger, inc *db.Incident, descriptio
 }
 
 type PatchIncidentData struct {
-	Title *string `json:"title,omitempty"`
-	//    INCIDENT_IMPACTS = {
-	//        0: Impact(0, "maintenance", "Scheduled maintenance"),
-	//        1: Impact(1, "minor", "Minor incident (i.e. performance impact)"),
-	//        2: Impact(2, "major", "Major incident"),
-	//        3: Impact(3, "outage", "Service outage"),
-	//    }
-	Impact     *int  `json:"impact,omitempty"`
-	Components []int `json:"components,omitempty"`
-	// Datetime format is standard: "2006-01-01T12:00:00Z"
-	StartDate *time.Time         `json:"start_date,omitempty"`
-	EndDate   *time.Time         `json:"end_date,omitempty"`
-	System    *bool              `json:"system,omitempty"`
-	Update    *db.IncidentStatus `json:"update,omitempty"`
+	Title      *string    `json:"title,omitempty"`
+	Impact     *int       `json:"impact,omitempty"`
+	Message    string     `json:"message" binding:"required"`
+	Status     string     `json:"status" binding:"required"`
+	UpdateDate time.Time  `json:"update_date" binding:"required"`
+	StartDate  *time.Time `json:"start_date,omitempty"`
+	EndDate    *time.Time `json:"end_date,omitempty"`
 }
 
 func PatchIncidentHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
@@ -322,37 +319,120 @@ func PatchIncidentHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 			return
 		}
 
-		var components []db.Component
-		if len(incData.Components) != 0 {
-			components = make([]db.Component, len(incData.Components))
-			for i, comp := range incData.Components {
-				components[i] = db.Component{ID: uint(comp)}
-			}
-		}
-
-		var statuses []db.IncidentStatus
-		if incData.Update != nil {
-			statuses = append(statuses, *incData.Update)
-		}
-
-		dbInc := db.Incident{
-			ID:         uint(incID.ID),
-			Text:       incData.Title,
-			StartDate:  incData.StartDate,
-			EndDate:    incData.EndDate,
-			Impact:     incData.Impact,
-			System:     *incData.System,
-			Components: components,
-			Statuses:   statuses,
-		}
-
-		err := dbInst.ModifyIncident(&dbInc)
+		storedIncident, err := dbInst.GetIncident(incID.ID)
 		if err != nil {
 			apiErrors.RaiseInternalErr(c, err)
 			return
 		}
 
-		c.JSON(http.StatusOK, gin.H{"msg": "incident updated"})
+		if err = checkPatchData(&incData, storedIncident); err != nil {
+			apiErrors.RaiseBadRequestErr(c, err)
+			return
+		}
+
+		updateFields(&incData, storedIncident)
+
+		status := db.IncidentStatus{
+			IncidentID: storedIncident.ID,
+			Status:     incData.Status,
+			Text:       incData.Message,
+			Timestamp:  incData.UpdateDate,
+		}
+		storedIncident.Statuses = append(storedIncident.Statuses, status)
+
+		err = dbInst.ModifyIncident(storedIncident)
+		if err != nil {
+			apiErrors.RaiseInternalErr(c, err)
+			return
+		}
+
+		if incData.Status == IncidentReopened {
+			err = dbInst.ReOpenIncident(storedIncident)
+			if err != nil {
+				apiErrors.RaiseInternalErr(c, err)
+				return
+			}
+		}
+
+		inc, errDB := dbInst.GetIncident(int(storedIncident.ID))
+		if errDB != nil {
+			apiErrors.RaiseInternalErr(c, errDB)
+			return
+		}
+
+		c.JSON(http.StatusOK, toAPIIncident(inc))
+	}
+}
+
+func checkPatchData(incoming *PatchIncidentData, stored *db.Incident) error {
+	if *stored.Impact == 0 {
+		if incoming.Impact != nil && *incoming.Impact != 0 {
+			return apiErrors.ErrIncidentPatchMaintenanceImpactForbidden
+		}
+
+		if _, ok := maintenanceStatuses[incoming.Status]; !ok {
+			return apiErrors.ErrIncidentPatchMaintenanceStatus
+		}
+
+		return nil
+	}
+
+	if stored.EndDate != nil {
+		if _, ok := incidentClosedStatuses[incoming.Status]; !ok {
+			return apiErrors.ErrIncidentPatchClosedStatus
+		}
+
+		if (incoming.StartDate != nil || incoming.EndDate != nil) && incoming.Status != IncidentChanged {
+			return apiErrors.ErrIncidentPatchClosedStatus
+		}
+
+		return nil
+	}
+
+	if (incoming.Impact != nil && *incoming.Impact != *stored.Impact) && incoming.Status != IncidentImpactChanged {
+		return apiErrors.ErrIncidentPatchImpactStatusWrong
+	}
+
+	if incoming.Impact != nil && *incoming.Impact != *stored.Impact && *incoming.Impact == 0 {
+		return apiErrors.ErrIncidentPatchImpactToMaintenanceForbidden
+	}
+
+	if _, ok := incidentOpenStatuses[incoming.Status]; !ok {
+		return apiErrors.ErrIncidentPatchStatus
+	}
+
+	if incoming.StartDate != nil {
+		return apiErrors.ErrIncidentPatchOpenedStartDate
+	}
+
+	return nil
+}
+
+func updateFields(income *PatchIncidentData, stored *db.Incident) {
+	if *stored.Impact == 0 || stored.EndDate != nil {
+		if income.StartDate != nil {
+			stored.StartDate = income.StartDate
+		}
+
+		if income.EndDate != nil {
+			stored.EndDate = income.EndDate
+		}
+	}
+
+	if income.Title != nil {
+		stored.Text = income.Title
+	}
+
+	if income.Impact != nil {
+		stored.Impact = income.Impact
+	}
+
+	if income.Status == IncidentReopened {
+		stored.EndDate = nil
+	}
+
+	if income.Status == IncidentResolved {
+		stored.EndDate = &income.UpdateDate
 	}
 }
 
