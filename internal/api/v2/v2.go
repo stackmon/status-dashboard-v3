@@ -630,12 +630,6 @@ func GetComponentsAvailabilityHandler(dbInst *db.DB, logger *zap.Logger) gin.Han
 			}
 
 			sortComponentAvailability(compAvailability)
-			// sort.Slice(compAvailability, func(i, j int) bool {
-			// 	if compAvailability[i].Year == compAvailability[j].Year {
-			// 		return compAvailability[i].Month > compAvailability[j].Month
-			// 	}
-			// 	return compAvailability[i].Year > compAvailability[j].Year
-			// })
 
 			availability[index] = &ComponentAvailability{
 				ComponentID:  ComponentID{int(comp.ID)},

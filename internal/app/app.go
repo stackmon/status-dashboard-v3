@@ -36,7 +36,10 @@ func New(c *conf.Config, log *zap.Logger) (*App, error) {
 		return nil, err
 	}
 
-	apiNew := api.New(c, log, dbNew)
+	apiNew, err := api.New(c, log, dbNew)
+	if err != nil {
+		return nil, err
+	}
 
 	s := &http.Server{
 		Addr:              fmt.Sprintf(":%s", c.Port),

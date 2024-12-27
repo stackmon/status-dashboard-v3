@@ -23,7 +23,7 @@ const (
 
 func TestV2GetIncidentsHandler(t *testing.T) {
 	t.Log("start to test GET /v2/incidents")
-	r, _ := initTests(t)
+	r, _, _ := initTests(t)
 
 	incidentStr := `{"id":1,"title":"Closed incident without any update","impact":1,"components":[1],"start_date":"2024-10-24T10:12:42Z","end_date":"2024-10-24T11:12:42Z","system":false,"updates":[{"status":"resolved","text":"close incident","timestamp":"2024-10-24T11:12:42.559346Z"}]}`
 
@@ -51,7 +51,7 @@ func TestV2GetIncidentsHandler(t *testing.T) {
 
 func TestV2GetComponentsHandler(t *testing.T) {
 	t.Log("start to test GET /v2/components")
-	r, _ := initTests(t)
+	r, _, _ := initTests(t)
 
 	var response = `[{"id":1,"name":"Cloud Container Engine","attributes":[{"name":"region","value":"EU-DE"},{"name":"category","value":"Container"},{"name":"type","value":"cce"}]},{"id":2,"name":"Cloud Container Engine","attributes":[{"name":"region","value":"EU-NL"},{"name":"category","value":"Container"},{"name":"type","value":"cce"}]},{"id":3,"name":"Elastic Cloud Server","attributes":[{"name":"region","value":"EU-DE"},{"name":"category","value":"Compute"},{"name":"type","value":"ecs"}]},{"id":4,"name":"Elastic Cloud Server","attributes":[{"name":"region","value":"EU-NL"},{"name":"category","value":"Compute"},{"name":"type","value":"ecs"}]},{"id":5,"name":"Distributed Cache Service","attributes":[{"name":"region","value":"EU-DE"},{"name":"category","value":"Database"},{"name":"type","value":"dcs"}]},{"id":6,"name":"Distributed Cache Service","attributes":[{"name":"region","value":"EU-NL"},{"name":"category","value":"Database"},{"name":"type","value":"dcs"}]}]`
 
@@ -66,7 +66,7 @@ func TestV2GetComponentsHandler(t *testing.T) {
 
 func TestV2PostIncidentsHandlerNegative(t *testing.T) {
 	t.Log("start to test incident creation and check json data for /v2/incidents")
-	r, _ := initTests(t)
+	r, _, _ := initTests(t)
 
 	type testCase struct {
 		ExpectedCode int
@@ -152,7 +152,7 @@ func TestV2PostIncidentsHandlerNegative(t *testing.T) {
 
 func TestV2PostIncidentsHandler(t *testing.T) {
 	t.Log("start to test incident creation for /v2/incidents")
-	r, _ := initTests(t)
+	r, _, _ := initTests(t)
 
 	t.Log("create an incident")
 
@@ -255,7 +255,7 @@ func TestV2PostIncidentsHandler(t *testing.T) {
 
 func TestV2PatchIncidentHandlerNegative(t *testing.T) {
 	t.Log("start to test negative cases for incident patching and check json data for /v2/incidents/42")
-	r, _ := initTests(t)
+	r, _, _ := initTests(t)
 
 	components := []int{1}
 	impact := 1
@@ -348,7 +348,7 @@ func TestV2PatchIncidentHandlerNegative(t *testing.T) {
 
 func TestV2PatchIncidentHandler(t *testing.T) {
 	t.Log("start to test incident patching")
-	r, _ := initTests(t)
+	r, _, _ := initTests(t)
 
 	components := []int{1}
 	impact := 1

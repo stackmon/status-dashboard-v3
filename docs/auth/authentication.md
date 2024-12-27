@@ -1,6 +1,8 @@
 # Authentication
 
-In this section we focus on the authentication for frontend SPA.
+In this section we focus on the authentication for frontend SPA. The main focus here - the security.
+
+For this approach we don't need share any information about keycloak client. The FE doesn't need to know any urls and secrets.
 
 The general schema presented here
 
@@ -91,4 +93,16 @@ The backend calculates the SHA256 for `code_verifier` and extract saved data fro
 # Authentication middleware
 
 On the backend side we check all incoming requests and try to extract `Bearer` header with access token. 
-After successful extraction we get public keys from keycloak realm. And check the `access_token` by these keys. 
+After successful extraction we get public keys from keycloak realm. And check the `access_token` by these keys.
+
+# How to get a token locally
+
+```shell
+curl -X POST   http://localhost:8080/realms/myapp/protocol/openid-connect/token   \
+-H "Content-Type: application/x-www-form-urlencoded"   \
+-d "grant_type=password"   \
+-d "client_id=client"   \
+-d "username=user"   \
+-d "password=user" \
+-d "client_secret=secret"
+```

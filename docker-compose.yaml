@@ -19,6 +19,7 @@ services:
       - KC_BOOTSTRAP_ADMIN_USERNAME=admin
       - KC_BOOTSTRAP_ADMIN_PASSWORD=admin
       - KC_HOSTNAME=localhost
+      - KC_LOG_CONSOLE_LEVEL=all
     ports:
       - "8080:8080"
     volumes:
