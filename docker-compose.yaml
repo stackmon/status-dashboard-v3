@@ -1,5 +1,3 @@
-version: "3.8"
-
 services:
   database:
     container_name: database
@@ -10,9 +8,23 @@ services:
       - POSTGRES_PASSWORD=pass
       - POSTGRES_DB=status_dashboard
     ports:
-      - 5432:5432
+      - "5432:5432"
     volumes:
       - db:/var/lib/postgresql/data
+  keycloak:
+    container_name: keycloak
+    image: quay.io/keycloak/keycloak:26.0.6
+    restart: always
+    environment:
+      - KC_BOOTSTRAP_ADMIN_USERNAME=admin
+      - KC_BOOTSTRAP_ADMIN_PASSWORD=admin
+      - KC_HOSTNAME=localhost
+    ports:
+      - "8080:8080"
+    volumes:
+      - keycloak:/opt/keycloak/data/
+    command: start-dev
 
 volumes:
   db:
+  keycloak:
