@@ -99,10 +99,21 @@ func (db *DB) SaveIncident(inc *Incident) (uint, error) {
 	return inc.ID, nil
 }
 
-// TODO: check this function for patching incident
 func (db *DB) ModifyIncident(inc *Incident) error {
 	r := db.g.Updates(inc)
 
+	if r.Error != nil {
+		return r.Error
+	}
+
+	return nil
+}
+
+// ReOpenIncident the special function if you need to NULL your end_date.
+func (db *DB) ReOpenIncident(inc *Incident) error {
+	r := db.g.Model(&Incident{}).Where("id = ?", inc.ID).Updates(map[string]interface{}{
+		"end_date": nil,
+	})
 	if r.Error != nil {
 		return r.Error
 	}
