@@ -17,6 +17,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/stackmon/otc-status-dashboard/internal/api"
+	"github.com/stackmon/otc-status-dashboard/internal/api/auth"
 	"github.com/stackmon/otc-status-dashboard/internal/api/errors"
 	v1 "github.com/stackmon/otc-status-dashboard/internal/api/v1"
 	v2 "github.com/stackmon/otc-status-dashboard/internal/api/v2"
@@ -66,7 +67,7 @@ func TestMain(m *testing.M) {
 	m.Run()
 }
 
-func initTests(t *testing.T) (*gin.Engine, *db.DB) {
+func initTests(t *testing.T) (*gin.Engine, *db.DB, *auth.Provider) {
 	t.Helper()
 	t.Log("init structs")
 
@@ -83,36 +84,56 @@ func initTests(t *testing.T) (*gin.Engine, *db.DB) {
 	r.Use(api.ErrorHandle())
 
 	logger, _ := zap.NewDevelopment()
+
+	cfg, err := conf.LoadConf()
+	require.NoError(t, err)
+
+	oa2Prov, err := auth.NewProvider(cfg.Keycloak.URL, cfg.Keycloak.Realm, cfg.Keycloak.ClientID, cfg.Keycloak.ClientSecret, cfg.Hostname, cfg.WebURL)
+	require.NoError(t, err)
+
+	initRoutesAuth(t, r, oa2Prov, logger)
 	initRoutesV1(t, r, d, logger)
 	initRoutesV2(t, r, d, logger)
 
-	return r, d
+	return r, d, oa2Prov
 }
 
-func initRoutesV1(t *testing.T, c *gin.Engine, dbInst *db.DB, log *zap.Logger) {
+func initRoutesAuth(t *testing.T, c *gin.Engine, oa2Prov *auth.Provider, logger *zap.Logger) {
+	t.Helper()
+	t.Log("init routes for auth")
+
+	authAPI := c.Group("auth")
+
+	authAPI.GET("login", auth.GetLoginPageHandler(oa2Prov, logger))
+	authAPI.GET("callback", auth.GetCallbackHandler(oa2Prov, logger))
+	authAPI.POST("token", auth.PostTokenHandler(oa2Prov, logger))
+	authAPI.POST("logout", auth.PostTokenHandler(oa2Prov, logger))
+}
+
+func initRoutesV1(t *testing.T, c *gin.Engine, dbInst *db.DB, logger *zap.Logger) {
 	t.Helper()
 	t.Log("init routes for V1")
 
 	v1Api := c.Group("v1")
 
-	v1Api.GET("component_status", v1.GetComponentsStatusHandler(dbInst, log))
-	v1Api.POST("component_status", v1.PostComponentStatusHandler(dbInst, log))
+	v1Api.GET("component_status", v1.GetComponentsStatusHandler(dbInst, logger))
+	v1Api.POST("component_status", v1.PostComponentStatusHandler(dbInst, logger))
 
-	v1Api.GET("incidents", v1.GetIncidentsHandler(dbInst, log))
+	v1Api.GET("incidents", v1.GetIncidentsHandler(dbInst, logger))
 }
 
-func initRoutesV2(t *testing.T, c *gin.Engine, dbInst *db.DB, log *zap.Logger) {
+func initRoutesV2(t *testing.T, c *gin.Engine, dbInst *db.DB, logger *zap.Logger) {
 	t.Helper()
 	t.Log("init routes for V2")
 
 	v2Api := c.Group("v2")
 
-	v2Api.GET("components", v2.GetComponentsHandler(dbInst, log))
-	v2Api.POST("components", v2.PostComponentHandler(dbInst, log))
-	v2Api.GET("components/:id", v2.GetComponentHandler(dbInst, log))
+	v2Api.GET("components", v2.GetComponentsHandler(dbInst, logger))
+	v2Api.POST("components", v2.PostComponentHandler(dbInst, logger))
+	v2Api.GET("components/:id", v2.GetComponentHandler(dbInst, logger))
 
-	v2Api.GET("incidents", v2.GetIncidentsHandler(dbInst, log))
-	v2Api.POST("incidents", api.ValidateComponentsMW(dbInst, log), v2.PostIncidentHandler(dbInst, log))
-	v2Api.GET("incidents/:id", v2.GetIncidentHandler(dbInst, log))
-	v2Api.PATCH("incidents/:id", v2.PatchIncidentHandler(dbInst, log))
+	v2Api.GET("incidents", v2.GetIncidentsHandler(dbInst, logger))
+	v2Api.POST("incidents", api.ValidateComponentsMW(dbInst, logger), v2.PostIncidentHandler(dbInst, logger))
+	v2Api.GET("incidents/:id", v2.GetIncidentHandler(dbInst, logger))
+	v2Api.PATCH("incidents/:id", v2.PatchIncidentHandler(dbInst, logger))
 }

@@ -1,45 +1,21 @@
 package api
 
 import (
-	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/golang-jwt/jwt/v5"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 
+	"github.com/stackmon/otc-status-dashboard/internal/api/auth"
 	apiErrors "github.com/stackmon/otc-status-dashboard/internal/api/errors"
 	"github.com/stackmon/otc-status-dashboard/internal/db"
 )
 
-func (a *API) ValidateComponentsMW() gin.HandlerFunc {
-	return func(c *gin.Context) {
-		type Components struct {
-			Components []int `json:"components"`
-		}
-
-		var components Components
-
-		if err := c.ShouldBindBodyWithJSON(&components); err != nil {
-			apiErrors.RaiseBadRequestErr(c, fmt.Errorf("%w: %w", apiErrors.ErrComponentInvalidFormat, err))
-			return
-		}
-
-		// TODO: move this list to the memory cache
-		// We should check, that all components are presented in our db.
-		err := a.IsPresentComponent(components.Components)
-		if err != nil {
-			if errors.Is(err, apiErrors.ErrComponentDSNotExist) {
-				apiErrors.RaiseBadRequestErr(c, err)
-			} else {
-				apiErrors.RaiseInternalErr(c, err)
-			}
-		}
-		c.Next()
-	}
-}
 func ValidateComponentsMW(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		logger.Info("start to validate given components")
@@ -72,20 +48,51 @@ func ValidateComponentsMW(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 		c.Next()
 	}
 }
-
-func (a *API) IsPresentComponent(components []int) error {
-	dbComps, err := a.db.GetComponentsAsMap()
-	if err != nil {
-		return err
-	}
-
-	for _, comp := range components {
-		if _, ok := dbComps[comp]; !ok {
-			return apiErrors.ErrComponentDSNotExist
+func AuthenticationMW(prov *auth.Provider, logger *zap.Logger) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if prov.Disabled {
+			logger.Info("authentication is disabled")
+			c.Next()
+			return
 		}
-	}
 
-	return nil
+		logger.Info("start to process authentication request")
+
+		authHeader := c.GetHeader("Authorization")
+		if authHeader == "" {
+			apiErrors.RaiseNotAuthorizedErr(c, apiErrors.ErrAuthNotAuthenticated)
+			return
+		}
+
+		rawToken := strings.TrimPrefix(authHeader, "Bearer ")
+		// Parse the JWT token and validate it using the Keycloak public key
+		token, err := jwt.Parse(rawToken, func(token *jwt.Token) (interface{}, error) {
+			// Validate the token's signing method
+			if _, ok := token.Method.(*jwt.SigningMethodRSA); !ok {
+				return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+			}
+
+			key, err := prov.GetPublicKey()
+			if err != nil {
+				return nil, fmt.Errorf("error while getting public key: %w", err)
+			}
+
+			return key, nil
+		})
+
+		if err != nil {
+			logger.Error("failed to parse and validate a token", zap.Error(err))
+			apiErrors.RaiseNotAuthorizedErr(c, apiErrors.ErrAuthNotAuthenticated)
+			return
+		}
+
+		if !token.Valid {
+			apiErrors.RaiseNotAuthorizedErr(c, apiErrors.ErrAuthNotAuthenticated)
+			return
+		}
+
+		c.Next()
+	}
 }
 
 func ErrorHandle() gin.HandlerFunc {

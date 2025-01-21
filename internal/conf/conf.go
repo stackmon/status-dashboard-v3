@@ -1,16 +1,24 @@
 package conf
 
 import (
+	"errors"
 	"fmt"
+	"reflect"
 	"strconv"
+	"strings"
 
 	"github.com/joho/godotenv"
 	"github.com/kelseyhightower/envconfig"
 )
 
 const osPref = "SD"
-
 const DevelopMode = "devel"
+
+const (
+	DefaultWebURL   = "http://localhost:9000"
+	DefaultHostname = "localhost"
+	DefaultPort     = "8000"
+)
 
 type Config struct {
 	// DB connection uri
@@ -19,10 +27,27 @@ type Config struct {
 	// Cache connection uri
 	// It can be redis format or internal
 	Cache string `envconfig:"CACHE"`
+	// Keycloak settings
+	Keycloak *Keycloak `envconfig:"KEYCLOAK"`
 	// Log level for verbosity
 	LogLevel string `envconfig:"LOG_LEVEL"`
 	// App port
-	Port string `envconfig:"PORT" default:"8000"`
+	Port string `envconfig:"PORT"`
+	// Hostname for the app, mostly used to generate a callback URL for keycloak
+	Hostname string `envconfig:"HOSTNAME"`
+	// Enable SSL for the app
+	SSLDisabled bool `envconfig:"SSL_DISABLED"`
+	// Web URL for the app
+	WebURL string `envconfig:"WEB_URL"`
+	// Disable authentication for any reasons it doesn't work with hostname like "*prod*"
+	AuthenticationDisabled bool `envconfig:"AUTHENTICATION_DISABLED"`
+}
+
+type Keycloak struct {
+	URL          string `envconfig:"URL"`
+	Realm        string `envconfig:"REALM"`
+	ClientID     string `envconfig:"CLIENT_ID"`
+	ClientSecret string `envconfig:"CLIENT_SECRET"`
 }
 
 func (c *Config) Validate() error {
@@ -34,10 +59,25 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("wrong port for http server")
 	}
 
+	return nil
+}
+
+func (c *Config) FillDefaults() {
 	if c.LogLevel == "" {
 		c.LogLevel = DevelopMode
 	}
-	return nil
+
+	if c.Port == "" {
+		c.Port = DefaultPort
+	}
+
+	if c.Hostname == "" {
+		c.Hostname = DefaultHostname
+	}
+
+	if c.WebURL == "" {
+		c.WebURL = DefaultWebURL
+	}
 }
 
 // LoadConf loads configuration from .env file and environment.
@@ -52,7 +92,11 @@ func LoadConf() (*Config, error) {
 		return nil, err
 	}
 
-	mergeConfigs(envMap, &c)
+	if err = mergeConfigs(envMap, &c, osPref); err != nil {
+		return nil, err
+	}
+
+	c.FillDefaults()
 
 	if err = c.Validate(); err != nil {
 		return nil, err
@@ -61,33 +105,62 @@ func LoadConf() (*Config, error) {
 	return &c, nil
 }
 
-func mergeConfigs(env map[string]string, c *Config) {
+var ErrInvalidDataMerge = errors.New("could not merge config, the obj must be a point to a struct")
+
+const envConfigTag = "envconfig"
+
+// mergeConfigs allow to merge config params from env variables and .env file.
+// It checks the Config struct and if the value is missing, it set up the value from .env file.
+func mergeConfigs(env map[string]string, obj any, prefix string) error { //nolint:gocognit
 	if env == nil {
-		return
+		return nil
 	}
-	// TODO: use reflect to automate it
-	if c.DB == "" {
-		v, ok := env["SD_DB"]
-		if ok {
-			c.DB = v
+
+	v := reflect.ValueOf(obj)
+
+	if v.Kind() != reflect.Ptr {
+		return ErrInvalidDataMerge
+	}
+
+	v = v.Elem()
+	if v.Kind() != reflect.Struct {
+		return ErrInvalidDataMerge
+	}
+
+	t := v.Type()
+
+	// Iterate through the fields
+	for i := 0; i < v.NumField(); i++ { //nolint:intrange
+		field := t.Field(i)
+		value := v.Field(i)
+
+		if value.Kind() == reflect.Ptr && value.Elem().Kind() == reflect.Struct {
+			envValueTag := field.Tag.Get(envConfigTag)
+			confPrefix := fmt.Sprintf("%s_%s", prefix, envValueTag)
+			err := mergeConfigs(env, value.Interface(), confPrefix)
+			if err != nil {
+				return err
+			}
+
+			continue
+		}
+
+		if value.IsZero() && value.IsValid() && value.CanSet() {
+			envValueTag := field.Tag.Get(envConfigTag)
+			mapKey := strings.ToUpper(fmt.Sprintf("%s_%s", prefix, envValueTag))
+
+			switch value.Kind() { //nolint:exhaustive
+			case reflect.String:
+				value.SetString(env[mapKey])
+			case reflect.Bool:
+				if env[mapKey] == "true" {
+					value.SetBool(true)
+				}
+			default:
+				return fmt.Errorf("unsupported type for config field %s", field.Name)
+			}
 		}
 	}
-	if c.Cache == "" {
-		v, ok := env["SD_CACHE"]
-		if ok {
-			c.Cache = v
-		}
-	}
-	if c.LogLevel == "" {
-		v, ok := env["SD_LOG_LEVEL"]
-		if ok {
-			c.LogLevel = v
-		}
-	}
-	if c.Port == "" {
-		v, ok := env["SD_PORT"]
-		if ok {
-			c.Port = v
-		}
-	}
+
+	return nil
 }
