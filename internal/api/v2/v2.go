@@ -188,8 +188,7 @@ func PostIncidentHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc { //
 			return
 		}
 
-		incCreated, err := createIncident(dbInst, log, &incIn, incData.Description)
-		if err != nil {
+		if err = createIncident(dbInst, log, &incIn, incData.Description); err != nil {
 			apiErrors.RaiseInternalErr(c, err)
 			return
 		}
@@ -204,7 +203,7 @@ func PostIncidentHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc { //
 			for i, comp := range incIn.Components {
 				result[i] = &ProcessComponentResp{
 					ComponentID: int(comp.ID),
-					IncidentID:  int(incCreated.ID),
+					IncidentID:  int(incIn.ID),
 				}
 			}
 
@@ -215,8 +214,11 @@ func PostIncidentHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc { //
 		log.Info("start to analyse component movement")
 		result := make([]*ProcessComponentResp, 0)
 		// holly shit, but it moved from original logic
-		for _, inc := range openedIncidents {
-			for _, comp := range incIn.Components {
+		for _, comp := range incIn.Components {
+			compResult := &ProcessComponentResp{
+				ComponentID: int(comp.ID),
+			}
+			for _, inc := range openedIncidents {
 				for _, incComp := range inc.Components {
 					if comp.ID == incComp.ID {
 						log.Info("found the component in the opened incident", zap.Any("component", comp), zap.Any("incident", inc))
@@ -224,18 +226,20 @@ func PostIncidentHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc { //
 						if len(inc.Components) == 1 {
 							closeInc = true
 						}
-						incident, errRes := dbInst.MoveComponentFromOldToAnotherIncident(&comp, inc, incCreated, closeInc)
+						incident, errRes := dbInst.MoveComponentFromOldToAnotherIncident(&comp, inc, &incIn, closeInc)
 						if errRes != nil {
 							apiErrors.RaiseInternalErr(c, err)
 							return
 						}
-						result = append(result, &ProcessComponentResp{
-							ComponentID: int(comp.ID),
-							IncidentID:  int(incident.ID),
-						})
+						compResult.IncidentID = int(incident.ID)
 					}
 				}
 			}
+			if compResult.IncidentID == 0 {
+				log.Info("there are no any opened incidents for given component, return created incident")
+				compResult.IncidentID = int(incIn.ID)
+			}
+			result = append(result, compResult)
 		}
 
 		c.JSON(http.StatusOK, PostIncidentResp{Result: result})
@@ -264,11 +268,11 @@ func validateIncidentCreation(incData IncidentData) error {
 	return nil
 }
 
-func createIncident(dbInst *db.DB, log *zap.Logger, inc *db.Incident, description string) (*db.Incident, error) {
+func createIncident(dbInst *db.DB, log *zap.Logger, inc *db.Incident, description string) error {
 	log.Info("start to create an incident")
 	id, err := dbInst.SaveIncident(inc)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	inc.ID = id
@@ -286,11 +290,11 @@ func createIncident(dbInst *db.DB, log *zap.Logger, inc *db.Incident, descriptio
 
 		err = dbInst.ModifyIncident(inc)
 		if err != nil {
-			return nil, err
+			return err
 		}
 	}
 
-	return inc, nil
+	return nil
 }
 
 type PatchIncidentData struct {

@@ -220,7 +220,7 @@ func TestV2PostIncidentsHandler(t *testing.T) {
 	assert.Equal(t, fmt.Sprintf("Cloud Container Engine (Container, EU-DE, cce) moved from <a href='/incidents/%d'>Test incident for dcs</a>", result.Result[0].IncidentID-1), incidentN3.Updates[0].Text)
 	assert.Equal(t, fmt.Sprintf("Cloud Container Engine (Container, EU-NL, cce) moved from <a href='/incidents/%d'>Test incident for dcs</a>", result.Result[0].IncidentID-1), incidentN3.Updates[1].Text)
 
-	t.Log("create a new maintenance with the same components and higher impact, should create a new without components ")
+	t.Log("create a new maintenance with the same components and higher impact, should create a new without components")
 
 	impact = 0
 	title = "Test maintenance for dcs"
@@ -251,6 +251,20 @@ func TestV2PostIncidentsHandler(t *testing.T) {
 	assert.Equal(t, "SYSTEM", incidentN3.Updates[1].Status)
 	assert.Equal(t, fmt.Sprintf("Cloud Container Engine (Container, EU-DE, cce) moved from <a href='/incidents/%d'>Test incident for dcs</a>", incidentN3.ID-1), incidentN3.Updates[0].Text)
 	assert.Equal(t, fmt.Sprintf("Cloud Container Engine (Container, EU-NL, cce) moved from <a href='/incidents/%d'>Test incident for dcs</a>", incidentN3.ID-1), incidentN3.Updates[1].Text)
+
+	t.Log("check response, if incident component is not present in the opened incidents, should create a new incident")
+	components = []int{3}
+	impact = 1
+	incidentCreateData = v2.IncidentData{
+		Title:      "Test for another different component",
+		Impact:     &impact,
+		Components: components,
+		StartDate:  startDate,
+		System:     &system,
+	}
+	result = v2CreateIncident(t, r, &incidentCreateData)
+	assert.Equal(t, 9, result.Result[0].IncidentID)
+	assert.Equal(t, 3, result.Result[0].ComponentID)
 }
 
 func TestV2PatchIncidentHandlerNegative(t *testing.T) {
