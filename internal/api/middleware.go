@@ -53,6 +53,7 @@ func AuthenticationMW(prov *auth.Provider, logger *zap.Logger) gin.HandlerFunc {
 		if prov.Disabled {
 			logger.Info("authentication is disabled")
 			c.Next()
+			return
 		}
 
 		logger.Info("start to process authentication request")
