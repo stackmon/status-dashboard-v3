@@ -290,14 +290,14 @@ COPY public.incident_status (id, incident_id, "timestamp", text, status) FROM st
 -- Name: component_attribute_id_seq; Type: SEQUENCE SET; Schema: public; Owner: pg
 --
 
-SELECT pg_catalog.setval('public.component_attribute_id_seq', 12, true);
+SELECT pg_catalog.setval('public.component_attribute_id_seq', 18, true);
 
 
 --
 -- Name: component_id_seq; Type: SEQUENCE SET; Schema: public; Owner: pg
 --
 
-SELECT pg_catalog.setval('public.component_id_seq', 4, true);
+SELECT pg_catalog.setval('public.component_id_seq', 6, true);
 
 
 --

@@ -228,26 +228,31 @@ func (db *DB) GetComponentFromNameAttrs(name string, attr *ComponentAttr) (*Comp
 }
 
 func (db *DB) SaveComponent(comp *Component) (uint, error) {
-	var regIndex int
-	for i, attr := range comp.Attrs {
+
+	// Validate required region attribute
+	hasRegion := false
+	for _, attr := range comp.Attrs {
 		if attr.Name == "region" {
-			regIndex = i
+			hasRegion = true
+
+			// Check if component with same name and region exists
+			var exists Component
+			if err := db.g.Joins("JOIN component_attribute ca ON ca.component_id = component.id").
+				Where("component.name = ? AND ca.name = 'region' AND ca.value = ?",
+					comp.Name, attr.Value).First(&exists).Error; err == nil {
+				return 0, ErrDBComponentExists
+			}
+			break
 		}
 	}
 
-	_, err := db.GetComponentFromNameAttrs(comp.Name, &comp.Attrs[regIndex])
-	if err == nil {
-		return 0, ErrDBComponentExists
+	if !hasRegion {
+		return 0, fmt.Errorf("missing required region attribute")
 	}
 
-	if !errors.Is(err, gorm.ErrRecordNotFound) {
+	// Create the component
+	if err := db.g.Create(comp).Error; err != nil {
 		return 0, err
-	}
-
-	r := db.g.Create(comp)
-
-	if r.Error != nil {
-		return 0, r.Error
 	}
 
 	return comp.ID, nil

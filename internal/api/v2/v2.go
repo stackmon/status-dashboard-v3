@@ -571,13 +571,31 @@ func PostComponentHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 
 func checkComponentAttrs(attrs []ComponentAttribute) error {
 	//nolint:nolintlint,mnd
+	// Check total number of attributes
 	// this magic number will be changed in the next iteration
 	if len(attrs) != 3 {
 		return apiErrors.ErrComponentAttrInvalidFormat
 	}
+
+	// Track seen attribute names to detect duplicates
+	seen := make(map[string]bool)
+
+	// Verify all required attributes exist exactly once
 	for _, attr := range attrs {
-		_, ok := availableAttrs[attr.Name]
-		if !ok {
+		if _, exists := availableAttrs[attr.Name]; !exists {
+			return apiErrors.ErrComponentAttrInvalidFormat
+		}
+
+		// Check for duplicate attributes
+		if seen[attr.Name] {
+			return apiErrors.ErrComponentAttrInvalidFormat
+		}
+		seen[attr.Name] = true
+	}
+
+	// Verify all required attributes were found
+	for requiredAttr := range availableAttrs {
+		if !seen[requiredAttr] {
 			return apiErrors.ErrComponentAttrInvalidFormat
 		}
 	}
