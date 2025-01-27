@@ -623,3 +623,71 @@ func TestV2CreateComponentAndList(t *testing.T) {
 			comp.ID, comp.Name, comp.Attributes)
 	}
 }
+
+func TestV2GetComponentsAvailability(t *testing.T) {
+	t.Log("start to test GET /v2/availability")
+	r, _, _ := initTests(t)
+
+	// Incident preparation
+	t.Log("create an incident")
+
+	components := []int{7}
+	impact := 3
+	title := "Test incident for dcs"
+	startDate := time.Date(2024, 12, 1, 0, 0, 0, 0, time.UTC)
+	system := false
+
+	incidentCreateData := v2.IncidentData{
+		Title:      title,
+		Impact:     &impact,
+		Components: components,
+		StartDate:  startDate,
+		EndDate:    nil,
+		System:     &system,
+	}
+
+	result := v2CreateIncident(t, r, &incidentCreateData)
+
+	assert.Len(t, result.Result, len(incidentCreateData.Components))
+
+	// Incident closing
+	incident := v2GetIncident(t, r, result.Result[0].IncidentID)
+	endDate := time.Date(2024, 12, 16, 12, 0, 0, 0, time.UTC)
+	incident.EndDate = &endDate
+	v2PatchIncident(t, r, incident)
+
+	t.Logf("Incident patched: %+v", incident)
+
+	// Test case 1: Successful availability listing
+	t.Log("Test case 1: List availability successfully")
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodGet, "/v2/availability", nil)
+	r.ServeHTTP(w, req)
+
+	t.Logf("Availability response: status=%d, body=%s", w.Code, w.Body.String())
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var availability struct {
+		Data []v2.ComponentAvailability `json:"data"`
+	}
+	err := json.Unmarshal(w.Body.Bytes(), &availability)
+	require.NoError(t, err)
+	assert.NotEmpty(t, availability)
+
+	// Test case 2: Check if the availability data is correct
+	for _, compAvail := range availability.Data {
+		if compAvail.ComponentID.ID == 7 {
+			for _, avail := range compAvail.Availability {
+				if avail.Year == 2024 && avail.Month == 12 {
+					assert.Equal(t, 50.0, avail.Percentage,
+						"Availability percentage should be 50% for December 2024")
+					t.Logf("Component ID: %d, Year: %d, Month: %d, Availability: %.2f%%",
+						compAvail.ComponentID, avail.Year, avail.Month, avail.Percentage)
+				} else {
+					assert.Equal(t, 100.0, avail.Percentage,
+						"Availability percentage should be 100% for all months except December 2024")
+				}
+			}
+		}
+	}
+}
