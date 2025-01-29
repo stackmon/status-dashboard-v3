@@ -703,28 +703,24 @@ func TestV2GetComponentsAvailability(t *testing.T) {
 	assert.NotEmpty(t, availability)
 
 	// Test case 2: Check if the availability data is correct
+	targetMonths := map[int]bool{10: true, 11: true, 12: true}
+
 	for _, compAvail := range availability.Data {
 		if compAvail.ComponentID.ID == 7 {
-			for _, avail := range compAvail.Availability {
-				if avail.Year == 2024 {
-					targetMonths := []int{10, 11, 12}
-					isTargetMonth := false
-					for _, month := range targetMonths {
-						if avail.Month == month {
-							isTargetMonth = true
-							break
-						}
-					}
-					if isTargetMonth {
-						assert.Equal(t, 50.0, avail.Percentage,
-							"Availability percentage should be 50% for October, November, and December 2024")
-						t.Logf("Availability for %v: %d-%d: %.2f%%", compAvail.Name, avail.Year, avail.Month, avail.Percentage)
-					} else {
-						assert.Equal(t, 100.0, avail.Percentage,
-							"Availability percentage should be 100% for all months except October, November, and December 2024")
-					}
-				}
-			}
+			checkComponentAvailability(t, compAvail, targetMonths)
+		}
+	}
+}
+
+func checkComponentAvailability(t *testing.T, compAvail v2.ComponentAvailability, targetMonths map[int]bool) {
+	for _, avail := range compAvail.Availability {
+		if _, ok := targetMonths[avail.Month]; ok {
+			assert.InEpsilon(t, 50.00000, avail.Percentage, 0.00001,
+				"Availability percentage should be 50% for the target months")
+			t.Logf("Availability for %v: %d-%d: %.2f%%", compAvail.Name, avail.Year, avail.Month, avail.Percentage)
+		} else {
+			assert.InEpsilon(t, 100.00000, avail.Percentage, 0.00001,
+				"Availability percentage should be 100% for all months except the target months")
 		}
 	}
 }

@@ -228,7 +228,6 @@ func (db *DB) GetComponentFromNameAttrs(name string, attr *ComponentAttr) (*Comp
 }
 
 func (db *DB) SaveComponent(comp *Component) (uint, error) {
-
 	// Validate required region attribute
 	hasRegion := false
 	for _, attr := range comp.Attrs {
