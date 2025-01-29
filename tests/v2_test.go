@@ -633,11 +633,12 @@ func TestV2GetComponentsAvailability(t *testing.T) {
 
 	components := []int{7}
 	impact := 3
-	title := "Test incident for dcs"
+	title := "Test incident for dns N1"
 	startDate := time.Date(2024, 12, 1, 0, 0, 0, 0, time.UTC)
 	system := false
 
-	incidentCreateData := v2.IncidentData{
+	// Incident N1
+	incidentCreateDataN1 := v2.IncidentData{
 		Title:      title,
 		Impact:     &impact,
 		Components: components,
@@ -646,17 +647,44 @@ func TestV2GetComponentsAvailability(t *testing.T) {
 		System:     &system,
 	}
 
-	result := v2CreateIncident(t, r, &incidentCreateData)
+	resultN1 := v2CreateIncident(t, r, &incidentCreateDataN1)
 
-	assert.Len(t, result.Result, len(incidentCreateData.Components))
+	assert.Len(t, resultN1.Result, len(incidentCreateDataN1.Components))
 
 	// Incident closing
-	incident := v2GetIncident(t, r, result.Result[0].IncidentID)
+	incidentN1 := v2GetIncident(t, r, resultN1.Result[0].IncidentID)
 	endDate := time.Date(2024, 12, 16, 12, 0, 0, 0, time.UTC)
-	incident.EndDate = &endDate
-	v2PatchIncident(t, r, incident)
+	incidentN1.EndDate = &endDate
+	v2PatchIncident(t, r, incidentN1)
 
-	t.Logf("Incident patched: %+v", incident)
+	t.Logf("Incident patched: %+v", incidentN1)
+
+	// Incident N2
+
+	title = "Test incident for dns N2"
+	startDate = time.Date(2024, 10, 16, 12, 0, 0, 0, time.UTC)
+	endDate = time.Date(2024, 11, 16, 00, 00, 00, 0, time.UTC)
+
+	incidentCreateDataN2 := v2.IncidentData{
+		Title:      title,
+		Impact:     &impact,
+		Components: components,
+		StartDate:  startDate,
+		EndDate:    nil,
+		System:     &system,
+	}
+
+	resultN2 := v2CreateIncident(t, r, &incidentCreateDataN2)
+
+	assert.Len(t, resultN2.Result, len(incidentCreateDataN2.Components))
+
+	// Incident closing
+	incidentN2 := v2GetIncident(t, r, resultN2.Result[0].IncidentID)
+
+	incidentN2.EndDate = &endDate
+	v2PatchIncident(t, r, incidentN2)
+
+	t.Logf("Incident patched: %+v", incidentN2)
 
 	// Test case 1: Successful availability listing
 	t.Log("Test case 1: List availability successfully")
@@ -678,14 +706,23 @@ func TestV2GetComponentsAvailability(t *testing.T) {
 	for _, compAvail := range availability.Data {
 		if compAvail.ComponentID.ID == 7 {
 			for _, avail := range compAvail.Availability {
-				if avail.Year == 2024 && avail.Month == 12 {
-					assert.Equal(t, 50.0, avail.Percentage,
-						"Availability percentage should be 50% for December 2024")
-					t.Logf("Component ID: %d, Year: %d, Month: %d, Availability: %.2f%%",
-						compAvail.ComponentID, avail.Year, avail.Month, avail.Percentage)
-				} else {
-					assert.Equal(t, 100.0, avail.Percentage,
-						"Availability percentage should be 100% for all months except December 2024")
+				if avail.Year == 2024 {
+					targetMonths := []int{10, 11, 12}
+					isTargetMonth := false
+					for _, month := range targetMonths {
+						if avail.Month == month {
+							isTargetMonth = true
+							break
+						}
+					}
+					if isTargetMonth {
+						assert.Equal(t, 50.0, avail.Percentage,
+							"Availability percentage should be 50% for October, November, and December 2024")
+						t.Logf("Availability for %v: %d-%d: %.2f%%", compAvail.Name, avail.Year, avail.Month, avail.Percentage)
+					} else {
+						assert.Equal(t, 100.0, avail.Percentage,
+							"Availability percentage should be 100% for all months except October, November, and December 2024")
+					}
 				}
 			}
 		}
