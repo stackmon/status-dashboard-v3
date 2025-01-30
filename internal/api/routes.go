@@ -32,8 +32,7 @@ func (a *API) InitRoutes() {
 	v2API := a.r.Group(v2Group)
 	{
 		v2API.GET("components", v2.GetComponentsHandler(a.db, a.log))
-		// v2API.POST("components", AuthenticationMW(a.oa2Prov, a.log), v2.PostComponentHandler(a.db, a.log))
-		v2API.POST("components", v2.PostComponentHandler(a.db, a.log))
+		v2API.POST("components", AuthenticationMW(a.oa2Prov, a.log), v2.PostComponentHandler(a.db, a.log))
 		v2API.GET("components/:id", v2.GetComponentHandler(a.db, a.log))
 
 		v2API.GET("incidents", v2.GetIncidentsHandler(a.db, a.log))
