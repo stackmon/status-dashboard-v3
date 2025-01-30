@@ -118,7 +118,6 @@ func toAPIIncident(inc *db.Incident) *Incident {
 	return &Incident{IncidentID{ID: int(inc.ID)}, incData}
 }
 
-// PostIncidentHandler creates an incident.
 // TODO: copy-paste from the legacy, it's implemented, but only for API. We should discuss about this functionality.
 //
 //	 Process component status update and open new incident if required:
@@ -146,6 +145,7 @@ func toAPIIncident(inc *db.Incident) *Incident {
 //	  will be reflected in the incident statuses.
 //
 // TODO: skip this check, will be redesigned after the new incident management
+// PostIncidentHandler creates an incident.
 func PostIncidentHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc { //nolint:gocognit
 	return func(c *gin.Context) {
 		var incData IncidentData
@@ -695,7 +695,8 @@ func calculateAvailability(component *db.Component) ([]MonthlyAvailability, erro
 	periodEndDate := time.Now()
 	// Get the current date and starting point (12 months ago)
 	// a year ago, including current the month
-	periodStartDate := time.Date(periodEndDate.Year(), periodEndDate.Month(), 1, 0, 0, 0, 0, time.UTC).AddDate(0, -availabilityMonths, 0)
+	periodStartDate := time.Date(periodEndDate.Year(), periodEndDate.Month(),
+		1, 0, 0, 0, 0, time.UTC).AddDate(0, -availabilityMonths, 0)
 	monthlyDowntime := make([]float64, monthsInYear) // 12 months
 
 	for _, inc := range component.Incidents {
