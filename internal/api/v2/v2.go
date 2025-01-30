@@ -694,8 +694,9 @@ func calculateAvailability(component *db.Component) ([]MonthlyAvailability, erro
 
 	periodEndDate := time.Now()
 	// Get the current date and starting point (12 months ago)
-	periodStartDate := periodEndDate.AddDate(0, -availabilityMonths, 0) // a year ago, including current the month
-	monthlyDowntime := make([]float64, monthsInYear)                    // 12 months
+	// a year ago, including current the month
+	periodStartDate := time.Date(periodEndDate.Year(), periodEndDate.Month(), 1, 0, 0, 0, 0, time.UTC).AddDate(0, -availabilityMonths, 0)
+	monthlyDowntime := make([]float64, monthsInYear) // 12 months
 
 	for _, inc := range component.Incidents {
 		if inc.EndDate == nil || *inc.Impact != 3 {
