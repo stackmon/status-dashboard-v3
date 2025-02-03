@@ -18,7 +18,8 @@ import (
 )
 
 const (
-	v2Incidents = "/v2/incidents"
+	v2Incidents    = "/v2/incidents"
+	v2Availability = "/v2/availability"
 )
 
 func TestV2GetIncidentsHandler(t *testing.T) {
@@ -33,6 +34,10 @@ func TestV2GetIncidentsHandler(t *testing.T) {
 	r.ServeHTTP(w, req)
 
 	incidents := map[string][]*v2.Incident{}
+
+	t.Logf("Response status: %d", w.Code)
+	t.Logf("Response headers: %v", w.Header())
+	t.Logf("Response body: %s", w.Body.String())
 
 	assert.Equal(t, 200, w.Code)
 
@@ -530,4 +535,192 @@ func v2PatchIncident(t *testing.T, r *gin.Engine, inc *v2.Incident) {
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, 200, w.Code)
+}
+
+func v2GetComponents(t *testing.T, r *gin.Engine) []v2.Component {
+	t.Helper()
+
+	url := "/v2/components"
+	w := httptest.NewRecorder()
+	req, err := http.NewRequest(http.MethodGet, url, nil)
+	require.NoError(t, err, "failed to create HTTP request")
+
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code, "unexpected HTTP status code")
+
+	var components []v2.Component
+	err = json.Unmarshal(w.Body.Bytes(), &components)
+	require.NoError(t, err, "failed to unmarshal response body")
+
+	return components
+}
+
+func TestV2CreateComponentAndList(t *testing.T) {
+	t.Log("start to test component creation and listing")
+	r, _, _ := initTests(t)
+
+	// Test case 1: Successful component creation
+	t.Log("Test case 1: Create new component successfully")
+	newComponent := v2.PostComponentData{
+		Name: "Domain Name System",
+		Attributes: []v2.ComponentAttribute{
+			{Name: "type", Value: "dns"},
+			{Name: "region", Value: "EU-DE"},
+			{Name: "category", Value: "Network"},
+		},
+	}
+
+	w := httptest.NewRecorder()
+	data, _ := json.Marshal(newComponent)
+	req, _ := http.NewRequest(http.MethodPost, "/v2/components", bytes.NewReader(data))
+	r.ServeHTTP(w, req)
+
+	t.Logf("Create component response: status=%d, body=%s", w.Code, w.Body.String())
+	assert.Equal(t, http.StatusCreated, w.Code)
+
+	var createdComponent v2.Component
+	err := json.Unmarshal(w.Body.Bytes(), &createdComponent)
+	require.NoError(t, err)
+	assert.Equal(t, newComponent.Name, createdComponent.Name)
+	assert.Equal(t, len(newComponent.Attributes), len(createdComponent.Attributes))
+
+	// Test case 2: Try to create the same component again
+	t.Log("Test case 2: Try to create duplicate component")
+	w = httptest.NewRecorder()
+	req, _ = http.NewRequest(http.MethodPost, "/v2/components", bytes.NewReader(data))
+	r.ServeHTTP(w, req)
+
+	t.Logf("Duplicate component response: status=%d, body=%s", w.Code, w.Body.String())
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Contains(t, w.Body.String(), "component exists")
+
+	// Test case 3: Try to create component with invalid attributes (duplicate region)
+	t.Log("Test case 3: Create component with invalid attributes")
+	invalidComponent := v2.PostComponentData{
+		Name: "Invalid Component",
+		Attributes: []v2.ComponentAttribute{
+			{Name: "region", Value: "EU-DE"},
+			{Name: "region", Value: "EU-NL"}, // Duplicate attribute name
+			{Name: "type", Value: "test"},
+		},
+	}
+
+	data, _ = json.Marshal(invalidComponent)
+	w = httptest.NewRecorder()
+	req, _ = http.NewRequest(http.MethodPost, "/v2/components", bytes.NewReader(data))
+	r.ServeHTTP(w, req)
+
+	t.Logf("Invalid component response: status=%d, body=%s", w.Code, w.Body.String())
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Contains(t, w.Body.String(), "component attribute has invalid format")
+
+	// List all components to verify
+	components := v2GetComponents(t, r)
+	t.Log("Final components list:")
+	for _, comp := range components {
+		t.Logf("Component ID=%d, Name=%s, Attributes=%+v",
+			comp.ID, comp.Name, comp.Attributes)
+	}
+}
+
+func TestV2GetComponentsAvailability(t *testing.T) {
+	t.Log("start to test GET /v2/availability")
+	r, _, _ := initTests(t)
+
+	// Incident preparation
+	t.Log("create an incident")
+
+	components := []int{7}
+	impact := 3
+	title := "Test incident for dns N1"
+	startDate := time.Date(2024, 12, 1, 0, 0, 0, 0, time.UTC)
+	system := false
+
+	// Incident N1
+	incidentCreateDataN1 := v2.IncidentData{
+		Title:      title,
+		Impact:     &impact,
+		Components: components,
+		StartDate:  startDate,
+		EndDate:    nil,
+		System:     &system,
+	}
+
+	resultN1 := v2CreateIncident(t, r, &incidentCreateDataN1)
+
+	assert.Len(t, resultN1.Result, len(incidentCreateDataN1.Components))
+
+	// Incident closing
+	incidentN1 := v2GetIncident(t, r, resultN1.Result[0].IncidentID)
+	endDate := time.Date(2024, 12, 16, 12, 0, 0, 0, time.UTC)
+	incidentN1.EndDate = &endDate
+	v2PatchIncident(t, r, incidentN1)
+
+	t.Logf("Incident patched: %+v", incidentN1)
+
+	// Incident N2
+
+	title = "Test incident for dns N2"
+	startDate = time.Date(2024, 10, 16, 12, 0, 0, 0, time.UTC)
+	endDate = time.Date(2024, 11, 16, 00, 00, 00, 0, time.UTC)
+
+	incidentCreateDataN2 := v2.IncidentData{
+		Title:      title,
+		Impact:     &impact,
+		Components: components,
+		StartDate:  startDate,
+		EndDate:    nil,
+		System:     &system,
+	}
+
+	resultN2 := v2CreateIncident(t, r, &incidentCreateDataN2)
+
+	assert.Len(t, resultN2.Result, len(incidentCreateDataN2.Components))
+
+	// Incident closing
+	incidentN2 := v2GetIncident(t, r, resultN2.Result[0].IncidentID)
+
+	incidentN2.EndDate = &endDate
+	v2PatchIncident(t, r, incidentN2)
+
+	t.Logf("Incident patched: %+v", incidentN2)
+
+	// Test case 1: Successful availability listing
+	t.Log("Test case 1: List availability successfully")
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodGet, "/v2/availability", nil)
+	r.ServeHTTP(w, req)
+
+	t.Logf("Availability response: status=%d, body=%s", w.Code, w.Body.String())
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var availability struct {
+		Data []v2.ComponentAvailability `json:"data"`
+	}
+	err := json.Unmarshal(w.Body.Bytes(), &availability)
+	require.NoError(t, err)
+	assert.NotEmpty(t, availability)
+
+	// Test case 2: Check if the availability data is correct
+	targetMonths := map[int]bool{10: true, 11: true, 12: true}
+
+	for _, compAvail := range availability.Data {
+		if compAvail.ComponentID.ID == 7 {
+			checkComponentAvailability(t, compAvail, targetMonths)
+		}
+	}
+}
+
+func checkComponentAvailability(t *testing.T, compAvail v2.ComponentAvailability, targetMonths map[int]bool) {
+	for _, avail := range compAvail.Availability {
+		if _, ok := targetMonths[avail.Month]; ok {
+			assert.InEpsilon(t, 50.00000, avail.Percentage, 0.00001,
+				"Availability percentage should be 50% for the target months")
+			t.Logf("Availability for %v: %d-%d: %.2f%%", compAvail.Name, avail.Year, avail.Month, avail.Percentage)
+		} else {
+			assert.InEpsilon(t, 100.00000, avail.Percentage, 0.00001,
+				"Availability percentage should be 100% for all months except the target months")
+		}
+	}
 }

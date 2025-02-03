@@ -118,7 +118,6 @@ func toAPIIncident(inc *db.Incident) *Incident {
 	return &Incident{IncidentID{ID: int(inc.ID)}, incData}
 }
 
-// PostIncidentHandler creates an incident.
 // TODO: copy-paste from the legacy, it's implemented, but only for API. We should discuss about this functionality.
 //
 //	 Process component status update and open new incident if required:
@@ -146,6 +145,7 @@ func toAPIIncident(inc *db.Incident) *Incident {
 //	  will be reflected in the incident statuses.
 //
 // TODO: skip this check, will be redesigned after the new incident management
+// PostIncidentHandler creates an incident.
 func PostIncidentHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc { //nolint:gocognit
 	return func(c *gin.Context) {
 		var incData IncidentData
@@ -571,13 +571,31 @@ func PostComponentHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 
 func checkComponentAttrs(attrs []ComponentAttribute) error {
 	//nolint:nolintlint,mnd
+	// Check total number of attributes
 	// this magic number will be changed in the next iteration
 	if len(attrs) != 3 {
 		return apiErrors.ErrComponentAttrInvalidFormat
 	}
+
+	// Track seen attribute names to detect duplicates
+	seen := make(map[string]bool)
+
+	// Verify all required attributes exist exactly once
 	for _, attr := range attrs {
-		_, ok := availableAttrs[attr.Name]
-		if !ok {
+		if _, exists := availableAttrs[attr.Name]; !exists {
+			return apiErrors.ErrComponentAttrInvalidFormat
+		}
+
+		// Check for duplicate attributes
+		if seen[attr.Name] {
+			return apiErrors.ErrComponentAttrInvalidFormat
+		}
+		seen[attr.Name] = true
+	}
+
+	// Verify all required attributes were found
+	for requiredAttr := range availableAttrs {
+		if !seen[requiredAttr] {
 			return apiErrors.ErrComponentAttrInvalidFormat
 		}
 	}
@@ -676,8 +694,10 @@ func calculateAvailability(component *db.Component) ([]MonthlyAvailability, erro
 
 	periodEndDate := time.Now()
 	// Get the current date and starting point (12 months ago)
-	periodStartDate := periodEndDate.AddDate(0, -availabilityMonths, 0) // a year ago, including current the month
-	monthlyDowntime := make([]float64, monthsInYear)                    // 12 months
+	// a year ago, including current the month
+	periodStartDate := time.Date(periodEndDate.Year(), periodEndDate.Month(),
+		1, 0, 0, 0, 0, time.UTC).AddDate(0, -availabilityMonths, 0)
+	monthlyDowntime := make([]float64, monthsInYear) // 12 months
 
 	for _, inc := range component.Incidents {
 		if inc.EndDate == nil || *inc.Impact != 3 {
