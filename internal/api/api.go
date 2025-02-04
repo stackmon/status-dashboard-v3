@@ -27,7 +27,7 @@ func New(cfg *conf.Config, log *zap.Logger, database *db.DB) (*API, error) {
 	oa2Prov := &auth.Provider{Disabled: true}
 
 	var hostURI string
-	if !cfg.AuthenticationDisabled {
+	if !cfg.AuthenticationDisabled { //nolint:nestif
 		if cfg.Port == "443" || cfg.Port == "80" {
 			hostURI = cfg.Hostname
 		} else {
