@@ -26,26 +26,12 @@ func New(cfg *conf.Config, log *zap.Logger, database *db.DB) (*API, error) {
 
 	oa2Prov := &auth.Provider{Disabled: true}
 
-	var hostURI string
-	if !cfg.AuthenticationDisabled { //nolint:nestif
-		if cfg.Port == "443" || cfg.Port == "80" {
-			hostURI = cfg.Hostname
-		} else {
-			hostURI = fmt.Sprintf("%s:%s", cfg.Hostname, cfg.Port)
-		}
-
-		if cfg.SSLDisabled {
-			hostURI = fmt.Sprintf("http://%s", hostURI)
-		} else {
-			hostURI = fmt.Sprintf("https://%s", hostURI)
-		}
-
+	if !cfg.AuthenticationDisabled {
 		var err error
-		oa2Prov, err = auth.NewProvider(
+		if oa2Prov, err = auth.NewProvider(
 			cfg.Keycloak.URL, cfg.Keycloak.Realm, cfg.Keycloak.ClientID,
-			cfg.Keycloak.ClientSecret, hostURI, cfg.WebURL,
-		)
-		if err != nil {
+			cfg.Keycloak.ClientSecret, cfg.Hostname, cfg.WebURL,
+		); err != nil {
 			return nil, fmt.Errorf("could not initialise the OAuth provider, err: %w", err)
 		}
 	}

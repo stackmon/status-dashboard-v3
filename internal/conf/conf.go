@@ -33,11 +33,11 @@ type Config struct {
 	LogLevel string `envconfig:"LOG_LEVEL"`
 	// App port
 	Port string `envconfig:"PORT"`
-	// Hostname for the app, mostly used to generate a callback URL for keycloak
+	// Hostname for the app, used to generate a callback URL for keycloak
+	// Example: https://api.example.com
 	Hostname string `envconfig:"HOSTNAME"`
-	// Enable SSL for the app
-	SSLDisabled bool `envconfig:"SSL_DISABLED"`
 	// Web URL for the app
+	// Example: https://web.example.com
 	WebURL string `envconfig:"WEB_URL"`
 	// Disable authentication for any reasons it doesn't work with hostname like "*prod*"
 	AuthenticationDisabled bool `envconfig:"AUTHENTICATION_DISABLED"`
@@ -53,9 +53,9 @@ type Keycloak struct {
 func (c *Config) Validate() error {
 	p, err := strconv.Atoi(c.Port)
 	if err != nil {
-		return fmt.Errorf("wront SD_PORT format, should be a number in range 80:50000")
+		return fmt.Errorf("wront SD_PORT format, should be a number in range 1025:50000")
 	}
-	if p < 80 || p > 50000 {
+	if p < 1024 || p > 50000 {
 		return fmt.Errorf("wrong port for http server")
 	}
 
