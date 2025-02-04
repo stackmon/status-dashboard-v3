@@ -26,8 +26,13 @@ func New(cfg *conf.Config, log *zap.Logger, database *db.DB) (*API, error) {
 
 	oa2Prov := &auth.Provider{Disabled: true}
 
+	var hostURI string
 	if !cfg.AuthenticationDisabled {
-		hostURI := fmt.Sprintf("%s:%s", cfg.Hostname, cfg.Port)
+		if cfg.Port == "443" || cfg.Port == "80" {
+			hostURI = cfg.Hostname
+		} else {
+			hostURI = fmt.Sprintf("%s:%s", cfg.Hostname, cfg.Port)
+		}
 
 		if cfg.SSLDisabled {
 			hostURI = fmt.Sprintf("http://%s", hostURI)
