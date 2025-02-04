@@ -33,11 +33,11 @@ type Config struct {
 	LogLevel string `envconfig:"LOG_LEVEL"`
 	// App port
 	Port string `envconfig:"PORT"`
-	// Hostname for the app, mostly used to generate a callback URL for keycloak
+	// Hostname for the app, used to generate a callback URL for keycloak
+	// Example: https://api.example.com
 	Hostname string `envconfig:"HOSTNAME"`
-	// Enable SSL for the app
-	SSLDisabled bool `envconfig:"SSL_DISABLED"`
 	// Web URL for the app
+	// Example: https://web.example.com
 	WebURL string `envconfig:"WEB_URL"`
 	// Disable authentication for any reasons it doesn't work with hostname like "*prod*"
 	AuthenticationDisabled bool `envconfig:"AUTHENTICATION_DISABLED"`
