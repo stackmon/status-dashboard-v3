@@ -96,7 +96,15 @@ func (kc *Keycloak) fetchPublicKey() (*rsa.PublicKey, error) {
 		return nil, fmt.Errorf("error decoding JWK set: %w", err)
 	}
 
-	rsaPublicKey := jwkSet.Keys[0]
+	var rsaPublicKey JWK
+	for _, key := range jwkSet.Keys {
+		if key.Kty == "RSA" && key.Use == "sig" {
+			rsaPublicKey = key
+		}
+	}
+	if rsaPublicKey.Alg == "" {
+		return nil, fmt.Errorf("no RSA public key found in JWK set")
+	}
 	nBytes, err := base64.RawURLEncoding.DecodeString(rsaPublicKey.N)
 	if err != nil {
 		return nil, fmt.Errorf("error decoding N: %w", err)
