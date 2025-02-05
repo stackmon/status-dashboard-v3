@@ -49,7 +49,7 @@ jobs:
         push: false
 
   push_if_merged:
-    if: github.event.pull_request.merged == true
+    if: github.event.pull_request.merged == false
     runs-on: ubuntu-latest
 
     steps:

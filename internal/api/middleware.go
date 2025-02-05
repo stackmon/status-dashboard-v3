@@ -65,6 +65,7 @@ func AuthenticationMW(prov *auth.Provider, logger *zap.Logger) gin.HandlerFunc {
 		}
 
 		rawToken := strings.TrimPrefix(authHeader, "Bearer ")
+		logger.Debug("got a token", zap.String("token", rawToken))
 		// Parse the JWT token and validate it using the Keycloak public key
 		token, err := jwt.Parse(rawToken, func(token *jwt.Token) (interface{}, error) {
 			// Validate the token's signing method
@@ -87,6 +88,7 @@ func AuthenticationMW(prov *auth.Provider, logger *zap.Logger) gin.HandlerFunc {
 		}
 
 		if !token.Valid {
+			logger.Error("token is not valid", zap.Any("token", token))
 			apiErrors.RaiseNotAuthorizedErr(c, apiErrors.ErrAuthNotAuthenticated)
 			return
 		}

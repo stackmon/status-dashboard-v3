@@ -190,7 +190,8 @@ func PostTokenHandler(prov *Provider, logger *zap.Logger) gin.HandlerFunc {
 			apiErrors.RaiseBadRequestErr(c, apiErrors.ErrAuthMissingDataForCodeVerifier)
 			return
 		}
-		logger.Info("return token to the client")
+		logger.Info("return token to a client")
+		logger.Debug("raw token", zap.Any("token", token))
 		c.JSON(http.StatusOK, token)
 	}
 }
