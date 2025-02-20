@@ -1,7 +1,9 @@
 package api
 
 import (
+	"github.com/gin-gonic/gin"
 	"github.com/stackmon/otc-status-dashboard/internal/api/auth"
+	"github.com/stackmon/otc-status-dashboard/internal/api/rss"
 	v1 "github.com/stackmon/otc-status-dashboard/internal/api/v1"
 	v2 "github.com/stackmon/otc-status-dashboard/internal/api/v2"
 )
@@ -11,6 +13,14 @@ const (
 	v1Group   = "v1"
 	v2Group   = "v2"
 )
+
+// DBInjector is a middleware that injects the DB instance into the Gin context.
+func (a *API) DBInjector() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		c.Set("db", a.db)
+		c.Next()
+	}
+}
 
 func (a *API) InitRoutes() {
 	authAPI := a.r.Group(authGroup)
@@ -47,8 +57,12 @@ func (a *API) InitRoutes() {
 		v2API.GET("availability", v2.GetComponentsAvailabilityHandler(a.db, a.log))
 
 		//nolint:gocritic
-		//v2API.GET("rss")
 		//v2API.GET("history")
 		//v2API.GET("/separate/<incident_id>/<component_id>") - > investigate it!!!
+	}
+
+	rssFEED := a.r.Group("rss")
+	{
+		rssFEED.GET("/", a.DBInjector(), rss.RssHandler) // Add the DBInjector middleware here
 	}
 }
