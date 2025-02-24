@@ -50,6 +50,19 @@ type Keycloak struct {
 	ClientSecret string `envconfig:"CLIENT_SECRET"`
 }
 
+type Impact struct {
+	Value  int
+	Key    string
+	String string
+}
+
+var IncidentImpacts = map[int]Impact{
+	0: {Value: 0, Key: "maintenance", String: "Scheduled maintenance"},
+	1: {Value: 1, Key: "minor", String: "Minor incident (i.e. performance impact)"},
+	2: {Value: 2, Key: "major", String: "Major incident"},
+	3: {Value: 3, Key: "outage", String: "Service outage"},
+}
+
 func (c *Config) Validate() error {
 	p, err := strconv.Atoi(c.Port)
 	if err != nil {

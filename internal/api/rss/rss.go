@@ -3,12 +3,14 @@ package rss
 import (
 	"fmt"
 	"net/http"
+	"sort"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/feeds"
 
 	rssErrors "github.com/stackmon/otc-status-dashboard/internal/api/errors"
+	"github.com/stackmon/otc-status-dashboard/internal/conf"
 	"github.com/stackmon/otc-status-dashboard/internal/db"
 )
 
@@ -43,19 +45,28 @@ func RssHandler(c *gin.Context) {
 		}
 
 		// Get incidents for the component
-		incident, err := dbInstance.GetOpenedIncidentsWithComponent(componentName, []db.ComponentAttr{*attr})
-		if err != nil && err != db.ErrDBIncidentDSNotExist {
+		incidents, err = dbInstance.GetIncidentsByComponentID(component.ID)
+		if err != nil {
 			rssErrors.RaiseRssGenerationErr(c, err)
 			return
 		}
-		if incident != nil {
-			incidents = append(incidents, incident)
+		feedTitle = "OTC Status Dashboard - " + component.Name + " (" + region + ")"
+	} else if region != "" && componentName == "" {
+		// Get all incidents for the region
+		attr := &db.ComponentAttr{
+			Name:  "region",
+			Value: region,
 		}
 
-		feedTitle = "OTC Status Dashboard - " + component.Name + " (" + region + ")"
+		incidents, err = dbInstance.GetIncidentsByComponentAttr(attr)
+		if err != nil {
+			rssErrors.RaiseRssGenerationErr(c, err)
+			return
+		}
+		feedTitle = "OTC Status Dashboard - " + region
 	} else {
 		// Get all incidents if no component specified
-		params := &db.IncidentsParams{IsOpened: true}
+		params := &db.IncidentsParams{IsOpened: false}
 		incidents, err = dbInstance.GetIncidents(params)
 		if err != nil {
 			rssErrors.RaiseRssGenerationErr(c, err)
@@ -71,23 +82,49 @@ func RssHandler(c *gin.Context) {
 		Created:     time.Now(),
 	}
 
+	// Limit the number of incidents to 10
+	if len(incidents) > 10 {
+		incidents = incidents[:10]
+	}
+
 	feedItems := make([]*feeds.Item, 0, len(incidents))
 	for _, incident := range incidents {
-		var description string
-		if incident.Text != nil {
-			description = *incident.Text
+		impactLevel := "Unknown"
+		if incident.Impact != nil {
+			if impactData, ok := conf.IncidentImpacts[*incident.Impact]; ok {
+				impactLevel = impactData.String
+			}
 		}
 
 		item := &feeds.Item{
-			Title:       fmt.Sprintf("Incident #%d - Impact Level %d", incident.ID, *incident.Impact),
-			Link:        &feeds.Link{Href: fmt.Sprintf("https://status.otc-service.com/incidents/%d", incident.ID)},
-			Description: description,
-			Created:     *incident.StartDate,
+			Title:   fmt.Sprintf("Incident #%d - Impact Level: %s", incident.ID, impactLevel),
+			Link:    &feeds.Link{Href: fmt.Sprintf("https://status.otc-service.com/incidents/%d", incident.ID)},
+			Created: *incident.StartDate,
 		}
 
-		if incident.EndDate != nil {
-			item.Updated = *incident.EndDate
+		var description string
+		description = "<![CDATA["
+		if incident.Text != nil {
+			description = *incident.Text + "<br>"
 		}
+		description += fmt.Sprintf("Incident impact: %s<br>", impactLevel)
+		description += fmt.Sprintf("Incident has started on: %s<br>", incident.StartDate.Format(time.RFC3339))
+
+		if incident.EndDate != nil {
+			description += fmt.Sprintf("Incident end date: %s<br>", incident.EndDate.Format(time.RFC3339))
+			item.Updated = *incident.EndDate
+		} else {
+			item.Updated = *incident.StartDate
+		}
+
+		if len(incident.Statuses) > 0 {
+			description += fmt.Sprintf("%s: ", incident.Statuses[0].Timestamp.Format(time.RFC3339))
+			description += incident.Statuses[0].Status
+			item.Content = incident.Statuses[0].Status
+			item.Updated = incident.Statuses[0].Timestamp
+		}
+		description += "]]>"
+		item.Description = description
 
 		feedItems = append(feedItems, item)
 	}
@@ -102,4 +139,26 @@ func RssHandler(c *gin.Context) {
 
 	c.Header("Content-Type", "application/rss+xml")
 	c.String(http.StatusOK, rss)
+}
+
+func SortIncidents(incidents []*db.Incident) {
+	openIncidents := make([]*db.Incident, 0)
+	closedIncidents := make([]*db.Incident, 0)
+
+	for _, incident := range incidents {
+		if incident.EndDate == nil {
+			openIncidents = append(openIncidents, incident)
+		} else {
+			closedIncidents = append(closedIncidents, incident)
+		}
+	}
+
+	sort.Slice(openIncidents, func(i, j int) bool {
+		return openIncidents[i].StartDate.After(*openIncidents[j].StartDate)
+	})
+	sort.Slice(closedIncidents, func(i, j int) bool {
+		return closedIncidents[i].EndDate.After(*closedIncidents[j].EndDate)
+	})
+
+	incidents = append(openIncidents, closedIncidents...)
 }

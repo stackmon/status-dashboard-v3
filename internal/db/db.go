@@ -121,6 +121,45 @@ func (db *DB) ReOpenIncident(inc *Incident) error {
 	return nil
 }
 
+func (db *DB) GetIncidentsByComponentID(componentID uint) ([]*Incident, error) {
+	// Get all incidents for this component
+	var incidents []*Incident
+	r := db.g.Model(&Incident{}).
+		Joins("JOIN incident_component_relation icr ON icr.incident_id = incident.id").
+		Where("icr.component_id = ?", componentID).
+		Preload("Statuses").
+		Preload("Components", func(db *gorm.DB) *gorm.DB {
+			return db.Select("ID")
+		}).
+		Find(&incidents)
+
+	if r.Error != nil {
+		return nil, r.Error
+	}
+
+	return incidents, nil
+}
+
+func (db *DB) GetIncidentsByComponentAttr(attr *ComponentAttr) ([]*Incident, error) {
+	// Get all incidents for components with this attribute
+	var incidents []*Incident
+	r := db.g.Model(&Incident{}).
+		Joins("JOIN incident_component_relation icr ON icr.incident_id = incident.id").
+		Joins("JOIN component_attribute ca ON ca.component_id = icr.component_id").
+		Where("ca.name = ? AND ca.value = ?", attr.Name, attr.Value).
+		Preload("Statuses").
+		Preload("Components", func(db *gorm.DB) *gorm.DB {
+			return db.Select("ID")
+		}).
+		Find(&incidents)
+
+	if r.Error != nil {
+		return nil, r.Error
+	}
+
+	return incidents, nil
+}
+
 func (db *DB) GetOpenedIncidentsWithComponent(name string, attrs []ComponentAttr) (*Incident, error) {
 	comp := &Component{Name: name, Attrs: attrs}
 	r := db.g.Model(&Component{}).Preload("Attrs").Find(comp)
