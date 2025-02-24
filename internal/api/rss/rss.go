@@ -82,7 +82,7 @@ func RssHandler(c *gin.Context) {
 		Created:     time.Now(),
 	}
 
-	// Limit the number of incidents to 10
+	incidents = SortIncidents(incidents)
 	if len(incidents) > 10 {
 		incidents = incidents[:10]
 	}
@@ -97,33 +97,37 @@ func RssHandler(c *gin.Context) {
 		}
 
 		item := &feeds.Item{
-			Title:   fmt.Sprintf("Incident #%d - Impact Level: %s", incident.ID, impactLevel),
+			Title:   fmt.Sprintf("%s - Impact Level: %s #%d", *incident.Text, impactLevel, incident.ID),
 			Link:    &feeds.Link{Href: fmt.Sprintf("https://status.otc-service.com/incidents/%d", incident.ID)},
 			Created: *incident.StartDate,
 		}
 
 		var description string
-		description = "<![CDATA["
-		if incident.Text != nil {
-			description = *incident.Text + "<br>"
-		}
+		description = "<![CDATA[" + "<br>"
 		description += fmt.Sprintf("Incident impact: %s<br>", impactLevel)
-		description += fmt.Sprintf("Incident has started on: %s<br>", incident.StartDate.Format(time.RFC3339))
+		description += fmt.Sprintf(
+			"Incident has started on: %s<br>",
+			incident.StartDate.Format("2006-01-02 15:04:05 MST"),
+		)
 
 		if incident.EndDate != nil {
-			description += fmt.Sprintf("Incident end date: %s<br>", incident.EndDate.Format(time.RFC3339))
+			description += fmt.Sprintf(
+				"End date: %s<br>",
+				incident.EndDate.Format("2006-01-02 15:04:05 MST"),
+			)
 			item.Updated = *incident.EndDate
 		} else {
 			item.Updated = *incident.StartDate
 		}
 
 		if len(incident.Statuses) > 0 {
-			description += fmt.Sprintf("%s: ", incident.Statuses[0].Timestamp.Format(time.RFC3339))
-			description += incident.Statuses[0].Status
-			item.Content = incident.Statuses[0].Status
-			item.Updated = incident.Statuses[0].Timestamp
+			description += fmt.Sprintf(
+				"Last update: %s",
+				incident.Statuses[len(incident.Statuses)-1].Timestamp.Format("2006-01-02 15:04:05 MST"),
+			)
+			description += fmt.Sprintf("<br>Last status: %s", incident.Statuses[len(incident.Statuses)-1].Text)
+			item.Updated = incident.Statuses[len(incident.Statuses)-1].Timestamp
 		}
-		description += "]]>"
 		item.Description = description
 
 		feedItems = append(feedItems, item)
@@ -140,8 +144,7 @@ func RssHandler(c *gin.Context) {
 	c.Header("Content-Type", "application/rss+xml")
 	c.String(http.StatusOK, rss)
 }
-
-func SortIncidents(incidents []*db.Incident) {
+func SortIncidents(incidents []*db.Incident) []*db.Incident {
 	openIncidents := make([]*db.Incident, 0)
 	closedIncidents := make([]*db.Incident, 0)
 
@@ -159,6 +162,5 @@ func SortIncidents(incidents []*db.Incident) {
 	sort.Slice(closedIncidents, func(i, j int) bool {
 		return closedIncidents[i].EndDate.After(*closedIncidents[j].EndDate)
 	})
-
-	incidents = append(openIncidents, closedIncidents...)
+	return append(openIncidents, closedIncidents...)
 }
