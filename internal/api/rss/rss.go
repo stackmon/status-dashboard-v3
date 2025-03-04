@@ -14,7 +14,6 @@ import (
 	"github.com/stackmon/otc-status-dashboard/internal/db"
 )
 
-// validateRegion checks if the provided region is supported
 func validateRegion(dbInstance *db.DB, c *gin.Context, region string) bool {
 	supportedRegions, err := dbInstance.GetUniqueAttributeValues("region")
 	if err != nil {
@@ -44,13 +43,19 @@ func RssHandler(c *gin.Context) {
 	}
 
 	// Get DB instance from gin context
-	dbInstance := c.MustGet("db").(*db.DB)
+	dbInterface := c.MustGet("db")
+	dbInstance, ok := dbInterface.(*db.DB)
+	if !ok {
+		c.String(http.StatusInternalServerError, "Internal server error: invalid database instance")
+		return
+	}
 
 	var incidents []*db.Incident
 	var feedTitle string
 	var err error
 
-	if componentName != "" && region != "" {
+	switch {
+	case componentName != "" && region != "":
 		if !validateRegion(dbInstance, c, region) {
 			return
 		}
@@ -60,8 +65,8 @@ func RssHandler(c *gin.Context) {
 			Value: region,
 		}
 
-		component, err := dbInstance.GetComponentFromNameAttrs(componentName, attr)
-		if err != nil {
+		component, cErr := dbInstance.GetComponentFromNameAttrs(componentName, attr)
+		if cErr != nil {
 			c.String(http.StatusNotFound, "Component not found")
 			return
 		}
@@ -73,7 +78,7 @@ func RssHandler(c *gin.Context) {
 			return
 		}
 		feedTitle = component.Name + " (" + region + ")" + " | OTC Status Dashboard"
-	} else if region != "" && componentName == "" {
+	case region != "" && componentName == "":
 		if !validateRegion(dbInstance, c, region) {
 			return
 		}
@@ -90,7 +95,7 @@ func RssHandler(c *gin.Context) {
 			return
 		}
 		feedTitle = region + " | OTC Status Dashboard"
-	} else {
+	default:
 		// Get all incidents if no component specified
 		params := &db.IncidentsParams{IsOpened: false}
 		incidents, err = dbInstance.GetIncidents(params)
@@ -105,15 +110,16 @@ func RssHandler(c *gin.Context) {
 	baseURL := fmt.Sprintf("%s://%s", c.Request.URL.Scheme, c.Request.Host)
 
 	var rssPath, queryParams, descriptionField string
-	if componentName != "" && region != "" {
+	switch {
+	case componentName != "" && region != "":
 		rssPath = baseURL + "/rss/"
 		queryParams = "?mt=" + region + "&srv=" + componentName
 		descriptionField = fmt.Sprintf("%s (%s) - Incidents", componentName, region)
-	} else if region != "" {
+	case region != "":
 		rssPath = baseURL + "/rss/"
 		queryParams = "?mt=" + region
 		descriptionField = fmt.Sprintf("%s - Incidents", region)
-	} else {
+	default:
 		rssPath = baseURL
 		queryParams = ""
 		descriptionField = "OTC Status Dashboard - Incidents"
@@ -130,15 +136,17 @@ func RssHandler(c *gin.Context) {
 	}
 
 	incidents = SortIncidents(incidents)
+	//nolint:mnd
 	if len(incidents) > 10 {
 		incidents = incidents[:10]
 	}
 
 	feedItems := make([]*feeds.Item, 0, len(incidents))
+	incidentImpacts := conf.GetIncidentImpacts()
 	for _, incident := range incidents {
 		impactLevel := "Unknown"
 		if incident.Impact != nil {
-			if impactData, ok := conf.IncidentImpacts[*incident.Impact]; ok {
+			if impactData, exists := incidentImpacts[*incident.Impact]; exists {
 				impactLevel = impactData.String
 			}
 		}
