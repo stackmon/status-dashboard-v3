@@ -43,3 +43,7 @@ func RaiseStatusNotFoundErr(c *gin.Context, err error) {
 func RaiseNotAuthorizedErr(c *gin.Context, err error) {
 	_ = c.AbortWithError(http.StatusUnauthorized, ReturnError(err))
 }
+
+func RaiseRssGenerationErr(c *gin.Context, err error) {
+	_ = c.AbortWithError(http.StatusInternalServerError, ReturnError(err))
+}
