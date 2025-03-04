@@ -63,6 +63,6 @@ func (a *API) InitRoutes() {
 
 	rssFEED := a.r.Group("rss")
 	{
-		rssFEED.GET("/", a.DBInjector(), rss.RssHandler) // Add the DBInjector middleware here
+		rssFEED.GET("/", a.DBInjector(), rss.Handler) // Updated handler name
 	}
 }

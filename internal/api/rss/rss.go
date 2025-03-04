@@ -31,7 +31,111 @@ func validateRegion(dbInstance *db.DB, c *gin.Context, region string) bool {
 	return false
 }
 
-func RssHandler(c *gin.Context) {
+type feedParams struct {
+	region        string
+	componentName string
+	baseURL       string
+}
+
+func getIncidentsAndTitle(dbInstance *db.DB, params feedParams) ([]*db.Incident, string, error) {
+	var incidents []*db.Incident
+	var feedTitle string
+	var err error
+
+	switch {
+	case params.componentName != "" && params.region != "":
+		attr := &db.ComponentAttr{
+			Name:  "region",
+			Value: params.region,
+		}
+
+		component, cErr := dbInstance.GetComponentFromNameAttrs(params.componentName, attr)
+		if cErr != nil {
+			return nil, "", fmt.Errorf("component '%s' not found in region '%s'", params.componentName, params.region)
+		}
+
+		incidents, err = dbInstance.GetIncidentsByComponentID(component.ID)
+		if err != nil {
+			return nil, "", err
+		}
+		feedTitle = component.Name + " (" + params.region + ")" + " | OTC Status Dashboard"
+
+	case params.region != "" && params.componentName == "":
+		attr := &db.ComponentAttr{
+			Name:  "region",
+			Value: params.region,
+		}
+
+		incidents, err = dbInstance.GetIncidentsByComponentAttr(attr)
+		if err != nil {
+			return nil, "", err
+		}
+		feedTitle = params.region + " | OTC Status Dashboard"
+
+	default:
+		params := &db.IncidentsParams{IsOpened: false}
+		incidents, err = dbInstance.GetIncidents(params)
+		if err != nil {
+			return nil, "", err
+		}
+		feedTitle = "OTC Status Dashboard"
+	}
+
+	return incidents, feedTitle, nil
+}
+
+func createFeedContent(incident *db.Incident, impactLevel string) string {
+	var content string
+
+	if len(incident.Statuses) > 0 {
+		for i := len(incident.Statuses) - 1; i >= 0; i-- {
+			status := incident.Statuses[i]
+			content += fmt.Sprintf(
+				"<small>%s</small><br><strong>%s - </strong>%s<br><br><br>",
+				status.Timestamp.Format("2006-01-02 15:04 MST"),
+				status.Status,
+				status.Text,
+			)
+		}
+	}
+
+	content += fmt.Sprintf("Incident impact: %s<br>", impactLevel)
+	content += fmt.Sprintf(
+		"Start date: %s<br>",
+		incident.StartDate.Format("2006-01-02 15:04:05 MST"),
+	)
+	if incident.EndDate != nil {
+		content += fmt.Sprintf(
+			"End date: %s<br>",
+			incident.EndDate.Format("2006-01-02 15:04:05 MST"),
+		)
+	}
+	content += "<br>We apologize for the inconvenience and will share an update once we have more information."
+	return content
+}
+
+func createFeedItem(incident *db.Incident, baseURL string, impactLevel string) *feeds.Item {
+	item := &feeds.Item{
+		Title:   fmt.Sprintln(*incident.Text),
+		Link:    &feeds.Link{Href: fmt.Sprintf("%s/incidents/%d", baseURL, incident.ID)},
+		Created: *incident.StartDate,
+	}
+
+	item.Content = createFeedContent(incident, impactLevel)
+
+	if len(incident.Statuses) > 0 {
+		item.Updated = incident.Statuses[len(incident.Statuses)-1].Timestamp
+	}
+	if incident.EndDate != nil {
+		item.Updated = *incident.EndDate
+	} else {
+		item.Updated = *incident.StartDate
+	}
+
+	return item
+}
+
+func Handler(c *gin.Context) {
 	region := c.Query("mt")
 	componentName := c.Query("srv")
 	if componentName != "" && region == "" {
@@ -42,7 +146,6 @@ func RssHandler(c *gin.Context) {
 		return
 	}
 
-	// Get DB instance from gin context
 	dbInterface := c.MustGet("db")
 	dbInstance, ok := dbInterface.(*db.DB)
 	if !ok {
@@ -50,88 +153,33 @@ func RssHandler(c *gin.Context) {
 		return
 	}
 
-	var incidents []*db.Incident
-	var feedTitle string
-	var err error
-
-	switch {
-	case componentName != "" && region != "":
+	if componentName != "" || region != "" {
 		if !validateRegion(dbInstance, c, region) {
 			return
 		}
-
-		attr := &db.ComponentAttr{
-			Name:  "region",
-			Value: region,
-		}
-
-		component, cErr := dbInstance.GetComponentFromNameAttrs(componentName, attr)
-		if cErr != nil {
-			c.String(http.StatusNotFound, "Component not found")
-			return
-		}
-
-		// Get incidents for the component
-		incidents, err = dbInstance.GetIncidentsByComponentID(component.ID)
-		if err != nil {
-			rssErrors.RaiseRssGenerationErr(c, err)
-			return
-		}
-		feedTitle = component.Name + " (" + region + ")" + " | OTC Status Dashboard"
-	case region != "" && componentName == "":
-		if !validateRegion(dbInstance, c, region) {
-			return
-		}
-
-		// Get all incidents for the region
-		attr := &db.ComponentAttr{
-			Name:  "region",
-			Value: region,
-		}
-
-		incidents, err = dbInstance.GetIncidentsByComponentAttr(attr)
-		if err != nil {
-			rssErrors.RaiseRssGenerationErr(c, err)
-			return
-		}
-		feedTitle = region + " | OTC Status Dashboard"
-	default:
-		// Get all incidents if no component specified
-		params := &db.IncidentsParams{IsOpened: false}
-		incidents, err = dbInstance.GetIncidents(params)
-		if err != nil {
-			rssErrors.RaiseRssGenerationErr(c, err)
-			return
-		}
-		feedTitle = "OTC Status Dashboard"
 	}
 
-	// Get base URL from request
 	baseURL := fmt.Sprintf("%s://%s", c.Request.URL.Scheme, c.Request.Host)
+	params := feedParams{
+		region:        region,
+		componentName: componentName,
+		baseURL:       baseURL,
+	}
 
-	var rssPath, queryParams, descriptionField string
-	switch {
-	case componentName != "" && region != "":
-		rssPath = baseURL + "/rss/"
-		queryParams = "?mt=" + region + "&srv=" + componentName
-		descriptionField = fmt.Sprintf("%s (%s) - Incidents", componentName, region)
-	case region != "":
-		rssPath = baseURL + "/rss/"
-		queryParams = "?mt=" + region
-		descriptionField = fmt.Sprintf("%s - Incidents", region)
-	default:
-		rssPath = baseURL
-		queryParams = ""
-		descriptionField = "OTC Status Dashboard - Incidents"
+	incidents, feedTitle, err := getIncidentsAndTitle(dbInstance, params)
+	if err != nil {
+		if componentName != "" {
+			c.String(http.StatusNotFound, err.Error())
+			return
+		}
+		rssErrors.RaiseRssGenerationErr(c, err)
+		return
 	}
 
 	feed := &feeds.Feed{
-		Title: feedTitle,
-		Link: &feeds.Link{
-			Href: rssPath + queryParams,
-			Rel:  "self",
-		},
-		Description: descriptionField,
+		Title:       feedTitle,
+		Link:        &feeds.Link{Href: baseURL + "/rss/" + c.Request.URL.RawQuery, Rel: "self"},
+		Description: feedTitle + " - Incidents",
 		Created:     time.Now(),
 	}
 
@@ -143,6 +191,7 @@ func RssHandler(c *gin.Context) {
 
 	feedItems := make([]*feeds.Item, 0, len(incidents))
 	incidentImpacts := conf.GetIncidentImpacts()
+
 	for _, incident := range incidents {
 		impactLevel := "Unknown"
 		if incident.Impact != nil {
@@ -151,49 +200,7 @@ func RssHandler(c *gin.Context) {
 			}
 		}
 
-		item := &feeds.Item{
-			// ToDo: return impactLevel, incident.ID to Title
-			Title:   fmt.Sprintln(*incident.Text),
-			Link:    &feeds.Link{Href: fmt.Sprintf("%s/incidents/%d", baseURL, incident.ID)},
-			Created: *incident.StartDate,
-		}
-
-		var content string
-
-		if len(incident.Statuses) > 0 {
-			// content += fmt.Sprintf(
-			// 	"Last update: %s",
-			// 	incident.Statuses[len(incident.Statuses)-1].Timestamp.Format("2006-01-02 15:04:05 MST"),
-			// )
-			// content += fmt.Sprintf("<br>Last status: %s", incident.Statuses[len(incident.Statuses)-1].Text)
-			for i := len(incident.Statuses) - 1; i >= 0; i-- {
-				status := incident.Statuses[i]
-				content += fmt.Sprintf(
-					"<small>%s</small><br><strong>%s - </strong>%s<br><br><br>",
-					status.Timestamp.Format("2006-01-02 15:04 MST"),
-					status.Status,
-					status.Text,
-				)
-			}
-			item.Updated = incident.Statuses[len(incident.Statuses)-1].Timestamp
-		}
-
-		content += fmt.Sprintf("Incident impact: %s<br>", impactLevel)
-		content += fmt.Sprintf(
-			"Incident has started on: %s<br>",
-			incident.StartDate.Format("2006-01-02 15:04:05 MST"),
-		)
-		if incident.EndDate != nil {
-			content += fmt.Sprintf(
-				"End date: %s<br>",
-				incident.EndDate.Format("2006-01-02 15:04:05 MST"),
-			)
-			item.Updated = *incident.EndDate
-		} else {
-			item.Updated = *incident.StartDate
-		}
-		content += "<br>We apologize for the inconvenience and will share an update once we have more information."
-		item.Content = content
+		item := createFeedItem(incident, baseURL, impactLevel)
 		feedItems = append(feedItems, item)
 	}
 
@@ -208,6 +215,7 @@ func RssHandler(c *gin.Context) {
 	c.Header("Content-Type", "application/rss+xml")
 	c.String(http.StatusOK, rss)
 }
+
 func SortIncidents(incidents []*db.Incident) []*db.Incident {
 	openIncidents := make([]*db.Incident, 0)
 	closedIncidents := make([]*db.Incident, 0)
