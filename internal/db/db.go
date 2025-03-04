@@ -430,3 +430,19 @@ func (db *DB) IncreaseIncidentImpact(inc *Incident, impact int) (*Incident, erro
 
 	return inc, nil
 }
+
+// GetUniqueAttributeValues returns a slice of unique values for a given attribute name
+func (db *DB) GetUniqueAttributeValues(attrName string) ([]string, error) {
+	var values []string
+	r := db.g.Model(&ComponentAttr{}).
+		Select("DISTINCT value").
+		Where("name = ?", attrName).
+		Order("value ASC").
+		Pluck("value", &values)
+
+	if r.Error != nil {
+		return nil, r.Error
+	}
+
+	return values, nil
+}
