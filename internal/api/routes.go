@@ -2,6 +2,7 @@ package api
 
 import (
 	"github.com/gin-gonic/gin"
+
 	"github.com/stackmon/otc-status-dashboard/internal/api/auth"
 	"github.com/stackmon/otc-status-dashboard/internal/api/rss"
 	v1 "github.com/stackmon/otc-status-dashboard/internal/api/v1"
@@ -57,12 +58,11 @@ func (a *API) InitRoutes() {
 		v2API.GET("availability", v2.GetComponentsAvailabilityHandler(a.db, a.log))
 
 		//nolint:gocritic
-		//v2API.GET("history")
 		//v2API.GET("/separate/<incident_id>/<component_id>") - > investigate it!!!
 	}
 
 	rssFEED := a.r.Group("rss")
 	{
-		rssFEED.GET("/", a.DBInjector(), rss.Handler) // Updated handler name
+		rssFEED.GET("/", rss.HandleRSS(a.db, a.log))
 	}
 }
