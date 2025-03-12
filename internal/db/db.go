@@ -38,7 +38,8 @@ func New(c *conf.Config) (*DB, error) {
 }
 
 type IncidentsParams struct {
-	IsOpened bool
+	LastCount int
+	IsOpened  bool
 }
 
 func (db *DB) GetIncidents(params ...*IncidentsParams) ([]*Incident, error) {
@@ -121,18 +122,27 @@ func (db *DB) ReOpenIncident(inc *Incident) error {
 	return nil
 }
 
-func (db *DB) GetIncidentsByComponentID(componentID uint) ([]*Incident, error) {
+func (db *DB) GetIncidentsByComponentID(componentID uint, params ...*IncidentsParams) ([]*Incident, error) {
 	// Get all incidents for this component
 	var incidents []*Incident
+	var param IncidentsParams
+	if params != nil && params[0] != nil {
+		param = *params[0]
+	}
+
 	r := db.g.Model(&Incident{}).
 		Joins("JOIN incident_component_relation icr ON icr.incident_id = incident.id").
 		Where("icr.component_id = ?", componentID).
 		Preload("Statuses").
 		Preload("Components", func(db *gorm.DB) *gorm.DB {
 			return db.Select("ID")
-		}).
-		Find(&incidents)
+		})
 
+	if param.LastCount != 0 {
+		r.Order("incident.id desc").Limit(param.LastCount)
+	}
+
+	r.Find(&incidents)
 	if r.Error != nil {
 		return nil, r.Error
 	}
@@ -140,9 +150,14 @@ func (db *DB) GetIncidentsByComponentID(componentID uint) ([]*Incident, error) {
 	return incidents, nil
 }
 
-func (db *DB) GetIncidentsByComponentAttr(attr *ComponentAttr) ([]*Incident, error) {
+func (db *DB) GetIncidentsByComponentAttr(attr *ComponentAttr, params ...*IncidentsParams) ([]*Incident, error) {
 	// Get all incidents for components with this attribute
 	var incidents []*Incident
+	var param IncidentsParams
+	if params != nil && params[0] != nil {
+		param = *params[0]
+	}
+
 	r := db.g.Model(&Incident{}).
 		Joins("JOIN incident_component_relation icr ON icr.incident_id = incident.id").
 		Joins("JOIN component_attribute ca ON ca.component_id = icr.component_id").
@@ -150,9 +165,13 @@ func (db *DB) GetIncidentsByComponentAttr(attr *ComponentAttr) ([]*Incident, err
 		Preload("Statuses").
 		Preload("Components", func(db *gorm.DB) *gorm.DB {
 			return db.Select("ID")
-		}).
-		Find(&incidents)
+		})
 
+	if param.LastCount != 0 {
+		r.Order("incident.id desc").Limit(param.LastCount)
+	}
+
+	r.Find(&incidents)
 	if r.Error != nil {
 		return nil, r.Error
 	}
