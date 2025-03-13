@@ -73,7 +73,7 @@ func HandleRSS(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 
 		feed.Items = feedItems
 
-		rss, err := feed.ToAtom()
+		rss, err := feed.ToRss()
 		if err != nil {
 			apiErrors.RaiseInternalErr(c, err)
 			return
@@ -184,7 +184,8 @@ func createFeedItem(incident *db.Incident, baseURL string) *feeds.Item {
 		Created: *incident.StartDate,
 	}
 
-	item.Content = createFeedContent(incident)
+	// Here we use Description for backward compatibility with SD2
+	item.Description = createFeedContent(incident)
 
 	if len(incident.Statuses) > 0 {
 		item.Updated = incident.Statuses[len(incident.Statuses)-1].Timestamp
