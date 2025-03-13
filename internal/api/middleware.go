@@ -48,6 +48,7 @@ func ValidateComponentsMW(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 		c.Next()
 	}
 }
+
 func AuthenticationMW(prov *auth.Provider, logger *zap.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if prov.Disabled {
