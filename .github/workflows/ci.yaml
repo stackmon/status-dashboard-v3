@@ -7,14 +7,13 @@ on:
   pull_request:
 
 env:
-  GO_VERSION: '1.22'
+  GO_VERSION: '1.24'
 
 permissions:
   contents: read
 
 jobs:
   check:
-    name: lint
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -24,9 +23,9 @@ jobs:
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v6
         with:
-          version: v1.60.3
+          version: v1.64.4
 
-  tests:
+  test:
     name: go-test
     runs-on: ubuntu-latest
     steps:

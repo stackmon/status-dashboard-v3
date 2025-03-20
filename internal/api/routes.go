@@ -2,6 +2,7 @@ package api
 
 import (
 	"github.com/stackmon/otc-status-dashboard/internal/api/auth"
+	"github.com/stackmon/otc-status-dashboard/internal/api/rss"
 	v1 "github.com/stackmon/otc-status-dashboard/internal/api/v1"
 	v2 "github.com/stackmon/otc-status-dashboard/internal/api/v2"
 )
@@ -47,8 +48,11 @@ func (a *API) InitRoutes() {
 		v2API.GET("availability", v2.GetComponentsAvailabilityHandler(a.db, a.log))
 
 		//nolint:gocritic
-		//v2API.GET("rss")
-		//v2API.GET("history")
 		//v2API.GET("/separate/<incident_id>/<component_id>") - > investigate it!!!
+	}
+
+	rssFEED := a.r.Group("rss")
+	{
+		rssFEED.GET("/", rss.HandleRSS(a.db, a.log))
 	}
 }
