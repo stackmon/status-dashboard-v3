@@ -26,7 +26,6 @@ jobs:
         with:
           version: v1.64.4
 
-  tests:
     name: go-test
     runs-on: ubuntu-latest
     steps:
