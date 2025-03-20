@@ -19,6 +19,7 @@ import (
 	"github.com/stackmon/otc-status-dashboard/internal/api"
 	"github.com/stackmon/otc-status-dashboard/internal/api/auth"
 	"github.com/stackmon/otc-status-dashboard/internal/api/errors"
+	rss "github.com/stackmon/otc-status-dashboard/internal/api/rss"
 	v1 "github.com/stackmon/otc-status-dashboard/internal/api/v1"
 	v2 "github.com/stackmon/otc-status-dashboard/internal/api/v2"
 	"github.com/stackmon/otc-status-dashboard/internal/conf"
@@ -94,6 +95,7 @@ func initTests(t *testing.T) (*gin.Engine, *db.DB, *auth.Provider) {
 	initRoutesAuth(t, r, oa2Prov, logger)
 	initRoutesV1(t, r, d, logger)
 	initRoutesV2(t, r, d, logger)
+	initRoutesRSS(t, r, d, logger)
 
 	return r, d, oa2Prov
 }
@@ -137,4 +139,13 @@ func initRoutesV2(t *testing.T, c *gin.Engine, dbInst *db.DB, logger *zap.Logger
 	v2Api.GET("incidents/:id", v2.GetIncidentHandler(dbInst, logger))
 	v2Api.PATCH("incidents/:id", v2.PatchIncidentHandler(dbInst, logger))
 	v2Api.GET("availability", v2.GetComponentsAvailabilityHandler(dbInst, logger))
+}
+
+func initRoutesRSS(t *testing.T, c *gin.Engine, dbInst *db.DB, logger *zap.Logger) {
+	t.Helper()
+	t.Log("init routes for RSS")
+
+	rssApi := c.Group("rss")
+
+	rssApi.GET("/", rss.HandleRSS(dbInst, logger))
 }
