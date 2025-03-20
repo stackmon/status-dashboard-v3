@@ -14,7 +14,6 @@ permissions:
 
 jobs:
   check:
-    name: lint
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -26,6 +25,7 @@ jobs:
         with:
           version: v1.64.4
 
+  test:
     name: go-test
     runs-on: ubuntu-latest
     steps:
