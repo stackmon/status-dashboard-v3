@@ -37,7 +37,7 @@ func RaiseBadRequestErr(c *gin.Context, err error) {
 }
 
 func RaiseStatusNotFoundErr(c *gin.Context, err error) {
-	_ = c.AbortWithError(http.StatusNotFound, ReturnError(err))
+	c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"error": err.Error()})
 }
 
 func RaiseNotAuthorizedErr(c *gin.Context, err error) {

@@ -1,6 +1,7 @@
 package rss
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"sort"
@@ -47,10 +48,10 @@ func HandleRSS(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 		incidents, err := getIncidents(dbInst, logger, params, maxIncidents)
 		if err != nil {
 			if componentName != "" {
-				apiErrors.RaiseStatusNotFoundErr(c, err)
+				apiErrors.RaiseStatusNotFoundErr(c, fmt.Errorf("component '%s' not found in region '%s'", componentName, region))
 				return
 			}
-			apiErrors.RaiseInternalErr(c, err)
+			apiErrors.RaiseInternalErr(c, fmt.Errorf("failed to retrieve incidents: %v", err))
 			return
 		}
 
@@ -117,8 +118,10 @@ func getIncidents(dbInstance *db.DB, log *zap.Logger, params feedParams, maxInci
 		var component *db.Component
 		component, err = dbInstance.GetComponentFromNameAttrs(params.componentName, attr)
 		if err != nil {
-			log.Error("failed to get component", zap.Error(err))
-			return nil, err
+			if errors.Is(err, db.ErrDBComponentDSNotExist) {
+				log.Info("component not found", zap.Error(err))
+				return nil, err
+			}
 		}
 
 		incidents, err = dbInstance.GetIncidentsByComponentID(component.ID, incParams)

@@ -55,6 +55,24 @@ func TestRSSHandlerRegion(t *testing.T) {
 	assert.Contains(t, w.Header().Get("Content-Type"), "application/rss+xml")
 }
 
+func TestRSSHandlerWrongRegion(t *testing.T) {
+	r, m := initTests(t)
+
+	startDate := "2025-02-01T00:00:01.371Z"
+
+	testTime, err := time.Parse(time.RFC3339, startDate)
+	require.NoError(t, err)
+
+	incidentsByRegion(t, m, testTime)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodGet, "/rss/?mt=WRONG-REGION", nil)
+
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusNotFound, w.Code)
+}
+
 func TestRSSHandlerComponent(t *testing.T) {
 	r, m := initTests(t)
 
@@ -72,6 +90,111 @@ func TestRSSHandlerComponent(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, w.Code)
 	assert.Contains(t, w.Header().Get("Content-Type"), "application/rss+xml")
+}
+
+func TestRSSHandlerWrongComponent(t *testing.T) {
+	r, m := initTests(t)
+
+	wrongComponent(t, m)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodGet, "/rss/?mt=EU-DE&srv=WRONG-COMP", nil)
+
+	r.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusNotFound, w.Code, "Expected StatusNotFound, got %d", w.Code)
+	assert.Contains(t, w.Body.String(), "component 'WRONG-COMP' not found in region 'EU-DE'")
+}
+
+func TestSortIncidents(t *testing.T) {
+	now := time.Now()
+	past := now.Add(-time.Hour)
+	future := now.Add(time.Hour)
+
+	tests := []struct {
+		name      string
+		incidents []*db.Incident
+		want      []*db.Incident
+	}{
+		{
+			name:      "empty",
+			incidents: []*db.Incident{},
+			want:      []*db.Incident{},
+		},
+		{
+			name: "only open",
+			incidents: []*db.Incident{
+				{StartDate: &future},
+				{StartDate: &now},
+				{StartDate: &past},
+			},
+			want: []*db.Incident{
+				{StartDate: &future},
+				{StartDate: &now},
+				{StartDate: &past},
+			},
+		},
+		{
+			name: "only closed",
+			incidents: []*db.Incident{
+				{StartDate: &past, EndDate: &future},
+				{StartDate: &past, EndDate: &now},
+				{StartDate: &past, EndDate: &past},
+			},
+			want: []*db.Incident{
+				{StartDate: &past, EndDate: &future},
+				{StartDate: &past, EndDate: &now},
+				{StartDate: &past, EndDate: &past},
+			},
+		},
+		{
+			name: "mixed",
+			incidents: []*db.Incident{
+				{StartDate: &past, EndDate: &future},
+				{StartDate: &future},
+				{StartDate: &past, EndDate: &now},
+				{StartDate: &now},
+				{StartDate: &past, EndDate: &past},
+				{StartDate: &past},
+			},
+			want: []*db.Incident{
+				{StartDate: &future},
+				{StartDate: &now},
+				{StartDate: &past},
+				{StartDate: &past, EndDate: &future},
+				{StartDate: &past, EndDate: &now},
+				{StartDate: &past, EndDate: &past},
+			},
+		},
+		{
+			name: "mixed with same dates",
+			incidents: []*db.Incident{
+				{StartDate: &past, EndDate: &future},
+				{StartDate: &future},
+				{StartDate: &past, EndDate: &now},
+				{StartDate: &now},
+				{StartDate: &past, EndDate: &past},
+				{StartDate: &past},
+				{StartDate: &now},
+				{StartDate: &past, EndDate: &now},
+			},
+			want: []*db.Incident{
+				{StartDate: &future},
+				{StartDate: &now},
+				{StartDate: &now},
+				{StartDate: &past},
+				{StartDate: &past, EndDate: &future},
+				{StartDate: &past, EndDate: &now},
+				{StartDate: &past, EndDate: &now},
+				{StartDate: &past, EndDate: &past},
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := sortIncidents(tt.incidents)
+			assert.Equal(t, tt.want, got)
+		})
+	}
 }
 
 func allIncidents(t *testing.T, mock sqlmock.Sqlmock, testTime time.Time) {
@@ -149,6 +272,7 @@ func incidentsByComponent(t *testing.T, mock sqlmock.Sqlmock, testTime time.Time
 
 	rowsComp := sqlmock.NewRows([]string{"id", "name"}).
 		AddRow(150, "Component_A")
+
 	mock.ExpectQuery(`^SELECT \* FROM "component" WHERE name = \$1 `+
 		`AND id = \(SELECT component.id FROM "component" `+
 		`JOIN component_attribute ca ON ca.component_id = component.id `+
@@ -193,6 +317,18 @@ func incidentsByComponent(t *testing.T, mock sqlmock.Sqlmock, testTime time.Time
 	mock.ExpectQuery(`^SELECT (.+) FROM "incident_status" WHERE "incident_status"."incident_id" IN \(\$1,\$2\)$`).
 		WithArgs(1, 2).
 		WillReturnRows(rowsStatus)
+}
+
+func wrongComponent(t *testing.T, mock sqlmock.Sqlmock) {
+	t.Helper()
+
+	mock.ExpectQuery(`^SELECT \* FROM "component" WHERE name = \$1 `+
+		`AND id = \(SELECT component\.id FROM "component" `+
+		`JOIN component_attribute ca ON ca\.component_id = component\.id `+
+		`WHERE ca\.value = \$2 AND component\.name = \$3\) `+
+		`ORDER BY "component"\."id" LIMIT \$4`).
+		WithArgs("WRONG-COMP", "EU-DE", "WRONG-COMP", 1).
+		WillReturnError(db.ErrDBComponentDSNotExist)
 }
 
 func initTests(t *testing.T) (*gin.Engine, sqlmock.Sqlmock) {
