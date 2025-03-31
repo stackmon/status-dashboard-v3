@@ -29,17 +29,17 @@ func Return404(c *gin.Context) {
 
 func RaiseInternalErr(c *gin.Context, err error) {
 	intErr := fmt.Errorf("%w: %w", ErrInternalError, err)
-	_ = c.AbortWithError(http.StatusInternalServerError, ReturnError(intErr))
+	c.AbortWithStatusJSON(http.StatusInternalServerError, ReturnError(intErr))
 }
 
 func RaiseBadRequestErr(c *gin.Context, err error) {
-	_ = c.AbortWithError(http.StatusBadRequest, ReturnError(err))
+	c.AbortWithStatusJSON(http.StatusBadRequest, ReturnError(err))
 }
 
 func RaiseStatusNotFoundErr(c *gin.Context, err error) {
-	c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"error": err.Error()})
+	c.AbortWithStatusJSON(http.StatusNotFound, ReturnError(err))
 }
 
 func RaiseNotAuthorizedErr(c *gin.Context, err error) {
-	_ = c.AbortWithError(http.StatusUnauthorized, ReturnError(err))
+	c.AbortWithStatusJSON(http.StatusUnauthorized, ReturnError(err))
 }
