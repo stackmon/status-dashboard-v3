@@ -227,3 +227,39 @@ func PutLogoutHandler(prov *Provider, logger *zap.Logger) gin.HandlerFunc {
 		c.Status(http.StatusNoContent)
 	}
 }
+
+type RefreshTokenReq struct {
+	RefreshToken string `json:"refresh_token"`
+}
+
+func PostRefreshHandler(prov *Provider, logger *zap.Logger) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		logger.Info("start processing refresh token request")
+
+		var req RefreshTokenReq
+		if err := c.ShouldBindBodyWithJSON(&req); err != nil {
+			apiErrors.RaiseBadRequestErr(c, apiErrors.ErrAuthMissingRefreshToken)
+			return
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second*defaultTimeout)
+		defer cancel()
+
+		tokenSource := prov.conf.TokenSource(ctx, &oauth2.Token{RefreshToken: req.RefreshToken})
+		newToken, err := tokenSource.Token()
+		if err != nil {
+			logger.Error("failed to refresh token", zap.Error(err))
+
+			if err.Error() == "oauth2: cannot fetch token: 400 Bad Request" {
+				apiErrors.RaiseNotAuthorizedErr(c, apiErrors.ErrAuthExpiredRefreshToken)
+				return
+			}
+
+			apiErrors.RaiseInternalErr(c, apiErrors.ErrAuthFailedRefreshToken)
+			return
+		}
+
+		logger.Info("successfully refreshed token")
+		c.JSON(http.StatusOK, newToken)
+	}
+}
