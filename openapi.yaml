@@ -111,7 +111,30 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/BadRequestGeneralError'
-
+  /auth/refresh:
+    post:
+      summary: Refresh an access token using a refresh token.
+      tags:
+        - authentication
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TokenRefreshRequest'
+        required: true
+      responses:
+        '200':
+          description: Return new access and refresh tokens.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenPostResponse'
+        '400':
+          description: The request is invalid.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BadRequestGeneralError'
   /v2/components:
     get:
       summary: Get all components.
@@ -358,6 +381,14 @@ components:
       properties:
         refresh_token:
           type: string
+    TokenRefreshRequest:
+      type: object
+      required:
+        - refresh_token
+      properties:
+        refresh_token:
+          type: string
+          example: "eyJhbGciOiJIUzUxMiIsInR5cCIgOiAiSldUIiwia2lkIiA6ICJjOTBjZjFhOC1kNjcxLTRjNzktYTBlYi0yYmI3Y2M2NThiNzIifQ..."
     Component:
       type: object
       required:
