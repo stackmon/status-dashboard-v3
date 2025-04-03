@@ -20,6 +20,7 @@ func (a *API) InitRoutes() {
 		authAPI.GET("callback", auth.GetCallbackHandler(a.oa2Prov, a.log))
 		authAPI.POST("token", auth.PostTokenHandler(a.oa2Prov, a.log))
 		authAPI.PUT("logout", auth.PutLogoutHandler(a.oa2Prov, a.log))
+		authAPI.POST("refresh", auth.PostRefreshHandler(a.oa2Prov, a.log))
 	}
 
 	v1API := a.r.Group(v1Group)
