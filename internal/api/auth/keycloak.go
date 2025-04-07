@@ -162,3 +162,39 @@ func (kc *Keycloak) revokeToken(refreshToken string) error {
 
 	return nil
 }
+
+func (kc *Keycloak) refreshToken(refreshToken string) (*TokenRepr, error) {
+	data := url.Values{}
+	data.Set("grant_type", "refresh_token")
+	data.Set("client_id", kc.clientID)
+	data.Set("client_secret", kc.clientSecret)
+	data.Set("refresh_token", refreshToken)
+
+	req, err := http.NewRequest(http.MethodPost, kc.tokenURL, strings.NewReader(data.Encode())) //nolint:noctx
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	resp, err := kc.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 && resp.StatusCode < 500 {
+		var errResp KeycloakExternalError
+		if err = json.NewDecoder(resp.Body).Decode(&errResp); err != nil {
+			return nil, err
+		}
+
+		return nil, errResp
+	}
+
+	var token TokenRepr
+	if err = json.NewDecoder(resp.Body).Decode(&token); err != nil {
+		return nil, err
+	}
+
+	return &token, nil
+}

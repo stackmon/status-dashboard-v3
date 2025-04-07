@@ -98,6 +98,10 @@ func (p *Provider) revokeToken(refreshToken string) error {
 	return p.kc.revokeToken(refreshToken)
 }
 
+func (p *Provider) refreshToken(refreshToken string) (*TokenRepr, error) {
+	return p.kc.refreshToken(refreshToken)
+}
+
 func GetLoginPageHandler(prov *Provider, logger *zap.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		logger.Info("start to process login page request")
@@ -225,5 +229,37 @@ func PutLogoutHandler(prov *Provider, logger *zap.Logger) gin.HandlerFunc {
 		}
 
 		c.Status(http.StatusNoContent)
+	}
+}
+
+type RefreshTokenReq struct {
+	RefreshToken string `json:"refresh_token"`
+}
+
+func PostRefreshHandler(prov *Provider, logger *zap.Logger) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		logger.Info("start processing refresh token request")
+
+		var req RefreshTokenReq
+		err := c.ShouldBindJSON(&req)
+		if err != nil {
+			apiErrors.RaiseBadRequestErr(c, apiErrors.ErrAuthMissingRefreshToken)
+			return
+		}
+
+		token, err := prov.refreshToken(req.RefreshToken)
+		if err != nil {
+			var keycloakErrorResponse KeycloakExternalError
+			switch {
+			case errors.As(err, &keycloakErrorResponse):
+				apiErrors.RaiseBadRequestErr(c, keycloakErrorResponse)
+			default:
+				logger.Error("failed to refresh token", zap.Error(err))
+				apiErrors.RaiseInternalErr(c, apiErrors.ErrAuthFailedRefreshToken)
+			}
+
+			return
+		}
+		c.JSON(http.StatusOK, token)
 	}
 }
