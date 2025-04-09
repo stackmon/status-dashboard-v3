@@ -193,7 +193,7 @@ func TestV2PostIncidentsHandler(t *testing.T) {
 	assert.Equal(t, len(incidents)+1, result.Result[1].IncidentID)
 
 	incident := v2GetIncident(t, r, result.Result[0].IncidentID)
-	assert.Equal(t, incidentCreateData.StartDate, incident.StartDate)
+	assert.Equal(t, incidentCreateData.StartDate.Truncate(time.Microsecond), incident.StartDate)
 	assert.Equal(t, title, incident.Title)
 	assert.Equal(t, impact, *incident.Impact)
 	assert.Equal(t, system, *incident.System)
@@ -239,8 +239,10 @@ func TestV2PostIncidentsHandler(t *testing.T) {
 	assert.Equal(t, len(incidents)+3, result.Result[1].IncidentID)
 
 	maintenanceIncident := v2GetIncident(t, r, result.Result[0].IncidentID)
-	assert.Equal(t, incidentCreateData.StartDate, maintenanceIncident.StartDate)
-	assert.Equal(t, incidentCreateData.EndDate, maintenanceIncident.EndDate)
+	assert.Equal(t, incidentCreateData.StartDate.Truncate(time.Microsecond), maintenanceIncident.StartDate)
+	require.NotNil(t, incidentCreateData.EndDate)
+	require.NotNil(t, maintenanceIncident.EndDate)
+	assert.Equal(t, incidentCreateData.EndDate.Truncate(time.Microsecond), maintenanceIncident.EndDate.Truncate(time.Microsecond))
 	assert.Equal(t, title, maintenanceIncident.Title)
 	assert.Equal(t, impact, *maintenanceIncident.Impact)
 	assert.Equal(t, system, *maintenanceIncident.System)
@@ -431,7 +433,8 @@ func TestV2PatchIncidentHandler(t *testing.T) {
 	pData.UpdateDate = updateDate
 
 	inc = internalPatch(incID, &pData)
-	assert.Equal(t, updateDate, *inc.EndDate)
+	require.NotNil(t, inc.EndDate)
+	assert.Equal(t, updateDate.Truncate(time.Microsecond), inc.EndDate.Truncate(time.Microsecond))
 
 	t.Logf("patching closed incident, change start date and end date")
 	startDate = time.Now().AddDate(0, 0, -1).UTC()
@@ -442,8 +445,9 @@ func TestV2PatchIncidentHandler(t *testing.T) {
 	pData.EndDate = &endDate
 
 	inc = internalPatch(incID, &pData)
-	assert.Equal(t, startDate, inc.StartDate)
-	assert.Equal(t, endDate, *inc.EndDate)
+	assert.Equal(t, startDate.Truncate(time.Microsecond), inc.StartDate)
+	require.NotNil(t, inc.EndDate)
+	assert.Equal(t, endDate.Truncate(time.Microsecond), inc.EndDate.Truncate(time.Microsecond))
 
 	t.Logf("reopen closed incident")
 
@@ -663,7 +667,7 @@ func TestV2GetComponentsAvailability(t *testing.T) {
 
 	title = "Test incident for dns N2"
 	startDate = time.Date(2024, 10, 16, 12, 0, 0, 0, time.UTC)
-	endDate = time.Date(2024, 11, 16, 00, 00, 00, 0, time.UTC)
+	endDate = time.Date(2024, 11, 16, 0, 0, 0, 0, time.UTC)
 
 	incidentCreateDataN2 := v2.IncidentData{
 		Title:      title,
@@ -686,6 +690,33 @@ func TestV2GetComponentsAvailability(t *testing.T) {
 
 	t.Logf("Incident patched: %+v", incidentN2)
 
+	// Incident N3
+
+	title = "Test incident for dns N3"
+	startDate = time.Date(2025, 3, 1, 0, 0, 0, 0, time.UTC)
+	endDate = time.Date(2025, 3, 16, 12, 0, 0, 0, time.UTC)
+	impact = 3 // Different impact for N3
+
+	incidentCreateDataN3 := v2.IncidentData{
+		Title:      title,
+		Impact:     &impact,
+		Components: components,
+		StartDate:  startDate,
+		EndDate:    nil,
+		System:     &system,
+	}
+	resultN3 := v2CreateIncident(t, r, &incidentCreateDataN3)
+	assert.Len(t, resultN3.Result, len(incidentCreateDataN3.Components))
+
+	// Incident closing
+
+	incidentN3 := v2GetIncident(t, r, resultN3.Result[0].IncidentID)
+
+	incidentN3.EndDate = &endDate
+	v2PatchIncident(t, r, incidentN3)
+
+	t.Logf("Incident patched: %+v", incidentN3)
+
 	// Test case 1: Successful availability listing
 	t.Log("Test case 1: List availability successfully")
 	w := httptest.NewRecorder()
@@ -703,7 +734,7 @@ func TestV2GetComponentsAvailability(t *testing.T) {
 	assert.NotEmpty(t, availability)
 
 	// Test case 2: Check if the availability data is correct
-	targetMonths := map[int]bool{10: true, 11: true, 12: true}
+	targetMonths := map[int]bool{3: true, 10: true, 11: true, 12: true}
 
 	for _, compAvail := range availability.Data {
 		if compAvail.ComponentID.ID == 7 {
