@@ -1,8 +1,13 @@
 name: Docker Image Build on manual trigger
 
 on:
-  release:
-    types: [published]
+  pull_request:
+    types:
+      - opened
+      - edited
+      - reopened
+      - synchronize
+
   workflow_dispatch:
 
 env:
@@ -10,12 +15,13 @@ env:
   PROJECT: status-dashboard-v3-api
 
 jobs:
-  push_if_tag:
+  push_manual:
+    # if: github.event.pull_request.merged == true
     runs-on: ubuntu-latest
-    
+
     steps:
       - uses: actions/checkout@v4
-    
+
       - name: Docker meta
         id: meta
         uses: docker/metadata-action@v5
@@ -48,6 +54,3 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           push: true
-          build-args: |
-            BASE_URL=${{ secrets.BASE_URL }}
-            AUTH_TOKEN=${{ secrets.AUTH_TOKEN }}
