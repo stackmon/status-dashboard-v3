@@ -10,6 +10,12 @@ var ErrIncidentCreationMaintenanceExists = errors.New("incident creation failed,
 var ErrIncidentCreationLowImpact = errors.New(
 	"incident creation failed, exists the incident with higher impact for component",
 )
+var ErrIncidentFTypeInvalidFormat = errors.New("incident filter 'type' invalid format")
+var ErrIncidentFOpenedInvalidFormat = errors.New("incident filter 'opened' invalid format")
+var ErrIncidentFDateInvalidFormat = errors.New("incident filter 'date' invalid format")
+var ErrIncidentFImpactInvalidFormat = errors.New("incident filter 'impact' invalid format")
+var ErrIncidentFSystemInvalidFormat = errors.New("incident filter 'system' invalid format")
+var ErrIncidentFCompsInvalidFormat = errors.New("incident filter 'components' invalid format")
 
 // Errors for patching incident
 

@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"net/http"
 	"sort"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -44,32 +46,100 @@ type Incident struct {
 
 func GetIncidentsHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		logger.Debug("retrieve incidents")
-		r, err := dbInst.GetIncidents()
+		logger.Debug("parsing incidents params")
+
+		var params db.IncidentsParams
+
+		// ?type=maintenance | incident
+		if incidentType := c.Query("type"); incidentType != "" {
+			if incidentType == "maintenance" || incidentType == "incident" {
+				params.Type = &incidentType
+			} else {
+				apiErrors.RaiseBadRequestErr(c, apiErrors.ErrIncidentFTypeInvalidFormat)
+				return
+			}
+		}
+		// ?opened=true | false  <- Changed from 'active'
+		if openedStr := c.Query("opened"); openedStr != "" {
+			opened, err := strconv.ParseBool(openedStr)
+			if err != nil {
+				apiErrors.RaiseBadRequestErr(c, apiErrors.ErrIncidentFOpenedInvalidFormat)
+				return
+			}
+			params.IsOpened = opened
+		}
+		// ?status=fixing|...
+		if status := c.Query("status"); status != "" {
+			params.Status = &status
+		}
+		// ?start_date=2023-01-01T12:00:00Z&end_date=2023-01-01T12:00:00Z
+		if startDateStr := c.Query("start_date"); startDateStr != "" {
+			startDate, err := time.Parse(time.RFC3339, startDateStr)
+			if err != nil {
+				apiErrors.RaiseBadRequestErr(c, apiErrors.ErrIncidentFDateInvalidFormat)
+				return
+			}
+			params.StartDate = &startDate
+		}
+		if endDateStr := c.Query("end_date"); endDateStr != "" {
+			endDate, err := time.Parse(time.RFC3339, endDateStr)
+			if err != nil {
+				apiErrors.RaiseBadRequestErr(c, apiErrors.ErrIncidentFDateInvalidFormat)
+				return
+			}
+			params.EndDate = &endDate
+		}
+		// validate date range
+		if params.StartDate != nil && params.EndDate != nil && params.EndDate.Before(*params.StartDate) {
+			apiErrors.RaiseBadRequestErr(c, apiErrors.ErrIncidentFDateInvalidFormat)
+			return
+		}
+		// ?impact=0|1|2|3
+		if impactStr := c.Query("impact"); impactStr != "" {
+			impact, err := strconv.Atoi(impactStr)
+			if err != nil || impact < 0 {
+				apiErrors.RaiseBadRequestErr(c, apiErrors.ErrIncidentFImpactInvalidFormat)
+				return
+			}
+			params.Impact = &impact
+		}
+		// ?system=true|false
+		if systemStr := c.Query("system"); systemStr != "" {
+			system, err := strconv.ParseBool(systemStr)
+			if err != nil {
+				apiErrors.RaiseBadRequestErr(c, apiErrors.ErrIncidentFSystemInvalidFormat)
+				return
+			}
+			params.IsSystem = &system
+		}
+		// ?component=1|2|3
+		if componentsStr := c.Query("components"); componentsStr != "" {
+			compIDsStr := strings.Split(componentsStr, ",")
+			compIDs := make([]int, len(compIDsStr))
+			for _, idStr := range compIDsStr {
+				id, err := strconv.Atoi(strings.TrimSpace(idStr))
+				if err != nil || id <= 0 {
+					apiErrors.RaiseBadRequestErr(c, apiErrors.ErrIncidentFCompsInvalidFormat)
+					return
+				}
+				compIDs = append(compIDs, id)
+			}
+			if len(compIDs) > 0 {
+				params.ComponentIDs = compIDs
+			}
+		}
+
+		logger.Debug("retrieve incidents with filters", zap.Any("params", params))
+		r, err := dbInst.GetIncidents(&params)
 		if err != nil {
+			logger.Error("failed to retrieve incidents", zap.Error(err))
 			apiErrors.RaiseInternalErr(c, err)
 			return
 		}
 
 		incidents := make([]*Incident, len(r))
 		for i, inc := range r {
-			components := make([]int, len(inc.Components))
-			for ind, comp := range inc.Components {
-				components[ind] = int(comp.ID)
-			}
-
-			incidents[i] = &Incident{
-				IncidentID: IncidentID{int(inc.ID)},
-				IncidentData: IncidentData{
-					Title:      *inc.Text,
-					Impact:     inc.Impact,
-					Components: components,
-					StartDate:  *inc.StartDate,
-					EndDate:    inc.EndDate,
-					System:     &inc.System,
-					Updates:    inc.Statuses,
-				},
-			}
+			incidents[i] = toAPIIncident(inc)
 		}
 
 		c.JSON(http.StatusOK, gin.H{"data": incidents})
