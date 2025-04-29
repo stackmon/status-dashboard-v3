@@ -70,6 +70,10 @@ func GetIncidentsHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 		}
 		// ?status=fixing|...
 		if status := c.Query("status"); status != "" {
+			if !IsValidIncidentFilterStatus(status) {
+				apiErrors.RaiseBadRequestErr(c, apiErrors.ErrIncidentFStatusInvalidFormat)
+				return
+			}
 			params.Status = &status
 		}
 		// ?start_date=2023-01-01T12:00:00Z&end_date=2023-01-01T12:00:00Z
@@ -97,7 +101,7 @@ func GetIncidentsHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 		// ?impact=0|1|2|3
 		if impactStr := c.Query("impact"); impactStr != "" {
 			impact, err := strconv.Atoi(impactStr)
-			if err != nil || impact < 0 {
+			if err != nil || impact < 0 || impact > 3 {
 				apiErrors.RaiseBadRequestErr(c, apiErrors.ErrIncidentFImpactInvalidFormat)
 				return
 			}
@@ -112,7 +116,7 @@ func GetIncidentsHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 			}
 			params.IsSystem = &system
 		}
-		// ?component=1|2|3
+		// ?component=1,2,3
 		if componentsStr := c.Query("components"); componentsStr != "" {
 			compIDsStr := strings.Split(componentsStr, ",")
 			compIDs := make([]int, len(compIDsStr))
@@ -134,6 +138,15 @@ func GetIncidentsHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 		if err != nil {
 			logger.Error("failed to retrieve incidents", zap.Error(err))
 			apiErrors.RaiseInternalErr(c, err)
+			return
+		}
+
+		if len(r) == 0 {
+			logger.Debug("no incidents found matching the specific criteria", zap.Any("params", params))
+			c.JSON(http.StatusOK, gin.H{
+				"data":    []Incident{},
+				"message": "no incidents found matching the specific criteria",
+			})
 			return
 		}
 

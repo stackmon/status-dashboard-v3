@@ -16,6 +16,7 @@ var ErrIncidentFDateInvalidFormat = errors.New("incident filter 'date' invalid f
 var ErrIncidentFImpactInvalidFormat = errors.New("incident filter 'impact' invalid format")
 var ErrIncidentFSystemInvalidFormat = errors.New("incident filter 'system' invalid format")
 var ErrIncidentFCompsInvalidFormat = errors.New("incident filter 'components' invalid format")
+var ErrIncidentFStatusInvalidFormat = errors.New("invalid format or value for 'status' filter")
 
 // Errors for patching incident
 
