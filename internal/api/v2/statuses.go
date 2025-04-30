@@ -45,7 +45,7 @@ var incidentClosedStatuses = map[string]struct{}{
 	IncidentChanged:  {},
 }
 
-// IsValidMaintenanceStatus checks if the status is valid for maintenance
+// IsValidMaintenanceStatus checks if the status is valid for maintenance.
 func IsValidIncidentFilterStatus(status string) bool {
 	if _, ok := maintenanceStatuses[status]; ok {
 		return true
