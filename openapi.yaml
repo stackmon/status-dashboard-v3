@@ -235,9 +235,66 @@ paths:
       summary: Get all incidents.
       tags:
         - incidents
+      parameters:
+        - name: type
+          in: query
+          description: Filter by incident type ('incident' for impact > 0, 'maintenance' for impact = 0).
+          required: false
+          schema:
+            type: string
+            enum: [incident, maintenance]
+        - name: opened
+          in: query
+          description: Filter by open status ('true' for open incidents, 'false' for closed incidents).
+          required: false
+          schema:
+            type: boolean
+        - name: status
+          in: query
+          description: Filter by the latest incident status (e.g., 'resolved', 'fixing', 'completed'). See backend implementation for all valid statuses.
+          required: false
+          schema:
+            type: string
+        - name: start_date
+          in: query
+          description: Filter incidents active on or after this date (RFC3339 format).
+          required: false
+          schema:
+            type: string
+            format: date-time
+            example: "2023-10-26T00:00:00Z"
+        - name: end_date
+          in: query
+          description: Filter incidents active on or before this date (RFC3339 format). Must be after start_date if both are provided.
+          required: false
+          schema:
+            type: string
+            format: date-time
+            example: "2023-10-27T23:59:59Z"
+        - name: impact
+          in: query
+          description: Filter by specific impact level (0=Maintenance, 1=Minor, 2=Major, 3=Outage).
+          required: false
+          schema:
+            type: integer
+            enum: [0, 1, 2, 3]
+            example: 2
+        - name: system
+          in: query
+          description: Filter by whether the incident was system-generated ('true') or manually created ('false').
+          required: false
+          schema:
+            type: boolean
+        - name: components
+          in: query
+          description: Filter by associated component IDs (comma-separated list of positive integers).
+          required: false
+          schema:
+            type: string
+            example: "1,5,23"
       responses:
         '200':
-          description: Successful operation.
+          description: Successful operation. Returns a list of incidents matching the criteria. If none match, data is an empty array and a message is included.
           content:
             application/json:
               schema:
