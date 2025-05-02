@@ -302,7 +302,7 @@ func checkIncidentsDataAfterMoveV1(t *testing.T, r *gin.Engine) {
 	incidents := getIncidentsAPIV1(t, r)
 
 	for _, inc := range incidents {
-		if inc.ID == 4 {
+		if inc.ID == 4 { //nolint:staticcheck
 			assert.Nil(t, inc.EndDate)
 			assert.Equal(t, 3, *inc.Impact)
 			assert.Len(t, inc.Updates, 1)
@@ -323,7 +323,7 @@ func checkIncidentsDataAfterMovingComponentBetweenIncidentsV1(t *testing.T, r *g
 	incidents := getIncidentsAPIV1(t, r)
 
 	for _, inc := range incidents {
-		if inc.ID == 4 {
+		if inc.ID == 4 { //nolint:staticcheck
 			assert.Nil(t, inc.EndDate)
 			assert.Equal(t, 2, *inc.Impact)
 			assert.Len(t, inc.Updates, 3)
@@ -351,7 +351,7 @@ func checkIncidentsDataAfterMoveAndClosedIncidentV1(t *testing.T, r *gin.Engine)
 	incidents := getIncidentsAPIV1(t, r)
 
 	for _, inc := range incidents {
-		if inc.ID == 4 {
+		if inc.ID == 4 { //nolint:staticcheck
 			assert.Nil(t, inc.EndDate)
 			assert.Equal(t, 3, *inc.Impact)
 			assert.Len(t, inc.Updates, 2)

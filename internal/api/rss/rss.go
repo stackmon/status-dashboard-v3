@@ -17,7 +17,7 @@ import (
 const generalTitle = "Incidents | Status Dashboard"
 const maxIncidents = 10
 
-var errRSSWrongParams = fmt.Errorf( //nolint:stylecheck
+var errRSSWrongParams = fmt.Errorf( //nolint:staticcheck
 	"Status Dashboard RSS feed\nPlease read the documentation to\nmake the correct request",
 )
 
