@@ -115,8 +115,6 @@ func (db *DB) GetIncidents(params ...*IncidentsParams) ([]*Incident, error) {
 		r = r.Limit(param.LastCount)
 	}
 
-	r.Find(&incidents)
-
 	if err := r.Find(&incidents).Error; err != nil {
 		return nil, err
 	}

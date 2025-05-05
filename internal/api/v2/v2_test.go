@@ -216,7 +216,7 @@ func prepareIncident(t *testing.T, mock sqlmock.Sqlmock, testTime time.Time) {
 	rowsInc := sqlmock.NewRows([]string{"id", "text", "start_date", "end_date", "impact", "system"}).
 		AddRow(1, "Incident title A", testTime, testTime.Add(time.Hour*72), 0, false).
 		AddRow(2, "Incident title B", testTime, testTime.Add(time.Hour*72), 3, false)
-	mock.ExpectQuery("^SELECT (.+) FROM \"incident\"$").WillReturnRows(rowsInc)
+	mock.ExpectQuery("^SELECT (.+) FROM \"incident\" ORDER BY incident.start_date DESC$").WillReturnRows(rowsInc)
 
 	rowsIncComp := sqlmock.NewRows([]string{"incident_id", "component_id"}).
 		AddRow(1, 150).
