@@ -193,7 +193,7 @@ func TestV2PostIncidentsHandler(t *testing.T) {
 	assert.Equal(t, len(incidents)+1, result.Result[1].IncidentID)
 
 	incident := v2GetIncident(t, r, result.Result[0].IncidentID)
-	assert.Equal(t, incidentCreateData.StartDate, incident.StartDate)
+	assert.Equal(t, incidentCreateData.StartDate.Truncate(time.Microsecond), incident.StartDate)
 	assert.Equal(t, title, incident.Title)
 	assert.Equal(t, impact, *incident.Impact)
 	assert.Equal(t, system, *incident.System)
@@ -239,8 +239,10 @@ func TestV2PostIncidentsHandler(t *testing.T) {
 	assert.Equal(t, len(incidents)+3, result.Result[1].IncidentID)
 
 	maintenanceIncident := v2GetIncident(t, r, result.Result[0].IncidentID)
-	assert.Equal(t, incidentCreateData.StartDate, maintenanceIncident.StartDate)
-	assert.Equal(t, incidentCreateData.EndDate, maintenanceIncident.EndDate)
+	assert.Equal(t, incidentCreateData.StartDate.Truncate(time.Microsecond), maintenanceIncident.StartDate)
+	require.NotNil(t, incidentCreateData.EndDate)
+	require.NotNil(t, maintenanceIncident.EndDate)
+	assert.Equal(t, incidentCreateData.EndDate.Truncate(time.Microsecond), maintenanceIncident.EndDate.Truncate(time.Microsecond))
 	assert.Equal(t, title, maintenanceIncident.Title)
 	assert.Equal(t, impact, *maintenanceIncident.Impact)
 	assert.Equal(t, system, *maintenanceIncident.System)
@@ -431,7 +433,8 @@ func TestV2PatchIncidentHandler(t *testing.T) {
 	pData.UpdateDate = updateDate
 
 	inc = internalPatch(incID, &pData)
-	assert.Equal(t, updateDate, *inc.EndDate)
+	require.NotNil(t, inc.EndDate)
+	assert.Equal(t, updateDate.Truncate(time.Microsecond), inc.EndDate.Truncate(time.Microsecond))
 
 	t.Logf("patching closed incident, change start date and end date")
 	startDate = time.Now().AddDate(0, 0, -1).UTC()
@@ -442,8 +445,9 @@ func TestV2PatchIncidentHandler(t *testing.T) {
 	pData.EndDate = &endDate
 
 	inc = internalPatch(incID, &pData)
-	assert.Equal(t, startDate, inc.StartDate)
-	assert.Equal(t, endDate, *inc.EndDate)
+	assert.Equal(t, startDate.Truncate(time.Microsecond), inc.StartDate)
+	require.NotNil(t, inc.EndDate)
+	assert.Equal(t, endDate.Truncate(time.Microsecond), inc.EndDate.Truncate(time.Microsecond))
 
 	t.Logf("reopen closed incident")
 
