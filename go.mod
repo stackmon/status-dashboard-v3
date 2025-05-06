@@ -14,7 +14,7 @@ require (
 	github.com/testcontainers/testcontainers-go v0.35.0
 	github.com/testcontainers/testcontainers-go/modules/postgres v0.35.0
 	go.uber.org/zap v1.27.0
-	golang.org/x/oauth2 v0.25.0
+	golang.org/x/oauth2 v0.30.0
 	gorm.io/driver/postgres v1.5.11
 	gorm.io/gorm v1.25.12
 	moul.io/zapgorm2 v1.3.0
