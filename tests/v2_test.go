@@ -187,8 +187,8 @@ func TestV2PostIncidentsHandler(t *testing.T) {
 	result := v2CreateIncident(t, r, &incidentCreateData)
 
 	assert.Len(t, result.Result, len(incidentCreateData.Components))
-	assert.Equal(t, "", result.Result[0].Error)
-	assert.Equal(t, "", result.Result[1].Error)
+	assert.Empty(t, result.Result[0].Error)
+	assert.Empty(t, result.Result[1].Error)
 	assert.Equal(t, len(incidents)+1, result.Result[0].IncidentID)
 	assert.Equal(t, len(incidents)+1, result.Result[1].IncidentID)
 
@@ -528,7 +528,7 @@ func v2PatchIncident(t *testing.T, r *gin.Engine, inc *v2.Incident) {
 	d, err := json.Marshal(patch)
 	require.NoError(t, err)
 
-	url := fmt.Sprintf("/v2/incidents/%d", inc.IncidentID.ID)
+	url := fmt.Sprintf("/v2/incidents/%d", inc.ID)
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest(http.MethodPatch, url, bytes.NewReader(d))
 
@@ -583,7 +583,7 @@ func TestV2CreateComponentAndList(t *testing.T) {
 	err := json.Unmarshal(w.Body.Bytes(), &createdComponent)
 	require.NoError(t, err)
 	assert.Equal(t, newComponent.Name, createdComponent.Name)
-	assert.Equal(t, len(newComponent.Attributes), len(createdComponent.Attributes))
+	assert.Len(t, newComponent.Attributes, len(createdComponent.Attributes))
 
 	// Test case 2: Try to create the same component again
 	t.Log("Test case 2: Try to create duplicate component")
@@ -706,7 +706,7 @@ func TestV2GetComponentsAvailability(t *testing.T) {
 	targetMonths := map[int]bool{10: true, 11: true, 12: true}
 
 	for _, compAvail := range availability.Data {
-		if compAvail.ComponentID.ID == 7 {
+		if compAvail.ID == 7 {
 			checkComponentAvailability(t, compAvail, targetMonths)
 		}
 	}
