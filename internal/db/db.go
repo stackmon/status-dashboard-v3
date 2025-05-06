@@ -46,7 +46,7 @@ type IncidentsParams struct {
 	IsSystem     *bool
 	ComponentIDs []int
 	LastCount    int
-	IsOpened     bool
+	IsOpened     *bool
 }
 
 func (db *DB) GetIncidents(params ...*IncidentsParams) ([]*Incident, error) {
@@ -69,8 +69,8 @@ func (db *DB) GetIncidents(params ...*IncidentsParams) ([]*Incident, error) {
 		}
 	}
 
-	if param.IsOpened {
-		if param.IsOpened {
+	if param.IsOpened != nil {
+		if *param.IsOpened {
 			r = r.Where("end_date is NULL")
 		} else {
 			r = r.Where("end_date is NOT NULL")

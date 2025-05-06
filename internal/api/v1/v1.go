@@ -258,7 +258,8 @@ func PostComponentStatusHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFu
 		}
 
 		log.Info("get opened incidents")
-		openedIncidents, err := dbInst.GetIncidents(&db.IncidentsParams{IsOpened: true})
+		isOpenedTrue := true
+		openedIncidents, err := dbInst.GetIncidents(&db.IncidentsParams{IsOpened: &isOpenedTrue})
 		if err != nil {
 			apiErrors.RaiseInternalErr(c, err)
 			return

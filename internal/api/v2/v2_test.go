@@ -81,6 +81,8 @@ func TestGetIncidentsHandlerFilters(t *testing.T) {
 	responseA := fmt.Sprintf(`{"data":[{"id":1,"title":"Incident title A","impact":0,"components":[150],"start_date":"%s","end_date":"%s","system":false,"updates":[{"status":"completed","text":"Maintenance completed.","timestamp":"%s"}]}]}`, startDate, endDate, endDate)
 	responseB := fmt.Sprintf(`{"data":[{"id":2,"title":"Incident title B","impact":3,"components":[151],"start_date":"%s","system":true,"updates":[{"status":"analysing","text":"Incident analysing.","timestamp":"%s"}]}]}`, startDate, startDate)
 	responseEmpty := `{"data":[],"message":"no incidents found matching the specific criteria"}`
+	isOpenedTrue := true
+	isOpenedFalse := false
 
 	testCases := []struct {
 		name           string
@@ -113,7 +115,7 @@ func TestGetIncidentsHandlerFilters(t *testing.T) {
 			name: "Filter by opened=true",
 			url:  "/v2/incidents?opened=true",
 			mockSetup: func(m sqlmock.Sqlmock, params *db.IncidentsParams) {
-				params.IsOpened = true
+				params.IsOpened = &isOpenedTrue
 				prepareMockForIncidents(t, m, []*db.Incident{&incidentB})
 			},
 			expectedStatus: http.StatusOK,
@@ -123,7 +125,7 @@ func TestGetIncidentsHandlerFilters(t *testing.T) {
 			name: "Filter by opened=false",
 			url:  "/v2/incidents?opened=false",
 			mockSetup: func(m sqlmock.Sqlmock, params *db.IncidentsParams) {
-				params.IsOpened = false
+				params.IsOpened = &isOpenedFalse
 				prepareMockForIncidents(t, m, []*db.Incident{&incidentA})
 			},
 			expectedStatus: http.StatusOK,
@@ -164,7 +166,7 @@ func TestGetIncidentsHandlerFilters(t *testing.T) {
 			url:  "/v2/incidents?type=incident&opened=true",
 			mockSetup: func(m sqlmock.Sqlmock, params *db.IncidentsParams) {
 				params.Type = &incidentType
-				params.IsOpened = true
+				params.IsOpened = &isOpenedTrue
 				prepareMockForIncidents(t, m, []*db.Incident{&incidentB})
 			},
 			expectedStatus: http.StatusOK,

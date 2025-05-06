@@ -98,7 +98,7 @@ func parseOpened(c *gin.Context, params *db.IncidentsParams) error {
 		if err != nil {
 			return apiErrors.ErrIncidentFOpenedInvalidFormat
 		}
-		params.IsOpened = opened
+		params.IsOpened = &opened
 	}
 	return nil
 }
@@ -336,7 +336,8 @@ func PostIncidentHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc { //
 		}
 
 		log.Info("get opened incidents")
-		openedIncidents, err := dbInst.GetIncidents(&db.IncidentsParams{IsOpened: true})
+		isOpenedTrue := true
+		openedIncidents, err := dbInst.GetIncidents(&db.IncidentsParams{IsOpened: &isOpenedTrue})
 		if err != nil {
 			apiErrors.RaiseInternalErr(c, err)
 			return
