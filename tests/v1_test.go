@@ -302,13 +302,14 @@ func checkIncidentsDataAfterMoveV1(t *testing.T, r *gin.Engine) {
 	incidents := getIncidentsAPIV1(t, r)
 
 	for _, inc := range incidents {
-		if inc.ID == 4 { //nolint:staticcheck
+		switch inc.ID {
+		case 4:
 			assert.Nil(t, inc.EndDate)
 			assert.Equal(t, 3, *inc.Impact)
 			assert.Len(t, inc.Updates, 1)
 			assert.Equal(t, "SYSTEM", inc.Updates[0].Status)
 			assert.Equal(t, "Distributed Cache Service (Database, EU-NL, dcs) moved from <a href='/incidents/2'>Test incident for dcs</a>", inc.Updates[0].Text)
-		} else if inc.ID == 2 {
+		case 2:
 			assert.Nil(t, inc.EndDate)
 			assert.Equal(t, 2, *inc.Impact)
 			assert.Len(t, inc.Updates, 3)
@@ -323,12 +324,13 @@ func checkIncidentsDataAfterMovingComponentBetweenIncidentsV1(t *testing.T, r *g
 	incidents := getIncidentsAPIV1(t, r)
 
 	for _, inc := range incidents {
-		if inc.ID == 4 { //nolint:staticcheck
+		switch inc.ID {
+		case 4:
 			assert.Nil(t, inc.EndDate)
 			assert.Equal(t, 2, *inc.Impact)
 			assert.Len(t, inc.Updates, 3)
 			assert.Equal(t, "Distributed Cache Service (Database, EU-NL, dcs) moved to <a href='/incidents/5'>Test incident for moving component between incidents</a>", inc.Updates[2].Text)
-		} else if inc.ID == 5 {
+		case 5:
 			assert.Nil(t, inc.EndDate)
 			assert.Equal(t, 3, *inc.Impact)
 			assert.Len(t, inc.Updates, 2)
@@ -351,7 +353,8 @@ func checkIncidentsDataAfterMoveAndClosedIncidentV1(t *testing.T, r *gin.Engine)
 	incidents := getIncidentsAPIV1(t, r)
 
 	for _, inc := range incidents {
-		if inc.ID == 4 { //nolint:staticcheck
+		switch inc.ID {
+		case 4:
 			assert.Nil(t, inc.EndDate)
 			assert.Equal(t, 3, *inc.Impact)
 			assert.Len(t, inc.Updates, 2)
@@ -359,7 +362,7 @@ func checkIncidentsDataAfterMoveAndClosedIncidentV1(t *testing.T, r *gin.Engine)
 			assert.Equal(t, "SYSTEM", inc.Updates[1].Status)
 			assert.Equal(t, "Distributed Cache Service (Database, EU-NL, dcs) moved from <a href='/incidents/2'>Test incident for dcs</a>", inc.Updates[0].Text)
 			assert.Equal(t, "Cloud Container Engine (Container, EU-NL, cce) moved from <a href='/incidents/2'>Test incident for dcs</a>", inc.Updates[1].Text)
-		} else if inc.ID == 2 {
+		case 2:
 			assert.NotNil(t, inc.EndDate)
 			assert.Equal(t, 2, *inc.Impact)
 			assert.Len(t, inc.Updates, 4)
