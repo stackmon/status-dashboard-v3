@@ -76,8 +76,9 @@ func (db *DB) GetIncident(id int) (*Incident, error) {
 		Where(inc).
 		Preload("Statuses").
 		Preload("Components", func(db *gorm.DB) *gorm.DB {
-			return db.Select("ID")
+			return db.Select("ID, Name")
 		}).
+		Preload("Components.Attrs").
 		First(&inc)
 
 	if r.Error != nil {
@@ -404,10 +405,10 @@ func (db *DB) ExtractComponentsToNewIncident(
 	}
 
 	for _, c := range comp {
-		incText := fmt.Sprintf("%s moved from %s.", c.PrintAttrs(), incOld.Link())
+		incText := fmt.Sprintf("%s moved from %s", c.PrintAttrs(), incOld.Link())
 		inc.Statuses = append(inc.Statuses, IncidentStatus{
 			IncidentID: id,
-			Status:     statusEventDetected,
+			Status:     statusSYSTEM,
 			Text:       incText,
 			Timestamp:  timeNow,
 		})
