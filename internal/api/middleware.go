@@ -20,7 +20,7 @@ func ValidateComponentsMW(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		logger.Info("start to validate given components")
 		type Components struct {
-			Components []int `json:"components"`
+			Components []int `json:"components" binding:"required,min=1"`
 		}
 
 		var components Components
