@@ -198,6 +198,13 @@ func TestGetIncidentsHandlerFilters(t *testing.T) {
 			expectedBody:   fmt.Sprintf(`{"errMsg":"%s"}`, errors.ErrIncidentFOpenedInvalidFormat),
 		},
 		{
+			name:           "Invalid filter: impact=abc",
+			url:            "/v2/incidents?impact=abc",
+			mockSetup:      func(_ sqlmock.Sqlmock, _ *db.IncidentsParams) {},
+			expectedStatus: http.StatusBadRequest,
+			expectedBody:   fmt.Sprintf(`{"errMsg":"%s"}`, errors.ErrIncidentFImpactInvalidFormat),
+		},
+		{
 			name:           "Invalid filter: impact=5",
 			url:            "/v2/incidents?impact=5",
 			mockSetup:      func(_ sqlmock.Sqlmock, _ *db.IncidentsParams) {},
@@ -207,6 +214,13 @@ func TestGetIncidentsHandlerFilters(t *testing.T) {
 		{
 			name:           "Invalid filter: components=abc",
 			url:            "/v2/incidents?components=abc",
+			mockSetup:      func(_ sqlmock.Sqlmock, _ *db.IncidentsParams) {},
+			expectedStatus: http.StatusBadRequest,
+			expectedBody:   fmt.Sprintf(`{"errMsg":"%s"}`, errors.ErrIncidentFCompsInvalidFormat),
+		},
+		{
+			name:           "Invalid filter: components=2147483649",
+			url:            "/v2/incidents?components=2147483649",
 			mockSetup:      func(_ sqlmock.Sqlmock, _ *db.IncidentsParams) {},
 			expectedStatus: http.StatusBadRequest,
 			expectedBody:   fmt.Sprintf(`{"errMsg":"%s"}`, errors.ErrIncidentFCompsInvalidFormat),

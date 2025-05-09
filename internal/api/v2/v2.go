@@ -3,6 +3,7 @@ package v2
 import (
 	"errors"
 	"fmt"
+	"math"
 	"net/http"
 	"sort"
 	"strconv"
@@ -15,8 +16,6 @@ import (
 	apiErrors "github.com/stackmon/otc-status-dashboard/internal/api/errors"
 	"github.com/stackmon/otc-status-dashboard/internal/db"
 )
-
-var ErrNoDateProvided = errors.New("no date provided")
 
 type IncidentID struct {
 	ID int `json:"id" uri:"id" binding:"required,gte=0"`
@@ -46,82 +45,69 @@ type Incident struct {
 	IncidentData
 }
 
-// parseIncidentParams parses and validates query parameters for incident filtering.
-func parseIncidentParams(c *gin.Context) (*db.IncidentsParams, error) {
-	var params db.IncidentsParams
-
-	if err := parseType(c, &params); err != nil {
-		return nil, err
-	}
-
-	if err := parseOpened(c, &params); err != nil {
-		return nil, err
-	}
-
-	if err := parseStatus(c, &params); err != nil {
-		return nil, err
-	}
-
-	if err := parseDates(c, &params); err != nil {
-		return nil, err
-	}
-
-	if err := parseImpact(c, &params); err != nil {
-		return nil, err
-	}
-
-	if err := parseSystem(c, &params); err != nil {
-		return nil, err
-	}
-
-	if err := parseComponents(c, &params); err != nil {
-		return nil, err
-	}
-
-	return &params, nil
+type APIGetIncidentsQuery struct {
+	Type         *string `form:"type"`
+	OpenedStr    *string `form:"opened"`
+	Status       *string `form:"status"`
+	StartDateStr *string `form:"start_date"`
+	EndDateStr   *string `form:"end_date"`
+	ImpactStr    *string `form:"impact"`
+	SystemStr    *string `form:"system"`
+	Components   *string `form:"components"`
 }
 
-func parseType(c *gin.Context, params *db.IncidentsParams) error {
-	if incidentType := c.Query("type"); incidentType != "" {
-		if incidentType == "maintenance" || incidentType == "incident" {
-			params.Type = &incidentType
-			return nil
-		}
-		return apiErrors.ErrIncidentFTypeInvalidFormat
-	}
-	return nil
-}
-
-func parseOpened(c *gin.Context, params *db.IncidentsParams) error {
-	if openedStr := c.Query("opened"); openedStr != "" {
-		opened, err := strconv.ParseBool(openedStr)
+func validateAndSetBoolParam(valueStr *string, target **bool, formatError error) error {
+	if valueStr != nil && *valueStr != "" {
+		parsedBool, err := strconv.ParseBool(*valueStr)
 		if err != nil {
-			return apiErrors.ErrIncidentFOpenedInvalidFormat
+			return formatError
 		}
-		params.IsOpened = &opened
+		*target = &parsedBool
 	}
 	return nil
 }
 
-func parseStatus(c *gin.Context, params *db.IncidentsParams) error {
-	if status := c.Query("status"); status != "" {
-		if !IsValidIncidentFilterStatus(status) {
+func validateAndSetType(queryType *string, params *db.IncidentsParams) error {
+	if queryType != nil {
+		if *queryType == "maintenance" || *queryType == "incident" {
+			params.Type = queryType
+		} else {
+			return apiErrors.ErrIncidentFTypeInvalidFormat
+		}
+	}
+	return nil
+}
+
+func validateAndSetStatus(queryStatus *string, params *db.IncidentsParams) error {
+	if queryStatus != nil {
+		if !IsValidIncidentFilterStatus(*queryStatus) {
 			return apiErrors.ErrIncidentFStatusInvalidFormat
 		}
-		params.Status = &status
+		params.Status = queryStatus
 	}
 	return nil
 }
 
-func parseDates(c *gin.Context, params *db.IncidentsParams) error {
-	startDate, err := parseDate(c, "start_date")
-	if err != nil && !errors.Is(err, ErrNoDateProvided) {
+func parseSingleDateParam(dateStr *string) (*time.Time, error) {
+	if dateStr == nil || *dateStr == "" {
+		return nil, nil
+	}
+	parsedDate, err := time.Parse(time.RFC3339, *dateStr)
+	if err != nil {
+		return nil, apiErrors.ErrIncidentFDateInvalidFormat
+	}
+	return &parsedDate, nil
+}
+
+func validateAndSetDates(queryStartDateStr, queryEndDateStr *string, params *db.IncidentsParams) error {
+	startDate, err := parseSingleDateParam(queryStartDateStr)
+	if err != nil {
 		return err
 	}
 	params.StartDate = startDate
 
-	endDate, err := parseDate(c, "end_date")
-	if err != nil && !errors.Is(err, ErrNoDateProvided) {
+	endDate, err := parseSingleDateParam(queryEndDateStr)
+	if err != nil {
 		return err
 	}
 	params.EndDate = endDate
@@ -132,23 +118,13 @@ func parseDates(c *gin.Context, params *db.IncidentsParams) error {
 	return nil
 }
 
-func parseDate(c *gin.Context, param string) (*time.Time, error) {
-	dateStr := c.Query(param)
-	if dateStr == "" {
-		return nil, ErrNoDateProvided
-	}
-
-	date, err := time.Parse(time.RFC3339, dateStr)
-	if err != nil {
-		return nil, apiErrors.ErrIncidentFDateInvalidFormat
-	}
-	return &date, nil
-}
-
-func parseImpact(c *gin.Context, params *db.IncidentsParams) error {
-	if impactStr := c.Query("impact"); impactStr != "" {
-		impact, err := strconv.Atoi(impactStr)
-		if err != nil || impact < 0 || impact > 3 {
+func validateAndSetImpact(queryImpactStr *string, params *db.IncidentsParams) error {
+	if queryImpactStr != nil && *queryImpactStr != "" {
+		impact, err := strconv.Atoi(*queryImpactStr)
+		if err != nil {
+			return apiErrors.ErrIncidentFImpactInvalidFormat
+		}
+		if impact < 0 || impact > 3 {
 			return apiErrors.ErrIncidentFImpactInvalidFormat
 		}
 		params.Impact = &impact
@@ -156,41 +132,66 @@ func parseImpact(c *gin.Context, params *db.IncidentsParams) error {
 	return nil
 }
 
-func parseSystem(c *gin.Context, params *db.IncidentsParams) error {
-	if systemStr := c.Query("system"); systemStr != "" {
-		system, err := strconv.ParseBool(systemStr)
-		if err != nil {
-			return apiErrors.ErrIncidentFSystemInvalidFormat
+func parseAndSetComponents(queryComponents *string, params *db.IncidentsParams) error {
+	if queryComponents != nil && *queryComponents != "" {
+		compIDStrings := strings.Split(*queryComponents, ",")
+		parsedComponentIDs := make([]int, 0, len(compIDStrings))
+
+		for _, idStr := range compIDStrings {
+			trimmedIDStr := strings.TrimSpace(idStr)
+
+			idUint64, err := strconv.ParseUint(trimmedIDStr, 10, 64)
+			if err != nil || idUint64 <= 0 || idUint64 > math.MaxInt32 {
+				return apiErrors.ErrIncidentFCompsInvalidFormat
+			}
+
+			parsedComponentIDs = append(parsedComponentIDs, int(idUint64))
 		}
-		params.IsSystem = &system
+
+		if len(parsedComponentIDs) > 0 {
+			params.ComponentIDs = parsedComponentIDs
+		}
 	}
 	return nil
 }
 
-func parseComponents(c *gin.Context, params *db.IncidentsParams) error {
-	if componentsStr := c.Query("components"); componentsStr != "" {
-		compIDs, err := parseComponentIDs(componentsStr)
-		if err != nil {
-			return err
-		}
-		params.ComponentIDs = compIDs
-	}
-	return nil
-}
-
-func parseComponentIDs(componentsStr string) ([]int, error) {
-	compIDsStr := strings.Split(componentsStr, ",")
-	compIDs := make([]int, 0, len(compIDsStr))
-
-	for _, idStr := range compIDsStr {
-		id, err := strconv.Atoi(strings.TrimSpace(idStr))
-		if err != nil || id <= 0 {
-			return nil, apiErrors.ErrIncidentFCompsInvalidFormat
-		}
-		compIDs = append(compIDs, id)
+func parseIncidentParams(c *gin.Context) (*db.IncidentsParams, error) {
+	var query APIGetIncidentsQuery
+	if err := c.ShouldBindQuery(&query); err != nil {
+		return nil, err
 	}
 
-	return compIDs, nil
+	params := &db.IncidentsParams{}
+	var err error
+
+	if err = validateAndSetType(query.Type, params); err != nil {
+		return nil, err
+	}
+
+	if err = validateAndSetBoolParam(query.OpenedStr, &params.IsOpened, apiErrors.ErrIncidentFOpenedInvalidFormat); err != nil {
+		return nil, err
+	}
+
+	if err = validateAndSetStatus(query.Status, params); err != nil {
+		return nil, err
+	}
+
+	if err = validateAndSetDates(query.StartDateStr, query.EndDateStr, params); err != nil {
+		return nil, err
+	}
+
+	if err = validateAndSetImpact(query.ImpactStr, params); err != nil {
+		return nil, err
+	}
+
+	if err = validateAndSetBoolParam(query.SystemStr, &params.IsSystem, apiErrors.ErrIncidentFSystemInvalidFormat); err != nil {
+		return nil, err
+	}
+
+	if err = parseAndSetComponents(query.Components, params); err != nil {
+		return nil, err
+	}
+	return params, nil
 }
 
 // GetIncidentsHandler retrieves incidents based on query parameters.
