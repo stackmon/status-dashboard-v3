@@ -90,7 +90,7 @@ func validateAndSetStatus(queryStatus *string, params *db.IncidentsParams) error
 
 func parseSingleDateParam(dateStr *string) (*time.Time, error) {
 	if dateStr == nil || *dateStr == "" {
-		return nil, nil
+		return nil, apiErrors.ErrIncidentFDateInvalidFormat
 	}
 	parsedDate, err := time.Parse(time.RFC3339, *dateStr)
 	if err != nil {
@@ -168,7 +168,11 @@ func parseIncidentParams(c *gin.Context) (*db.IncidentsParams, error) {
 		return nil, err
 	}
 
-	if err = validateAndSetBoolParam(query.OpenedStr, &params.IsOpened, apiErrors.ErrIncidentFOpenedInvalidFormat); err != nil {
+	if err = validateAndSetBoolParam(
+		query.OpenedStr,
+		&params.IsOpened,
+		apiErrors.ErrIncidentFOpenedInvalidFormat,
+	); err != nil {
 		return nil, err
 	}
 
@@ -184,7 +188,11 @@ func parseIncidentParams(c *gin.Context) (*db.IncidentsParams, error) {
 		return nil, err
 	}
 
-	if err = validateAndSetBoolParam(query.SystemStr, &params.IsSystem, apiErrors.ErrIncidentFSystemInvalidFormat); err != nil {
+	if err = validateAndSetBoolParam(
+		query.SystemStr,
+		&params.IsSystem,
+		apiErrors.ErrIncidentFSystemInvalidFormat,
+	); err != nil {
 		return nil, err
 	}
 
