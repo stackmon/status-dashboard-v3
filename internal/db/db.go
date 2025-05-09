@@ -89,7 +89,7 @@ func (db *DB) GetIncidents(params ...*IncidentsParams) ([]*Incident, error) {
 
 	switch {
 	case param.StartDate != nil && param.EndDate != nil:
-		r = r.Where("incident.start_date < ? AND incident.end_date > ?", *param.EndDate, *param.StartDate)
+		r = r.Where("incident.start_date >= ? AND incident.end_date <= ?", *param.StartDate, *param.EndDate)
 	case param.StartDate != nil && param.EndDate == nil:
 		r = r.Where("incident.start_date >= ?", *param.StartDate)
 	case param.EndDate != nil && param.StartDate == nil:

@@ -88,11 +88,8 @@ func validateAndSetStatus(queryStatus *string, params *db.IncidentsParams) error
 	return nil
 }
 
-func parseSingleDateParam(dateStr *string) (*time.Time, error) {
-	if dateStr == nil || *dateStr == "" {
-		return nil, apiErrors.ErrIncidentFDateInvalidFormat
-	}
-	parsedDate, err := time.Parse(time.RFC3339, *dateStr)
+func parseSingleDateParam(dateStr string) (*time.Time, error) {
+	parsedDate, err := time.Parse(time.RFC3339, dateStr)
 	if err != nil {
 		return nil, apiErrors.ErrIncidentFDateInvalidFormat
 	}
@@ -100,17 +97,25 @@ func parseSingleDateParam(dateStr *string) (*time.Time, error) {
 }
 
 func validateAndSetDates(queryStartDateStr, queryEndDateStr *string, params *db.IncidentsParams) error {
-	startDate, err := parseSingleDateParam(queryStartDateStr)
-	if err != nil {
-		return err
+	if queryStartDateStr != nil && *queryStartDateStr != "" {
+		startDate, err := parseSingleDateParam(*queryStartDateStr)
+		if err != nil {
+			return err
+		}
+		params.StartDate = startDate
+	} else {
+		params.StartDate = nil
 	}
-	params.StartDate = startDate
 
-	endDate, err := parseSingleDateParam(queryEndDateStr)
-	if err != nil {
-		return err
+	if queryEndDateStr != nil && *queryEndDateStr != "" {
+		endDate, err := parseSingleDateParam(*queryEndDateStr)
+		if err != nil {
+			return err
+		}
+		params.EndDate = endDate
+	} else {
+		params.EndDate = nil
 	}
-	params.EndDate = endDate
 
 	if params.StartDate != nil && params.EndDate != nil && params.EndDate.Before(*params.StartDate) {
 		return apiErrors.ErrIncidentFDateInvalidFormat
