@@ -23,6 +23,10 @@ lint:
 	@echo running linter
 	golangci-lint run -v
 
+lint-check-version:
+	@echo check linter version
+	if [[ $(GO_LINT) == $(addprefix "v",$(GOLANGCI_LINT_VERSION)) ]]; then echo "current installed version is actual to $(GOLANGCI_LINT_VERSION)"; else echo "current version is not actual, please use $(GOLANGCI_LINT_VERSION)"; exit 1; fi
+
 migrate-up:
 	@echo staring migrations
 	migrate -database $(SD_DB) -path db/migrations up
