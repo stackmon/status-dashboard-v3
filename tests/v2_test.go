@@ -507,7 +507,7 @@ func TestV2PostIncidentExtractHandler(t *testing.T) {
 	newInc := &v2.Incident{}
 	err = json.Unmarshal(w.Body.Bytes(), newInc)
 	require.NoError(t, err)
-	assert.Equal(t, 1, len(newInc.Components))
+	assert.Len(t, newInc.Components, 1)
 	assert.Equal(t, incidentCreateData.Impact, newInc.Impact)
 	assert.Equal(t, fmt.Sprintf("Cloud Container Engine (Container, EU-NL, cce) moved from <a href='/incidents/%d'>Test incident for dcs</a>", result.Result[0].IncidentID), newInc.Updates[0].Text)
 
@@ -523,7 +523,7 @@ func TestV2PostIncidentExtractHandler(t *testing.T) {
 	req, _ = http.NewRequest(http.MethodPost, v2Incidents+fmt.Sprintf("/%d/extract", result.Result[0].IncidentID), bytes.NewReader(data))
 	r.ServeHTTP(w, req)
 	require.Equal(t, http.StatusBadRequest, w.Code)
-	assert.Equal(t, `{"errMsg":"can not move all components to the new incident, keep at least one"}`, w.Body.String())
+	assert.JSONEq(t, `{"errMsg":"can not move all components to the new incident, keep at least one"}`, w.Body.String())
 }
 
 func v2CreateIncident(t *testing.T, r *gin.Engine, inc *v2.IncidentData) *v2.PostIncidentResp {

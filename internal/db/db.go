@@ -317,7 +317,6 @@ func (db *DB) SaveComponent(comp *Component) (uint, error) {
 }
 
 const statusSYSTEM = "SYSTEM"
-const statusEventDetected = "detected"
 
 func (db *DB) MoveComponentFromOldToAnotherIncident(
 	comp *Component, incOld, incNew *Incident, closeOld bool,

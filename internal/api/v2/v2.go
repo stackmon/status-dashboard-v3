@@ -460,7 +460,11 @@ func PostIncidentExtractHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFu
 			return
 		}
 
-		logger.Debug("extract components from the incident", zap.Any("components", incData.Components), zap.Int("incident_id", incID.ID))
+		logger.Debug(
+			"extract components from the incident",
+			zap.Any("components", incData.Components),
+			zap.Int("incident_id", incID.ID),
+		)
 
 		storedInc, err := dbInst.GetIncident(incID.ID)
 		if err != nil {
