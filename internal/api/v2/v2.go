@@ -487,7 +487,7 @@ func PostIncidentExtractHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFu
 		}
 
 		if movedCounter == len(storedInc.Components) {
-			apiErrors.RaiseBadRequestErr(c, fmt.Errorf("can't move all components to the new incident, keep at least one"))
+			apiErrors.RaiseBadRequestErr(c, fmt.Errorf("can not move all components to the new incident, keep at least one"))
 			return
 		}
 

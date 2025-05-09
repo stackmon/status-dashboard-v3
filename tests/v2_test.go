@@ -460,6 +460,72 @@ func TestV2PatchIncidentHandler(t *testing.T) {
 	assert.NotNil(t, inc.EndDate)
 }
 
+func TestV2PostIncidentExtractHandler(t *testing.T) {
+	t.Log("start to test incident creation for /v2/incidents")
+	r, _, _ := initTests(t)
+
+	t.Log("create an incident")
+
+	components := []int{1, 2}
+	impact := 1
+	title := "Test incident for dcs"
+	startDate := time.Now().AddDate(0, 0, -1).UTC()
+	system := false
+
+	incidentCreateData := v2.IncidentData{
+		Title:      title,
+		Impact:     &impact,
+		Components: components,
+		StartDate:  startDate,
+		System:     &system,
+	}
+
+	incidents := v2GetIncidents(t, r)
+	for _, inc := range incidents {
+		if inc.EndDate == nil {
+			endDate := inc.StartDate.Add(time.Hour * 1)
+			inc.EndDate = &endDate
+			v2PatchIncident(t, r, inc)
+		}
+	}
+
+	result := v2CreateIncident(t, r, &incidentCreateData)
+
+	t.Logf("create an incident with components: %v", components)
+	type IncidentData struct {
+		Components []int `json:"components"`
+	}
+	movedComponents := IncidentData{Components: []int{2}}
+	data, err := json.Marshal(movedComponents)
+	require.NoError(t, err)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodPost, v2Incidents+fmt.Sprintf("/%d/extract", result.Result[0].IncidentID), bytes.NewReader(data))
+	r.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code)
+
+	newInc := &v2.Incident{}
+	err = json.Unmarshal(w.Body.Bytes(), newInc)
+	require.NoError(t, err)
+	assert.Equal(t, 1, len(newInc.Components))
+	assert.Equal(t, incidentCreateData.Impact, newInc.Impact)
+	assert.Equal(t, fmt.Sprintf("Cloud Container Engine (Container, EU-NL, cce) moved from <a href='/incidents/%d'>Test incident for dcs</a>", result.Result[0].IncidentID), newInc.Updates[0].Text)
+
+	createdInc := v2GetIncident(t, r, result.Result[0].IncidentID)
+	assert.Equal(t, fmt.Sprintf("Cloud Container Engine (Container, EU-NL, cce) moved to <a href='/incidents/%d'>Test incident for dcs</a>", newInc.ID), createdInc.Updates[0].Text)
+
+	// start negative case
+	movedComponents = IncidentData{Components: []int{1}}
+	data, err = json.Marshal(movedComponents)
+	require.NoError(t, err)
+
+	w = httptest.NewRecorder()
+	req, _ = http.NewRequest(http.MethodPost, v2Incidents+fmt.Sprintf("/%d/extract", result.Result[0].IncidentID), bytes.NewReader(data))
+	r.ServeHTTP(w, req)
+	require.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Equal(t, `{"errMsg":"can not move all components to the new incident, keep at least one"}`, w.Body.String())
+}
+
 func v2CreateIncident(t *testing.T, r *gin.Engine, inc *v2.IncidentData) *v2.PostIncidentResp {
 	t.Helper()
 
