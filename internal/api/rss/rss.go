@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -20,6 +21,20 @@ const maxIncidents = 10
 var errRSSWrongParams = fmt.Errorf( //nolint:staticcheck
 	"Status Dashboard RSS feed\nPlease read the documentation to\nmake the correct request",
 )
+
+// Pay attention, the impact levels will be changed.
+var impactRepresentation = map[int]string{ //nolint:gochecknoglobals
+	0: "Scheduled maintenance",
+	1: "Minor incident (i.e. performance impact)",
+	2: "Major incident",
+	3: "Service outage",
+}
+
+// getIncidentImpactsStr returns a string representation of the incident impact level.
+// The numeric values (0,1,2,3) represent specific impact levels for the incident.
+func getIncidentImpactsStr(impact int) string {
+	return impactRepresentation[impact]
+}
 
 func HandleRSS(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -41,7 +56,6 @@ func HandleRSS(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 		params := feedParams{
 			region:        region,
 			componentName: componentName,
-			baseURL:       baseURL,
 		}
 
 		incidents, err := getIncidents(dbInst, logger, params, maxIncidents)
@@ -64,11 +78,11 @@ func HandleRSS(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 		}
 
 		incidents = sortIncidents(incidents)
-		feedItems := make([]*feeds.Item, 0, maxIncidents)
+		var feedItems []*feeds.Item
 
 		for _, incident := range incidents {
-			item := createFeedItem(incident, baseURL)
-			feedItems = append(feedItems, item)
+			item := createFeedItemsForIncident(incident, baseURL)
+			feedItems = append(feedItems, item...)
 		}
 
 		feed.Items = feedItems
@@ -98,7 +112,6 @@ func validateRegion(region string) bool {
 type feedParams struct {
 	region        string
 	componentName string
-	baseURL       string
 }
 
 func getIncidents(dbInstance *db.DB, log *zap.Logger, params feedParams, maxIncidents int) ([]*db.Incident, error) {
@@ -145,58 +158,67 @@ func getIncidents(dbInstance *db.DB, log *zap.Logger, params feedParams, maxInci
 	return incidents, nil
 }
 
-func createFeedContent(incident *db.Incident) string {
-	var content string
+func createFeedItemsForIncident(incident *db.Incident, baseURL string) []*feeds.Item {
+	var feedItems []*feeds.Item
 
-	if len(incident.Statuses) > 0 {
-		for i := len(incident.Statuses) - 1; i >= 0; i-- {
-			status := incident.Statuses[i]
-			content += fmt.Sprintf(
-				"<small>%s</small><br><strong>%s - </strong>%s<br><br><br>",
-				status.Timestamp.Format("2006-01-02 15:04 MST"),
-				status.Status,
-				status.Text,
-			)
+	impact := getIncidentImpactsStr(*incident.Impact)
+
+	var title string
+	if len(incident.Components) > 1 {
+		title = fmt.Sprintf("Status change of multiple services to %s", impact)
+	} else {
+		title = fmt.Sprintf("%s status changed to %s", incident.Components[0].Name, impact)
+	}
+
+	var description strings.Builder
+	startDate := *incident.StartDate
+	description.WriteString(fmt.Sprintf("A %s was detected at %s UTC for ", impact, startDate.Format(time.DateTime)))
+
+	for i := range len(incident.Components) {
+		c := incident.Components[i]
+		description.WriteString(fmt.Sprintf("%s in %s", c.Name, c.Region()))
+		if i != len(incident.Components)-1 {
+			description.WriteString(", ")
+		} else {
+			description.WriteString(".")
 		}
 	}
 
-	impactLevel := getIncidentImpacts()[*incident.Impact]
-
-	content += fmt.Sprintf("Incident impact: %s<br>", impactLevel)
-	content += fmt.Sprintf(
-		"Start date: %s<br>",
-		incident.StartDate.Format("2006-01-02 15:04:05 MST"),
-	)
-	if incident.EndDate != nil {
-		content += fmt.Sprintf(
-			"End date: %s<br>",
-			incident.EndDate.Format("2006-01-02 15:04:05 MST"),
-		)
-	}
-	content += "<br>We apologize for the inconvenience and will share an update once we have more information."
-	return content
-}
-
-func createFeedItem(incident *db.Incident, baseURL string) *feeds.Item {
+	// Create a general item for the incident
 	item := &feeds.Item{
-		Title:   fmt.Sprintln(*incident.Text),
-		Link:    &feeds.Link{Href: fmt.Sprintf("%s/incidents/%d", baseURL, incident.ID)},
-		Created: *incident.StartDate,
+		Title:       title,
+		Link:        &feeds.Link{Href: fmt.Sprintf("%s/incidents/%d", baseURL, incident.ID)},
+		Created:     *incident.StartDate,
+		Description: description.String(),
 	}
 
-	// Here we use Description for backward compatibility with SD2
-	item.Description = createFeedContent(incident)
+	feedItems = append(feedItems, item)
 
-	if len(incident.Statuses) > 0 {
-		item.Updated = incident.Statuses[len(incident.Statuses)-1].Timestamp
-	}
-	if incident.EndDate != nil {
-		item.Updated = *incident.EndDate
-	} else {
-		item.Updated = *incident.StartDate
+	// add updates
+	for _, s := range incident.Statuses {
+		d := fmt.Sprintf("An update was provided at %s UTC for ", s.Timestamp.Format(time.DateTime))
+		if len(incident.Components) > 1 {
+			for _, c := range incident.Components {
+				d += fmt.Sprintf("%s (%s),", c.Name, c.Region())
+			}
+			d = strings.TrimSuffix(d, ",")
+		} else {
+			d += fmt.Sprintf("%s in %s", incident.Components[0].Name, incident.Components[0].Region())
+		}
+
+		d += fmt.Sprintf(": %s - %s", s.Status, s.Text)
+
+		upd := &feeds.Item{
+			Title:       fmt.Sprintf("Update published for: %s", *incident.Text),
+			Link:        &feeds.Link{Href: fmt.Sprintf("%s/incidents/%d", baseURL, incident.ID)},
+			Created:     s.Timestamp,
+			Description: d,
+		}
+
+		feedItems = append(feedItems, upd)
 	}
 
-	return item
+	return feedItems
 }
 
 func prepareTitle(region string, component string) string {
@@ -229,15 +251,4 @@ func sortIncidents(incidents []*db.Incident) []*db.Incident {
 		return closedIncidents[i].EndDate.After(*closedIncidents[j].EndDate)
 	})
 	return append(openIncidents, closedIncidents...)
-}
-
-// getIncidentImpacts returns a map of impact levels
-// The numeric values (0,1,2,3) represent specific impact levels for the incident.
-func getIncidentImpacts() map[int]string {
-	return map[int]string{
-		0: "Scheduled maintenance",
-		1: "Minor incident (i.e. performance impact)",
-		2: "Major incident",
-		3: "Service outage",
-	}
 }

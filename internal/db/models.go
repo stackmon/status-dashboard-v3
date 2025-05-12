@@ -22,13 +22,24 @@ func (c *Component) PrintAttrs() string {
 		switch a.Name {
 		case "category":
 			category = a.Value
-		case "region":
+		case "region": //nolint:goconst
 			region = a.Value
 		case "type":
 			compType = a.Value
 		}
 	}
 	return fmt.Sprintf("%s (%s, %s, %s)", c.Name, category, region, compType)
+}
+
+func (c *Component) Region() string {
+	var region string
+	for _, a := range c.Attrs {
+		if a.Name == "region" {
+			region = a.Value
+		}
+	}
+
+	return region
 }
 
 type ComponentAttr struct {

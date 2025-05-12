@@ -51,7 +51,8 @@ func (db *DB) GetIncidents(params ...*IncidentsParams) ([]*Incident, error) {
 
 	r := db.g.Model(&Incident{}).
 		Preload("Statuses").
-		Preload("Components", func(db *gorm.DB) *gorm.DB { return db.Select("ID") })
+		Preload("Components", func(db *gorm.DB) *gorm.DB { return db.Select("ID, Name") }).
+		Preload("Components.Attrs")
 
 	if param.IsOpened {
 		r.Where("end_date is NULL").Find(&incidents)
@@ -76,8 +77,9 @@ func (db *DB) GetIncident(id int) (*Incident, error) {
 		Where(inc).
 		Preload("Statuses").
 		Preload("Components", func(db *gorm.DB) *gorm.DB {
-			return db.Select("ID")
+			return db.Select("ID, Name")
 		}).
+		Preload("Components.Attrs").
 		First(&inc)
 
 	if r.Error != nil {
@@ -135,8 +137,9 @@ func (db *DB) GetIncidentsByComponentID(componentID uint, params ...*IncidentsPa
 		Where("icr.component_id = ?", componentID).
 		Preload("Statuses").
 		Preload("Components", func(db *gorm.DB) *gorm.DB {
-			return db.Select("ID")
-		})
+			return db.Select("ID, Name")
+		}).
+		Preload("Components.Attrs")
 
 	if param.LastCount != 0 {
 		r.Order("incident.id desc").Limit(param.LastCount)
@@ -164,8 +167,9 @@ func (db *DB) GetIncidentsByComponentAttr(attr *ComponentAttr, params ...*Incide
 		Where("ca.name = ? AND ca.value = ?", attr.Name, attr.Value).
 		Preload("Statuses").
 		Preload("Components", func(db *gorm.DB) *gorm.DB {
-			return db.Select("ID")
-		})
+			return db.Select("ID, Name")
+		}).
+		Preload("Components.Attrs")
 
 	if param.LastCount != 0 {
 		r.Order("incident.id desc").Limit(param.LastCount)
