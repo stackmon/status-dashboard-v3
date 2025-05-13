@@ -294,7 +294,7 @@ paths:
             example: "1,5,23"
       responses:
         '200':
-          description: Successful operation. Returns a list of incidents matching the criteria. If none match, data is an empty array and a message is included.
+          description: Successful operation. Returns a list of incidents matching the criteria. If none match, data is an empty array.
           content:
             application/json:
               schema:
