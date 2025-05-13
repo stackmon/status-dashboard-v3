@@ -3,15 +3,11 @@ package v2
 import (
 	"errors"
 	"fmt"
-	"math"
 	"net/http"
 	"sort"
-	"strconv"
-	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/go-playground/validator/v10"
 	"go.uber.org/zap"
 
 	apiErrors "github.com/stackmon/otc-status-dashboard/internal/api/errors"
@@ -47,156 +43,77 @@ type Incident struct {
 }
 
 type APIGetIncidentsQuery struct {
-	Type       *string `form:"type" binding:"omitempty,oneof=maintenance incident"`
-	Opened     *string `form:"opened" binding:"omitempty,boolean"`
-	Status     *string `form:"status"`
-	StartDate  *string `form:"start_date"`
-	EndDate    *string `form:"end_date"`
-	ImpactStr  *string `form:"impact" binding:"omitempty,numeric"`
-	SystemStr  *string `form:"system" binding:"omitempty,boolean"`
-	Components *string `form:"components"`
+	Type       *string    `form:"type" binding:"omitempty,oneof=maintenance incident"`
+	Opened     *bool      `form:"opened" binding:"omitempty"`
+	Status     *string    `form:"status"` // Custom validation in validateAndSetStatus
+	StartDate  *time.Time `form:"start_date" binding:"omitempty"`
+	EndDate    *time.Time `form:"end_date" binding:"omitempty"`
+	Impact     *int       `form:"impact" binding:"omitempty,gte=0,lte=3"`
+	System     *bool      `form:"system" binding:"omitempty"`
+	Components *string    `form:"components"` // Custom validation in parseAndSetComponents
 }
 
-func validateAndSetStatus(queryStatus *string, params *db.IncidentsParams) error {
-	if queryStatus != nil {
-		if !IsValidIncidentFilterStatus(*queryStatus) {
-			return apiErrors.ErrIncidentFStatusInvalidFormat
-		}
-		params.Status = queryStatus
-	}
-	return nil
-}
-
-func parseSingleDateParam(dateStr string) (*time.Time, error) {
-	parsedDate, err := time.Parse(time.RFC3339, dateStr)
-	if err != nil {
-		return nil, apiErrors.ErrIncidentFDateInvalidFormat
-	}
-	return &parsedDate, nil
-}
-
-func validateAndSetDates(queryStartDate, queryEndDate *string, params *db.IncidentsParams) error {
-	if queryStartDate != nil && *queryStartDate != "" {
-		startDate, err := parseSingleDateParam(*queryStartDate)
-		if err != nil {
-			return err
-		}
-		params.StartDate = startDate
-	} else {
-		params.StartDate = nil
-	}
-
-	if queryEndDate != nil && *queryEndDate != "" {
-		endDate, err := parseSingleDateParam(*queryEndDate)
-		if err != nil {
-			return err
-		}
-		params.EndDate = endDate
-	} else {
-		params.EndDate = nil
-	}
-
-	if params.StartDate != nil && params.EndDate != nil && params.EndDate.Before(*params.StartDate) {
-		return apiErrors.ErrIncidentFDateInvalidFormat
-	}
-	return nil
-}
-
-func parseAndSetComponents(queryComponents *string, params *db.IncidentsParams) error {
-	if queryComponents != nil && *queryComponents != "" {
-		compIDStrings := strings.Split(*queryComponents, ",")
-		parsedComponentIDs := make([]int, 0, len(compIDStrings))
-
-		for _, idStr := range compIDStrings {
-			trimmedIDStr := strings.TrimSpace(idStr)
-
-			idUint64, err := strconv.ParseUint(trimmedIDStr, 10, 64)
-			if err != nil || idUint64 <= 0 || idUint64 > math.MaxInt32 {
-				return apiErrors.ErrIncidentFCompsInvalidFormat
-			}
-
-			parsedComponentIDs = append(parsedComponentIDs, int(idUint64))
-		}
-
-		if len(parsedComponentIDs) > 0 {
-			params.ComponentIDs = parsedComponentIDs
-		}
-	}
-	return nil
-}
-
-func bindAndValidateIncidentsQuery(c *gin.Context) (*APIGetIncidentsQuery, error) {
+func bindIncidentsQuery(c *gin.Context) (*APIGetIncidentsQuery, error) {
 	var query APIGetIncidentsQuery
 
 	if err := c.ShouldBindQuery(&query); err != nil {
-		var ve validator.ValidationErrors
-		if errors.As(err, &ve) {
-			for _, fe := range ve {
-				switch fe.Field() {
-				case "Type":
-					return nil, apiErrors.ErrIncidentFTypeInvalidFormat
-				case "Opened":
-					return nil, apiErrors.ErrIncidentFOpenedInvalidFormat
-				case "ImpactStr":
-					return nil, apiErrors.ErrIncidentFImpactInvalidFormat
-				case "SystemStr":
-					return nil, apiErrors.ErrIncidentFSystemInvalidFormat
-				}
-			}
-		}
-		return nil, err
+		return nil, apiErrors.ErrIncidentFQueryInvalidFormat
+	}
+
+	if query.StartDate != nil && query.EndDate != nil && query.EndDate.Before(*query.StartDate) {
+		return nil, apiErrors.ErrIncidentFQueryInvalidFormat
 	}
 	return &query, nil
 }
 
 func parseIncidentParams(c *gin.Context) (*db.IncidentsParams, error) {
-	query, err := bindAndValidateIncidentsQuery(c)
+	query, err := bindIncidentsQuery(c)
 	if err != nil {
 		return nil, err
 	}
 
 	params := &db.IncidentsParams{}
-	var parseErr error
 
 	// Type: Validated by "oneof" tag in APIGetIncidentsQuery.
 	if query.Type != nil {
 		params.Type = query.Type
 	}
 
-	// Opened: Validated by "boolean" tag.
+	// Opened: Type is now *bool.
+	// Gin handles parsing "true", "false", "1", "0".
 	if query.Opened != nil {
-		parsedBool, _ := strconv.ParseBool(*query.Opened)
-		params.IsOpened = &parsedBool
+		params.IsOpened = query.Opened
 	}
 
-	if parseErr = validateAndSetStatus(query.Status, params); parseErr != nil {
-		return nil, parseErr
+	// Status: Manual validation.
+	// validateAndSetStatus there is in validation.go (package v2)
+	err = validateAndSetStatus(query.Status, params)
+	if err != nil {
+		return nil, err
 	}
 
-	if parseErr = validateAndSetDates(query.StartDate, query.EndDate, params); parseErr != nil {
-		return nil, parseErr
+	// Dates: Parsed by time_format tag.
+	// Range validated in bindAndValidateIncidentsQuery.
+	if query.StartDate != nil {
+		params.StartDate = query.StartDate
+	}
+	if query.EndDate != nil {
+		params.EndDate = query.EndDate
 	}
 
-	// Impact: Validated for "numeric" by binding tag. Range (0-3) must be checked manually.
-	if query.ImpactStr != nil {
-		impactVal, errAtoi := strconv.Atoi(*query.ImpactStr)
-		if errAtoi != nil {
-			return nil, apiErrors.ErrIncidentFImpactInvalidFormat
-		}
-		if impactVal < 0 || impactVal > 3 {
-			return nil, apiErrors.ErrIncidentFImpactInvalidFormat
-		}
-		params.Impact = &impactVal
+	// Impact: Type *int, validated by gte/lte tags.
+	if query.Impact != nil {
+		params.Impact = query.Impact
 	}
 
-	// System: Validated by "boolean" tag.
-	if query.SystemStr != nil {
-		parsedBool, _ := strconv.ParseBool(*query.SystemStr)
-		params.IsSystem = &parsedBool
+	if query.System != nil {
+		params.IsSystem = query.System
 	}
 
-	if parseErr = parseAndSetComponents(query.Components, params); parseErr != nil {
-		return nil, parseErr
+	// parseAndSetComponents there is in validation.go (package v2)
+	err = parseAndSetComponents(query.Components, params)
+	if err != nil {
+		return nil, err
 	}
 	return params, nil
 }
@@ -222,10 +139,7 @@ func GetIncidentsHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 
 		if len(r) == 0 {
 			logger.Debug("no incidents found matching the specific criteria", zap.Any("params", params))
-			c.JSON(http.StatusOK, gin.H{
-				"data":    []Incident{},
-				"message": "no incidents found matching the specific criteria",
-			})
+			c.JSON(http.StatusOK, gin.H{"data": []Incident{}})
 			return
 		}
 

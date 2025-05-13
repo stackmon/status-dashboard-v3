@@ -80,7 +80,7 @@ func TestGetIncidentsHandlerFilters(t *testing.T) {
 	// Expected JSON responses (simplified for brevity)
 	responseA := fmt.Sprintf(`{"data":[{"id":1,"title":"Incident title A","impact":0,"components":[150],"start_date":"%s","end_date":"%s","system":false,"updates":[{"status":"completed","text":"Maintenance completed.","timestamp":"%s"}]}]}`, startDate, endDate, endDate)
 	responseB := fmt.Sprintf(`{"data":[{"id":2,"title":"Incident title B","impact":3,"components":[151],"start_date":"%s","system":true,"updates":[{"status":"analysing","text":"Incident analysing.","timestamp":"%s"}]}]}`, startDate, startDate)
-	responseEmpty := `{"data":[],"message":"no incidents found matching the specific criteria"}`
+	responseEmpty := `{"data":[]}`
 	isOpenedTrue := true
 	isOpenedFalse := false
 
@@ -188,49 +188,49 @@ func TestGetIncidentsHandlerFilters(t *testing.T) {
 			url:            "/v2/incidents?type=invalid",
 			mockSetup:      func(_ sqlmock.Sqlmock, _ *db.IncidentsParams) {}, // No DB call expected
 			expectedStatus: http.StatusBadRequest,
-			expectedBody:   fmt.Sprintf(`{"errMsg":"%s"}`, errors.ErrIncidentFTypeInvalidFormat),
+			expectedBody:   fmt.Sprintf(`{"errMsg":"%s"}`, errors.ErrIncidentFQueryInvalidFormat),
 		},
 		{
 			name:           "Invalid filter: opened=maybe",
 			url:            "/v2/incidents?opened=maybe",
 			mockSetup:      func(_ sqlmock.Sqlmock, _ *db.IncidentsParams) {},
 			expectedStatus: http.StatusBadRequest,
-			expectedBody:   fmt.Sprintf(`{"errMsg":"%s"}`, errors.ErrIncidentFOpenedInvalidFormat),
+			expectedBody:   fmt.Sprintf(`{"errMsg":"%s"}`, errors.ErrIncidentFQueryInvalidFormat),
 		},
 		{
 			name:           "Invalid filter: impact=abc",
 			url:            "/v2/incidents?impact=abc",
 			mockSetup:      func(_ sqlmock.Sqlmock, _ *db.IncidentsParams) {},
 			expectedStatus: http.StatusBadRequest,
-			expectedBody:   fmt.Sprintf(`{"errMsg":"%s"}`, errors.ErrIncidentFImpactInvalidFormat),
+			expectedBody:   fmt.Sprintf(`{"errMsg":"%s"}`, errors.ErrIncidentFQueryInvalidFormat),
 		},
 		{
 			name:           "Invalid filter: impact=5",
 			url:            "/v2/incidents?impact=5",
 			mockSetup:      func(_ sqlmock.Sqlmock, _ *db.IncidentsParams) {},
 			expectedStatus: http.StatusBadRequest,
-			expectedBody:   fmt.Sprintf(`{"errMsg":"%s"}`, errors.ErrIncidentFImpactInvalidFormat),
+			expectedBody:   fmt.Sprintf(`{"errMsg":"%s"}`, errors.ErrIncidentFQueryInvalidFormat),
 		},
 		{
 			name:           "Invalid filter: components=abc",
 			url:            "/v2/incidents?components=abc",
 			mockSetup:      func(_ sqlmock.Sqlmock, _ *db.IncidentsParams) {},
 			expectedStatus: http.StatusBadRequest,
-			expectedBody:   fmt.Sprintf(`{"errMsg":"%s"}`, errors.ErrIncidentFCompsInvalidFormat),
+			expectedBody:   fmt.Sprintf(`{"errMsg":"%s"}`, errors.ErrIncidentFQueryInvalidFormat),
 		},
 		{
 			name:           "Invalid filter: components=2147483649",
 			url:            "/v2/incidents?components=2147483649",
 			mockSetup:      func(_ sqlmock.Sqlmock, _ *db.IncidentsParams) {},
 			expectedStatus: http.StatusBadRequest,
-			expectedBody:   fmt.Sprintf(`{"errMsg":"%s"}`, errors.ErrIncidentFCompsInvalidFormat),
+			expectedBody:   fmt.Sprintf(`{"errMsg":"%s"}`, errors.ErrIncidentFQueryInvalidFormat),
 		},
 		{
 			name:           "Invalid filter: start_date after end_date",
 			url:            fmt.Sprintf("/v2/incidents?start_date=%s&end_date=%s", endDate, startDate), // Swapped start and end dates
 			mockSetup:      func(_ sqlmock.Sqlmock, _ *db.IncidentsParams) {},
 			expectedStatus: http.StatusBadRequest,
-			expectedBody:   fmt.Sprintf(`{"errMsg":"%s"}`, errors.ErrIncidentFDateInvalidFormat),
+			expectedBody:   fmt.Sprintf(`{"errMsg":"%s"}`, errors.ErrIncidentFQueryInvalidFormat),
 		},
 	}
 
