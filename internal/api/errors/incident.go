@@ -10,6 +10,7 @@ var ErrIncidentCreationMaintenanceExists = errors.New("incident creation failed,
 var ErrIncidentCreationLowImpact = errors.New(
 	"incident creation failed, exists the incident with higher impact for component",
 )
+var ErrIncidentFQueryInvalidFormat = errors.New("incident filter query parameter has an invalid format or value")
 
 // Errors for patching incident
 

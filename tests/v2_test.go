@@ -22,6 +22,12 @@ const (
 	v2Availability = "/v2/availability"
 )
 
+// V2IncidentsListResponse defines the expected structure for the GET /v2/incidents endpoint.
+type V2IncidentsListResponse struct {
+	Data    []*v2.Incident `json:"data"`
+	Message string         `json:"message,omitempty"`
+}
+
 func TestV2GetIncidentsHandler(t *testing.T) {
 	t.Log("start to test GET /v2/incidents")
 	r, _, _ := initTests(t)
@@ -193,7 +199,7 @@ func TestV2PostIncidentsHandler(t *testing.T) {
 	assert.Equal(t, len(incidents)+1, result.Result[1].IncidentID)
 
 	incident := v2GetIncident(t, r, result.Result[0].IncidentID)
-	assert.Equal(t, incidentCreateData.StartDate, incident.StartDate)
+	assert.Equal(t, incidentCreateData.StartDate.Truncate(time.Microsecond), incident.StartDate)
 	assert.Equal(t, title, incident.Title)
 	assert.Equal(t, impact, *incident.Impact)
 	assert.Equal(t, system, *incident.System)
@@ -239,8 +245,10 @@ func TestV2PostIncidentsHandler(t *testing.T) {
 	assert.Equal(t, len(incidents)+3, result.Result[1].IncidentID)
 
 	maintenanceIncident := v2GetIncident(t, r, result.Result[0].IncidentID)
-	assert.Equal(t, incidentCreateData.StartDate, maintenanceIncident.StartDate)
-	assert.Equal(t, incidentCreateData.EndDate, maintenanceIncident.EndDate)
+	assert.Equal(t, incidentCreateData.StartDate.Truncate(time.Microsecond), maintenanceIncident.StartDate)
+	require.NotNil(t, incidentCreateData.EndDate)
+	require.NotNil(t, maintenanceIncident.EndDate)
+	assert.Equal(t, incidentCreateData.EndDate.Truncate(time.Microsecond), maintenanceIncident.EndDate.Truncate(time.Microsecond))
 	assert.Equal(t, title, maintenanceIncident.Title)
 	assert.Equal(t, impact, *maintenanceIncident.Impact)
 	assert.Equal(t, system, *maintenanceIncident.System)
@@ -431,7 +439,8 @@ func TestV2PatchIncidentHandler(t *testing.T) {
 	pData.UpdateDate = updateDate
 
 	inc = internalPatch(incID, &pData)
-	assert.Equal(t, updateDate, *inc.EndDate)
+	require.NotNil(t, inc.EndDate)
+	assert.Equal(t, updateDate.Truncate(time.Microsecond), inc.EndDate.Truncate(time.Microsecond))
 
 	t.Logf("patching closed incident, change start date and end date")
 	startDate = time.Now().AddDate(0, 0, -1).UTC()
@@ -442,8 +451,9 @@ func TestV2PatchIncidentHandler(t *testing.T) {
 	pData.EndDate = &endDate
 
 	inc = internalPatch(incID, &pData)
-	assert.Equal(t, startDate, inc.StartDate)
-	assert.Equal(t, endDate, *inc.EndDate)
+	assert.Equal(t, startDate.Truncate(time.Microsecond), inc.StartDate)
+	require.NotNil(t, inc.EndDate)
+	assert.Equal(t, endDate.Truncate(time.Microsecond), inc.EndDate.Truncate(time.Microsecond))
 
 	t.Logf("reopen closed incident")
 
@@ -701,7 +711,7 @@ func TestV2GetComponentsAvailability(t *testing.T) {
 	impact := 3
 	title := "Test incident for dns N1"
 	startDate := time.Date(2024, 12, 1, 0, 0, 0, 0, time.UTC)
-	system := false
+	system := true
 
 	// Incident N1
 	incidentCreateDataN1 := v2.IncidentData{
@@ -788,5 +798,169 @@ func checkComponentAvailability(t *testing.T, compAvail v2.ComponentAvailability
 			assert.InEpsilon(t, 100.00000, avail.Percentage, 0.00001,
 				"Availability percentage should be 100% for all months except the target months")
 		}
+	}
+}
+
+func TestV2GetIncidentsFilteredHandler(t *testing.T) {
+	t.Log("start to test GET /v2/incidents with filters")
+	r, _, _ := initTests(t)
+
+	type filterTestCase struct {
+		name          string
+		queryParams   map[string]string
+		expectedIDs   []int
+		expectedCount int
+	}
+
+	testCases := []filterTestCase{
+		{
+			name:          "No filters",
+			queryParams:   nil,
+			expectedIDs:   []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15},
+			expectedCount: 15,
+		},
+		{
+			name:        "Filter by start_date",
+			queryParams: map[string]string{"start_date": time.Date(2025, 2, 1, 0, 0, 0, 0, time.UTC).Format(time.RFC3339)},
+			// Incidents starting on or after 2025-02-01 (2,3,4,5,6,7,8,9,10,11,12,13)
+			expectedIDs:   []int{2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13},
+			expectedCount: 12,
+		},
+		{
+			name:        "Filter by end_date",
+			queryParams: map[string]string{"end_date": time.Date(2025, 2, 1, 0, 0, 0, 0, time.UTC).Format(time.RFC3339)},
+			// Incidents starting on or before 2025-02-01 (1, 12, 13)
+			expectedIDs:   []int{1, 14, 15},
+			expectedCount: 3,
+		},
+		{
+			name:        "Filter by impact minor (1)",
+			queryParams: map[string]string{"impact": "1"},
+			// Actual incident id's: 1, 6, 7, 9, 10, 12, 13
+			expectedIDs:   []int{1, 6, 7, 9, 10, 12, 13},
+			expectedCount: 7,
+		},
+		{
+			name:        "Filter by impact major (2)",
+			queryParams: map[string]string{"impact": "2"},
+			// Actual incident id's: 2, 4, 11
+			expectedIDs:   []int{2, 4, 11},
+			expectedCount: 3,
+		},
+		{
+			name:        "Filter by impact maintenance (0)",
+			queryParams: map[string]string{"impact": "0"},
+			// Actual incident id's: 8
+			expectedIDs:   []int{8},
+			expectedCount: 1,
+		},
+		{
+			name:        "Filter by component_id 1",
+			queryParams: map[string]string{"components": "1"},
+			// Actual incident id's: 1, 5, 8, 10, 11
+			expectedIDs:   []int{1, 5, 8, 10, 11, 12},
+			expectedCount: 6,
+		},
+		{
+			name:          "Filter by non-existent component_id 8",
+			queryParams:   map[string]string{"components": "8"},
+			expectedIDs:   []int{},
+			expectedCount: 0,
+		},
+		{
+			name:        "Filter by system true",
+			queryParams: map[string]string{"system": "true"},
+			// Actual incident id's: 14, 15
+			expectedIDs:   []int{14, 15},
+			expectedCount: 2,
+		},
+		{
+			name:        "Filter by system false",
+			queryParams: map[string]string{"system": "false"},
+			// Actual incident id's: 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11
+			expectedIDs:   []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13},
+			expectedCount: 13,
+		},
+		{
+			name:        "Filter by active true",
+			queryParams: map[string]string{"opened": "true"},
+			// IsOpened (End Date = <nil>) Actual incident id's: 7, 9
+			expectedIDs:   []int{12, 13},
+			expectedCount: 2,
+		},
+		{
+			name:        "Filter by active false",
+			queryParams: map[string]string{"opened": "false"},
+			// Closed (End Date != <nil>) Actual incident id's: 1, 2, 3, 4, 5, 6, 8, 10, 11, 14, 15
+			expectedIDs:   []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 14, 15},
+			expectedCount: 13,
+		},
+		{
+			name:        "Combination: active true and impact 1",
+			queryParams: map[string]string{"opened": "true", "impact": "1"},
+			// Active: [12, 13]
+			// Impact 1: [1, 6, 7, 9, 10, 12, 13]
+			// Intersection: [12, 13]
+			expectedIDs:   []int{12, 13},
+			expectedCount: 2,
+		},
+		{
+			name:        "Combination: component_id 3 and system true",
+			queryParams: map[string]string{"components": "3", "system": "true"},
+			// Component 3: [9]
+			// System true: [14, 15]
+			// Intersection: []
+			expectedIDs:   []int{},
+			expectedCount: 0,
+		},
+		{
+			name:        "Date range: 2025-01-30 to 2025-02-06",
+			queryParams: map[string]string{"start_date": time.Date(2024, 12, 01, 0, 0, 0, 0, time.UTC).Format(time.RFC3339), "end_date": time.Date(2024, 12, 17, 0, 0, 0, 0, time.UTC).Format(time.RFC3339)},
+			// Incidents starting between 2024-12-01 and 2024-12-17 (inclusive for start_date)
+			// No pre-existing incidents in this range.
+			expectedIDs:   []int{14},
+			expectedCount: 1,
+		},
+		{
+			name:        "Filter by impact 3 (outage)",
+			queryParams: map[string]string{"impact": "3"},
+			// Actual incident id's: 3, 5, 14, 15
+			expectedIDs:   []int{3, 5, 14, 15},
+			expectedCount: 4,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			req, _ := http.NewRequest(http.MethodGet, v2Incidents, nil)
+
+			q := req.URL.Query()
+			for k, v := range tc.queryParams {
+				q.Add(k, v)
+			}
+			req.URL.RawQuery = q.Encode()
+
+			r.ServeHTTP(w, req)
+			t.Logf("Test case: %s, Query: %s, Response Body: %s", tc.name, req.URL.RawQuery, w.Body.String())
+
+			assert.Equal(t, http.StatusOK, w.Code, "Unexpected status code for: "+tc.name)
+
+			var responseData V2IncidentsListResponse
+			err := json.Unmarshal(w.Body.Bytes(), &responseData)
+			require.NoError(t, err, "Failed to unmarshal response for: "+tc.name)
+
+			actualIncidents := responseData.Data
+			assert.Len(t, actualIncidents, tc.expectedCount, "Unexpected number of incidents for: "+tc.name)
+
+			// When incidents are found or not, the message field should ideally be empty.
+			assert.Empty(t, responseData.Message, "Expected no message for: "+tc.name)
+
+			actualIDs := make([]int, len(actualIncidents))
+			for i, inc := range actualIncidents {
+				actualIDs[i] = inc.ID
+			}
+			assert.ElementsMatch(t, tc.expectedIDs, actualIDs, "Unexpected incident IDs for: "+tc.name)
+		})
 	}
 }

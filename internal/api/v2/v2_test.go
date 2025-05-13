@@ -40,6 +40,219 @@ func TestGetIncidentsHandler(t *testing.T) {
 	assert.Equal(t, fmt.Sprintf(response, startDate, endDate, endDate, startDate, endDate, endDate), w.Body.String())
 }
 
+func TestGetIncidentsHandlerFilters(t *testing.T) {
+	startDate := "2025-03-01T11:45:26.371Z"
+	endDate := "2025-03-04T11:45:26.371Z"
+	testTime, err := time.Parse(time.RFC3339, startDate)
+	require.NoError(t, err)
+	testEndTime, err := time.Parse(time.RFC3339, endDate)
+	require.NoError(t, err)
+
+	incidentType := "incident"
+	maintenanceType := "maintenance"
+	impact0 := 0
+	impact3 := 3
+	systemFalse := false
+	systemTrue := true
+
+	// Mock data setup
+	incidentA := db.Incident{
+		ID:         1,
+		Text:       &[]string{"Incident title A"}[0],
+		StartDate:  &testTime,
+		EndDate:    &testEndTime,
+		Impact:     &impact0, // Maintenance
+		System:     systemFalse,
+		Components: []db.Component{{ID: 150, Name: "Component A"}},
+		Statuses:   []db.IncidentStatus{{ID: 1, IncidentID: 1, Timestamp: testEndTime, Text: "Maintenance completed.", Status: "completed"}},
+	}
+	incidentB := db.Incident{
+		ID:         2,
+		Text:       &[]string{"Incident title B"}[0],
+		StartDate:  &testTime,
+		EndDate:    nil,      // Opened
+		Impact:     &impact3, // Incident
+		System:     systemTrue,
+		Components: []db.Component{{ID: 151, Name: "Component B"}},
+		Statuses:   []db.IncidentStatus{{ID: 2, IncidentID: 2, Timestamp: testTime, Text: "Incident analysing.", Status: "analysing"}},
+	}
+
+	// Expected JSON responses (simplified for brevity)
+	responseA := fmt.Sprintf(`{"data":[{"id":1,"title":"Incident title A","impact":0,"components":[150],"start_date":"%s","end_date":"%s","system":false,"updates":[{"status":"completed","text":"Maintenance completed.","timestamp":"%s"}]}]}`, startDate, endDate, endDate)
+	responseB := fmt.Sprintf(`{"data":[{"id":2,"title":"Incident title B","impact":3,"components":[151],"start_date":"%s","system":true,"updates":[{"status":"analysing","text":"Incident analysing.","timestamp":"%s"}]}]}`, startDate, startDate)
+	responseEmpty := `{"data":[]}`
+	isOpenedTrue := true
+	isOpenedFalse := false
+
+	testCases := []struct {
+		name           string
+		url            string
+		mockSetup      func(m sqlmock.Sqlmock, params *db.IncidentsParams)
+		expectedStatus int
+		expectedBody   string
+	}{
+		{
+			name: "Filter by type=maintenance",
+			url:  "/v2/incidents?type=maintenance",
+			mockSetup: func(m sqlmock.Sqlmock, params *db.IncidentsParams) {
+				params.Type = &maintenanceType
+				prepareMockForIncidents(t, m, []*db.Incident{&incidentA})
+			},
+			expectedStatus: http.StatusOK,
+			expectedBody:   responseA,
+		},
+		{
+			name: "Filter by type=incident",
+			url:  "/v2/incidents?type=incident",
+			mockSetup: func(m sqlmock.Sqlmock, params *db.IncidentsParams) {
+				params.Type = &incidentType
+				prepareMockForIncidents(t, m, []*db.Incident{&incidentB})
+			},
+			expectedStatus: http.StatusOK,
+			expectedBody:   responseB,
+		},
+		{
+			name: "Filter by opened=true",
+			url:  "/v2/incidents?opened=true",
+			mockSetup: func(m sqlmock.Sqlmock, params *db.IncidentsParams) {
+				params.IsOpened = &isOpenedTrue
+				prepareMockForIncidents(t, m, []*db.Incident{&incidentB})
+			},
+			expectedStatus: http.StatusOK,
+			expectedBody:   responseB,
+		},
+		{
+			name: "Filter by opened=false",
+			url:  "/v2/incidents?opened=false",
+			mockSetup: func(m sqlmock.Sqlmock, params *db.IncidentsParams) {
+				params.IsOpened = &isOpenedFalse
+				prepareMockForIncidents(t, m, []*db.Incident{&incidentA})
+			},
+			expectedStatus: http.StatusOK,
+			expectedBody:   responseA,
+		},
+		{
+			name: "Filter by impact=3",
+			url:  "/v2/incidents?impact=3",
+			mockSetup: func(m sqlmock.Sqlmock, params *db.IncidentsParams) {
+				params.Impact = &impact3
+				prepareMockForIncidents(t, m, []*db.Incident{&incidentB})
+			},
+			expectedStatus: http.StatusOK,
+			expectedBody:   responseB,
+		},
+		{
+			name: "Filter by system=true",
+			url:  "/v2/incidents?system=true",
+			mockSetup: func(m sqlmock.Sqlmock, params *db.IncidentsParams) {
+				params.IsSystem = &systemTrue
+				prepareMockForIncidents(t, m, []*db.Incident{&incidentB})
+			},
+			expectedStatus: http.StatusOK,
+			expectedBody:   responseB,
+		},
+		{
+			name: "Filter by components=151",
+			url:  "/v2/incidents?components=151",
+			mockSetup: func(m sqlmock.Sqlmock, params *db.IncidentsParams) {
+				params.ComponentIDs = []int{151}
+				prepareMockForIncidents(t, m, []*db.Incident{&incidentB})
+			},
+			expectedStatus: http.StatusOK,
+			expectedBody:   responseB,
+		},
+		{
+			name: "Filter combination: type=incident&opened=true",
+			url:  "/v2/incidents?type=incident&opened=true",
+			mockSetup: func(m sqlmock.Sqlmock, params *db.IncidentsParams) {
+				params.Type = &incidentType
+				params.IsOpened = &isOpenedTrue
+				prepareMockForIncidents(t, m, []*db.Incident{&incidentB})
+			},
+			expectedStatus: http.StatusOK,
+			expectedBody:   responseB,
+		},
+		{
+			name: "Filter combination: no results",
+			url:  "/v2/incidents?impact=1",
+			mockSetup: func(m sqlmock.Sqlmock, params *db.IncidentsParams) {
+				impact1 := 1
+				params.Impact = &impact1
+				prepareMockForIncidents(t, m, []*db.Incident{}) // Empty slice
+			},
+			expectedStatus: http.StatusOK,
+			expectedBody:   responseEmpty,
+		},
+		{
+			name:           "Invalid filter: type=invalid",
+			url:            "/v2/incidents?type=invalid",
+			mockSetup:      func(_ sqlmock.Sqlmock, _ *db.IncidentsParams) {}, // No DB call expected
+			expectedStatus: http.StatusBadRequest,
+			expectedBody:   fmt.Sprintf(`{"errMsg":"%s"}`, errors.ErrIncidentFQueryInvalidFormat),
+		},
+		{
+			name:           "Invalid filter: opened=maybe",
+			url:            "/v2/incidents?opened=maybe",
+			mockSetup:      func(_ sqlmock.Sqlmock, _ *db.IncidentsParams) {},
+			expectedStatus: http.StatusBadRequest,
+			expectedBody:   fmt.Sprintf(`{"errMsg":"%s"}`, errors.ErrIncidentFQueryInvalidFormat),
+		},
+		{
+			name:           "Invalid filter: impact=abc",
+			url:            "/v2/incidents?impact=abc",
+			mockSetup:      func(_ sqlmock.Sqlmock, _ *db.IncidentsParams) {},
+			expectedStatus: http.StatusBadRequest,
+			expectedBody:   fmt.Sprintf(`{"errMsg":"%s"}`, errors.ErrIncidentFQueryInvalidFormat),
+		},
+		{
+			name:           "Invalid filter: impact=5",
+			url:            "/v2/incidents?impact=5",
+			mockSetup:      func(_ sqlmock.Sqlmock, _ *db.IncidentsParams) {},
+			expectedStatus: http.StatusBadRequest,
+			expectedBody:   fmt.Sprintf(`{"errMsg":"%s"}`, errors.ErrIncidentFQueryInvalidFormat),
+		},
+		{
+			name:           "Invalid filter: components=abc",
+			url:            "/v2/incidents?components=abc",
+			mockSetup:      func(_ sqlmock.Sqlmock, _ *db.IncidentsParams) {},
+			expectedStatus: http.StatusBadRequest,
+			expectedBody:   fmt.Sprintf(`{"errMsg":"%s"}`, errors.ErrIncidentFQueryInvalidFormat),
+		},
+		{
+			name:           "Invalid filter: components=2147483649",
+			url:            "/v2/incidents?components=2147483649",
+			mockSetup:      func(_ sqlmock.Sqlmock, _ *db.IncidentsParams) {},
+			expectedStatus: http.StatusBadRequest,
+			expectedBody:   fmt.Sprintf(`{"errMsg":"%s"}`, errors.ErrIncidentFQueryInvalidFormat),
+		},
+		{
+			name:           "Invalid filter: start_date after end_date",
+			url:            fmt.Sprintf("/v2/incidents?start_date=%s&end_date=%s", endDate, startDate), // Swapped start and end dates
+			mockSetup:      func(_ sqlmock.Sqlmock, _ *db.IncidentsParams) {},
+			expectedStatus: http.StatusBadRequest,
+			expectedBody:   fmt.Sprintf(`{"errMsg":"%s"}`, errors.ErrIncidentFQueryInvalidFormat),
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			r, m := initTests(t)
+			if tc.expectedStatus == http.StatusOK {
+				params := &db.IncidentsParams{} // Expected params for the mock
+				tc.mockSetup(m, params)
+			}
+			w := httptest.NewRecorder()
+			req, _ := http.NewRequest(http.MethodGet, tc.url, nil)
+			r.ServeHTTP(w, req)
+			t.Logf("Test Case: %s - Expected Response: %s", tc.name, tc.expectedBody)
+			t.Logf("Test Case: %s - Actual Response: %s", tc.name, w.Body.String())
+			assert.Equal(t, tc.expectedStatus, w.Code)
+			assert.JSONEq(t, tc.expectedBody, w.Body.String())
+			assert.NoError(t, m.ExpectationsWereMet())
+		})
+	}
+}
+
 func TestReturn404Handler(t *testing.T) {
 	r, _ := initTests(t)
 	w := httptest.NewRecorder()
@@ -216,7 +429,7 @@ func prepareIncident(t *testing.T, mock sqlmock.Sqlmock, testTime time.Time) {
 	rowsInc := sqlmock.NewRows([]string{"id", "text", "start_date", "end_date", "impact", "system"}).
 		AddRow(1, "Incident title A", testTime, testTime.Add(time.Hour*72), 0, false).
 		AddRow(2, "Incident title B", testTime, testTime.Add(time.Hour*72), 3, false)
-	mock.ExpectQuery("^SELECT (.+) FROM \"incident\"$").WillReturnRows(rowsInc)
+	mock.ExpectQuery("^SELECT (.+) FROM \"incident\" ORDER BY incident.start_date DESC$").WillReturnRows(rowsInc)
 
 	rowsIncComp := sqlmock.NewRows([]string{"incident_id", "component_id"}).
 		AddRow(1, 150).
@@ -245,6 +458,45 @@ func prepareIncident(t *testing.T, mock sqlmock.Sqlmock, testTime time.Time) {
 	mock.ExpectQuery("^SELECT (.+) FROM \"component_attribute\"").WillReturnRows(rowsCompAttr)
 
 	mock.NewRowsWithColumnDefinition()
+}
+
+// prepareMockForIncidents sets up sqlmock expectations for GetIncidents based on params.
+func prepareMockForIncidents(t *testing.T, mock sqlmock.Sqlmock, result []*db.Incident) {
+	t.Helper()
+
+	// Only expect a DB call if the status is OK
+	if len(result) > 0 {
+		incidentIDs := make([]driver.Value, len(result))
+		componentIDs := make([]driver.Value, 0)
+		rowsInc := sqlmock.NewRows([]string{"id", "text", "start_date", "end_date", "impact", "system"})
+		for i, inc := range result {
+			incidentIDs[i] = inc.ID
+			rowsInc.AddRow(inc.ID, *inc.Text, *inc.StartDate, inc.EndDate, *inc.Impact, inc.System)
+			for _, comp := range inc.Components {
+				componentIDs = append(componentIDs, comp.ID)
+			}
+		}
+		mock.ExpectQuery(`^SELECT (.+) FROM "incident"`).WillReturnRows(rowsInc) // Simplified regex for flexibility
+
+		rowsIncComp := sqlmock.NewRows([]string{"incident_id", "component_id"})
+		rowsComp := sqlmock.NewRows([]string{"id", "name"})
+		rowsStatus := sqlmock.NewRows([]string{"id", "incident_id", "timestamp", "text", "status"})
+		for _, inc := range result {
+			for _, comp := range inc.Components {
+				rowsIncComp.AddRow(inc.ID, comp.ID)
+				rowsComp.AddRow(comp.ID, comp.Name)
+			}
+			for _, status := range inc.Statuses {
+				rowsStatus.AddRow(status.ID, status.IncidentID, status.Timestamp, status.Text, status.Status)
+			}
+		}
+		mock.ExpectQuery(`^SELECT (.+) FROM "incident_component_relation"`).WithArgs(incidentIDs...).WillReturnRows(rowsIncComp)
+		mock.ExpectQuery(`^SELECT (.+) FROM "component"`).WithArgs(componentIDs...).WillReturnRows(rowsComp)
+		mock.ExpectQuery(`^SELECT (.+) FROM "incident_status"`).WithArgs(incidentIDs...).WillReturnRows(rowsStatus)
+	} else {
+		// Expect query but return no rows
+		mock.ExpectQuery(`^SELECT (.+) FROM "incident"`).WillReturnRows(sqlmock.NewRows([]string{"id", "text", "start_date", "end_date", "impact", "system"}))
+	}
 }
 
 func prepareAvailability(t *testing.T, mock sqlmock.Sqlmock, testTime time.Time) {

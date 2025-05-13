@@ -38,14 +38,21 @@ func New(c *conf.Config) (*DB, error) {
 }
 
 type IncidentsParams struct {
-	LastCount int
-	IsOpened  bool
+	Type         *string
+	Status       *string
+	StartDate    *time.Time
+	EndDate      *time.Time
+	Impact       *int
+	IsSystem     *bool
+	ComponentIDs []int
+	LastCount    int
+	IsOpened     *bool
 }
 
 func (db *DB) GetIncidents(params ...*IncidentsParams) ([]*Incident, error) {
 	var incidents []*Incident
 	var param IncidentsParams
-	if params != nil && params[0] != nil {
+	if len(params) > 0 && params[0] != nil {
 		param = *params[0]
 	}
 
@@ -53,18 +60,63 @@ func (db *DB) GetIncidents(params ...*IncidentsParams) ([]*Incident, error) {
 		Preload("Statuses").
 		Preload("Components", func(db *gorm.DB) *gorm.DB { return db.Select("ID") })
 
-	if param.IsOpened {
-		r.Where("end_date is NULL").Find(&incidents)
-		if r.Error != nil {
-			return nil, r.Error
+	if param.Type != nil {
+		switch *param.Type {
+		case "maintenance":
+			r = r.Where("impact = ?", 0)
+		case "incident":
+			r = r.Where("impact > ?", 0)
 		}
-		return incidents, nil
 	}
 
-	r.Find(&incidents)
+	if param.IsOpened != nil {
+		if *param.IsOpened {
+			r = r.Where("end_date is NULL")
+		} else {
+			r = r.Where("end_date is NOT NULL")
+		}
+	}
 
-	if r.Error != nil {
-		return nil, r.Error
+	if param.Status != nil {
+		latestStatus := db.g.Model(&IncidentStatus{}).
+			Select("MAX(timestamp)").
+			Where("incident_status.incident_id = incident.id")
+
+		r = r.Joins("JOIN incident_status latest_is ON latest_is.incident_id = incident.id").
+			Where("latest_is.status = ? AND latest_is.timestamp = (?)", *param.Status, latestStatus)
+		r = r.Group("incident.id")
+	}
+
+	switch {
+	case param.StartDate != nil && param.EndDate != nil:
+		r = r.Where("incident.start_date >= ? AND incident.end_date <= ?", *param.StartDate, *param.EndDate)
+	case param.StartDate != nil && param.EndDate == nil:
+		r = r.Where("incident.start_date >= ?", *param.StartDate)
+	case param.EndDate != nil && param.StartDate == nil:
+		r = r.Where("incident.end_date <= ?", *param.EndDate)
+	}
+
+	if param.Impact != nil {
+		r = r.Where("incident.impact = ?", *param.Impact)
+	}
+
+	if param.IsSystem != nil {
+		r = r.Where("incident.system = ?", *param.IsSystem)
+	}
+
+	if len(param.ComponentIDs) > 0 {
+		r = r.Joins("JOIN incident_component_relation icr ON icr.incident_id = incident.id").
+			Where("icr.component_id IN (?)", param.ComponentIDs).Group("incident.id")
+	}
+
+	r = r.Order("incident.start_date DESC")
+
+	if param.LastCount != 0 {
+		r = r.Limit(param.LastCount)
+	}
+
+	if err := r.Find(&incidents).Error; err != nil {
+		return nil, err
 	}
 	return incidents, nil
 }
@@ -147,7 +199,6 @@ func (db *DB) GetIncidentsByComponentID(componentID uint, params ...*IncidentsPa
 	if r.Error != nil {
 		return nil, r.Error
 	}
-
 	return incidents, nil
 }
 

@@ -42,34 +42,110 @@ type Incident struct {
 	IncidentData
 }
 
+type APIGetIncidentsQuery struct {
+	Type       *string    `form:"type" binding:"omitempty,oneof=maintenance incident"`
+	Opened     *bool      `form:"opened" binding:"omitempty"`
+	Status     *string    `form:"status"` // Custom validation in validateAndSetStatus
+	StartDate  *time.Time `form:"start_date" binding:"omitempty"`
+	EndDate    *time.Time `form:"end_date" binding:"omitempty"`
+	Impact     *int       `form:"impact" binding:"omitempty,gte=0,lte=3"`
+	System     *bool      `form:"system" binding:"omitempty"`
+	Components *string    `form:"components"` // Custom validation in parseAndSetComponents
+}
+
+func bindIncidentsQuery(c *gin.Context) (*APIGetIncidentsQuery, error) {
+	var query APIGetIncidentsQuery
+
+	if err := c.ShouldBindQuery(&query); err != nil {
+		return nil, apiErrors.ErrIncidentFQueryInvalidFormat
+	}
+
+	if query.StartDate != nil && query.EndDate != nil && query.EndDate.Before(*query.StartDate) {
+		return nil, apiErrors.ErrIncidentFQueryInvalidFormat
+	}
+	return &query, nil
+}
+
+func parseIncidentParams(c *gin.Context) (*db.IncidentsParams, error) {
+	query, err := bindIncidentsQuery(c)
+	if err != nil {
+		return nil, err
+	}
+
+	params := &db.IncidentsParams{}
+
+	// Type: Validated by "oneof" tag in APIGetIncidentsQuery.
+	if query.Type != nil {
+		params.Type = query.Type
+	}
+
+	// Opened: Type is now *bool.
+	// Gin handles parsing "true", "false", "1", "0".
+	if query.Opened != nil {
+		params.IsOpened = query.Opened
+	}
+
+	// Status: Manual validation.
+	// validateAndSetStatus there is in validation.go (package v2)
+	err = validateAndSetStatus(query.Status, params)
+	if err != nil {
+		return nil, err
+	}
+
+	// Dates: Parsed by time_format tag.
+	// Range validated in bindAndValidateIncidentsQuery.
+	if query.StartDate != nil {
+		params.StartDate = query.StartDate
+	}
+	if query.EndDate != nil {
+		params.EndDate = query.EndDate
+	}
+
+	// Impact: Type *int, validated by gte/lte tags.
+	if query.Impact != nil {
+		params.Impact = query.Impact
+	}
+
+	if query.System != nil {
+		params.IsSystem = query.System
+	}
+
+	// parseAndSetComponents there is in validation.go (package v2)
+	err = parseAndSetComponents(query.Components, params)
+	if err != nil {
+		return nil, err
+	}
+	return params, nil
+}
+
+// GetIncidentsHandler retrieves incidents based on query parameters.
 func GetIncidentsHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		logger.Debug("retrieve incidents")
-		r, err := dbInst.GetIncidents()
+		logger.Debug("parsing incidents params")
+
+		params, err := parseIncidentParams(c)
 		if err != nil {
+			apiErrors.RaiseBadRequestErr(c, err)
+			return
+		}
+
+		logger.Debug("retrieve incidents with filters", zap.Any("params", params))
+		r, err := dbInst.GetIncidents(params)
+		if err != nil {
+			logger.Error("failed to retrieve incidents", zap.Error(err))
 			apiErrors.RaiseInternalErr(c, err)
+			return
+		}
+
+		if len(r) == 0 {
+			logger.Debug("no incidents found matching the specific criteria", zap.Any("params", params))
+			c.JSON(http.StatusOK, gin.H{"data": []Incident{}})
 			return
 		}
 
 		incidents := make([]*Incident, len(r))
 		for i, inc := range r {
-			components := make([]int, len(inc.Components))
-			for ind, comp := range inc.Components {
-				components[ind] = int(comp.ID)
-			}
-
-			incidents[i] = &Incident{
-				IncidentID: IncidentID{int(inc.ID)},
-				IncidentData: IncidentData{
-					Title:      *inc.Text,
-					Impact:     inc.Impact,
-					Components: components,
-					StartDate:  *inc.StartDate,
-					EndDate:    inc.EndDate,
-					System:     &inc.System,
-					Updates:    inc.Statuses,
-				},
-			}
+			incidents[i] = toAPIIncident(inc)
 		}
 
 		c.JSON(http.StatusOK, gin.H{"data": incidents})
@@ -182,7 +258,8 @@ func PostIncidentHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc { //
 		}
 
 		log.Info("get opened incidents")
-		openedIncidents, err := dbInst.GetIncidents(&db.IncidentsParams{IsOpened: true})
+		isOpenedTrue := true
+		openedIncidents, err := dbInst.GetIncidents(&db.IncidentsParams{IsOpened: &isOpenedTrue})
 		if err != nil {
 			apiErrors.RaiseInternalErr(c, err)
 			return
