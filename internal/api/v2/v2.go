@@ -440,6 +440,71 @@ func updateFields(income *PatchIncidentData, stored *db.Incident) {
 	}
 }
 
+type PostIncidentSeparateData struct {
+	Components []int `json:"components" binding:"required,min=1"`
+}
+
+func PostIncidentExtractHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc { //nolint:gocognit
+	return func(c *gin.Context) {
+		logger.Debug("start to extract components to the new incident")
+
+		var incID IncidentID
+		if err := c.ShouldBindUri(&incID); err != nil {
+			apiErrors.RaiseBadRequestErr(c, err)
+			return
+		}
+
+		var incData PostIncidentSeparateData
+		if err := c.ShouldBindBodyWithJSON(&incData); err != nil {
+			apiErrors.RaiseBadRequestErr(c, err)
+			return
+		}
+
+		logger.Debug(
+			"extract components from the incident",
+			zap.Any("components", incData.Components),
+			zap.Int("incident_id", incID.ID),
+		)
+
+		storedInc, err := dbInst.GetIncident(incID.ID)
+		if err != nil {
+			apiErrors.RaiseInternalErr(c, err)
+			return
+		}
+
+		var movedComponents []db.Component
+		var movedCounter int
+		for _, incCompID := range incData.Components {
+			present := false
+			for _, storedComp := range storedInc.Components {
+				if incCompID == int(storedComp.ID) {
+					present = true
+					movedComponents = append(movedComponents, storedComp)
+					movedCounter++
+					break
+				}
+			}
+			if !present {
+				apiErrors.RaiseBadRequestErr(c, fmt.Errorf("component %d is not in the incident", incCompID))
+				return
+			}
+		}
+
+		if movedCounter == len(storedInc.Components) {
+			apiErrors.RaiseBadRequestErr(c, fmt.Errorf("can not move all components to the new incident, keep at least one"))
+			return
+		}
+
+		inc, err := dbInst.ExtractComponentsToNewIncident(movedComponents, storedInc, *storedInc.Impact, *storedInc.Text)
+		if err != nil {
+			apiErrors.RaiseInternalErr(c, err)
+			return
+		}
+
+		c.JSON(http.StatusOK, toAPIIncident(inc))
+	}
+}
+
 type Component struct {
 	ComponentID
 	Attributes []ComponentAttribute `json:"attributes"`

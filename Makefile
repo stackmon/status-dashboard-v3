@@ -3,6 +3,7 @@ default: test
 SHELL=/bin/bash
 
 SD_DB?="postgresql://pg:pass@localhost:5432/status_dashboard?sslmode=disable"
+GOLANGCI_LINT_VERSION?="2.1.6"
 
 test:
 	@echo running unit tests
@@ -17,8 +18,14 @@ build:
 	go build -o app cmd/main.go
 
 lint:
+	@echo check linter version
+	if [[ $$(golangci-lint --version |awk '{print $$4}') == $(GOLANGCI_LINT_VERSION) ]]; then echo "current installed version is actual to $(GOLANGCI_LINT_VERSION)"; else echo "current version is not actual, please use $(GOLANGCI_LINT_VERSION)"; exit 1; fi
 	@echo running linter
 	golangci-lint run -v
+
+lint-check-version:
+	@echo check linter version
+	@if [[ $(GO_LINT) == v$(GOLANGCI_LINT_VERSION) ]]; then echo "current installed version is actual to $(GOLANGCI_LINT_VERSION)"; else echo "current version $(GO_LINT) is not actual, please use $(GOLANGCI_LINT_VERSION)"; exit 1; fi
 
 migrate-up:
 	@echo staring migrations

@@ -313,6 +313,36 @@ paths:
           description: Invalid ID supplied
         '404':
           description: Incident not found.
+  /v2/incidents/{incident_id}/extract:
+    post:
+      summary: extract components to the new incident
+      tags:
+        - incidents
+      parameters:
+        - name: incident_id
+          in: path
+          description: ID of incident to return
+          required: true
+          schema:
+            type: integer
+            format: int64
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/IncidentPostExtract'
+        required: true
+      responses:
+        '200':
+          description: successful operation, return the new incident id
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Incident'
+        '400':
+          description: Invalid ID supplied
+        '404':
+          description: Incident not found.
 
   /v1/component_status:
     get:
@@ -597,6 +627,16 @@ components:
         end_date:
           type: string
           format: date-time
+    IncidentPostExtract:
+      type: object
+      required:
+        - components
+      properties:
+        components:
+          type: array
+          items:
+            type: string
+          example: [ 218, 254 ]
     IncidentStatus:
       type: object
       allOf:
