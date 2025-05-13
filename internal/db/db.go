@@ -128,8 +128,9 @@ func (db *DB) GetIncident(id int) (*Incident, error) {
 		Where(inc).
 		Preload("Statuses").
 		Preload("Components", func(db *gorm.DB) *gorm.DB {
-			return db.Select("ID")
+			return db.Select("ID, Name")
 		}).
+		Preload("Components.Attrs").
 		First(&inc)
 
 	if r.Error != nil {
@@ -429,9 +430,13 @@ func (db *DB) MoveComponentFromOldToAnotherIncident(
 	return incNew, nil
 }
 
-func (db *DB) ExtractComponentToNewIncident(
-	comp *Component, incOld *Incident, impact int, text string,
+func (db *DB) ExtractComponentsToNewIncident(
+	comp []Component, incOld *Incident, impact int, text string,
 ) (*Incident, error) {
+	if len(comp) == 0 {
+		return nil, fmt.Errorf("no components to extract")
+	}
+
 	timeNow := time.Now().UTC()
 
 	inc := &Incident{
@@ -441,7 +446,7 @@ func (db *DB) ExtractComponentToNewIncident(
 		Impact:     &impact,
 		Statuses:   []IncidentStatus{},
 		System:     false,
-		Components: []Component{*comp},
+		Components: comp,
 	}
 
 	id, err := db.SaveIncident(inc)
@@ -449,31 +454,35 @@ func (db *DB) ExtractComponentToNewIncident(
 		return nil, err
 	}
 
-	incText := fmt.Sprintf("%s moved from %s", comp.PrintAttrs(), incOld.Link())
-	inc.Statuses = append(inc.Statuses, IncidentStatus{
-		IncidentID: id,
-		Status:     statusSYSTEM,
-		Text:       incText,
-		Timestamp:  timeNow,
-	})
+	for _, c := range comp {
+		incText := fmt.Sprintf("%s moved from %s", c.PrintAttrs(), incOld.Link())
+		inc.Statuses = append(inc.Statuses, IncidentStatus{
+			IncidentID: id,
+			Status:     statusSYSTEM,
+			Text:       incText,
+			Timestamp:  timeNow,
+		})
+	}
 
 	err = db.ModifyIncident(inc)
 	if err != nil {
 		return nil, err
 	}
 
-	err = db.g.Model(incOld).Association("Components").Delete(comp)
-	if err != nil {
-		return nil, err
-	}
+	for _, c := range comp {
+		err = db.g.Model(incOld).Association("Components").Delete(c)
+		if err != nil {
+			return nil, err
+		}
 
-	incText = fmt.Sprintf("%s moved to %s", comp.PrintAttrs(), inc.Link())
-	incOld.Statuses = append(incOld.Statuses, IncidentStatus{
-		IncidentID: inc.ID,
-		Status:     statusSYSTEM,
-		Text:       incText,
-		Timestamp:  timeNow,
-	})
+		incText := fmt.Sprintf("%s moved to %s", c.PrintAttrs(), inc.Link())
+		incOld.Statuses = append(incOld.Statuses, IncidentStatus{
+			IncidentID: inc.ID,
+			Status:     statusSYSTEM,
+			Text:       incText,
+			Timestamp:  timeNow,
+		})
+	}
 
 	err = db.ModifyIncident(incOld)
 	if err != nil {

@@ -16,6 +16,7 @@ var maintenanceStatuses = map[string]struct{}{
 
 // Incident actions for opened incidents.
 const (
+	IncidentDetected      = "detected" // not implemented yet
 	IncidentAnalysing     = "analysing"
 	IncidentFixing        = "fixing"
 	IncidentImpactChanged = "impact changed"
@@ -25,6 +26,7 @@ const (
 
 //nolint:gochecknoglobals
 var incidentOpenStatuses = map[string]struct{}{
+	IncidentDetected:      {},
 	IncidentAnalysing:     {},
 	IncidentFixing:        {},
 	IncidentImpactChanged: {},
