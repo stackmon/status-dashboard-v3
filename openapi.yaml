@@ -563,6 +563,7 @@ components:
         - components
         - start_date
         - system
+        - type
       properties:
         id:
           type: integer
@@ -589,6 +590,12 @@ components:
         system:
           type: boolean
           example: false
+        type:
+          type: string
+          enum:
+            - "incident"
+            - "maintenance"
+          example: "incident"
         updates:
           type: array
           items:
