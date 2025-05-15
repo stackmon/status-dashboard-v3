@@ -32,7 +32,7 @@ func TestV2GetIncidentsHandler(t *testing.T) {
 	t.Log("start to test GET /v2/incidents")
 	r, _, _ := initTests(t)
 
-	incidentStr := `{"id":1,"title":"Closed incident without any update","impact":1,"components":[1],"start_date":"2024-10-24T10:12:42Z","end_date":"2024-10-24T11:12:42Z","system":false,"updates":[{"status":"resolved","text":"close incident","timestamp":"2024-10-24T11:12:42.559346Z"}]}`
+	incidentStr := `{"id":1,"title":"Closed incident without any update","impact":1,"components":[1],"start_date":"2024-10-24T10:12:42Z","end_date":"2024-10-24T11:12:42Z","system":false,"type":"incident","updates":[{"status":"resolved","text":"close incident","timestamp":"2024-10-24T11:12:42.559346Z"}]}`
 
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest(http.MethodGet, v2Incidents, nil)
@@ -204,6 +204,8 @@ func TestV2PostIncidentsHandler(t *testing.T) {
 	assert.Equal(t, impact, *incident.Impact)
 	assert.Equal(t, system, *incident.System)
 	assert.Nil(t, incident.EndDate)
+	require.NotNil(t, incident.Type)
+	assert.Equal(t, "incident", *incident.Type)
 	assert.Nil(t, incident.Updates)
 
 	t.Log("create a new incident with the same components and the same impact, should close previous and move components to the new")
@@ -253,6 +255,8 @@ func TestV2PostIncidentsHandler(t *testing.T) {
 	assert.Equal(t, impact, *maintenanceIncident.Impact)
 	assert.Equal(t, system, *maintenanceIncident.System)
 	assert.Equal(t, incidentCreateData.Description, maintenanceIncident.Updates[0].Text)
+	require.NotNil(t, maintenanceIncident.Type)
+	assert.Equal(t, "maintenance", *maintenanceIncident.Type)
 	assert.Equal(t, "description", maintenanceIncident.Updates[0].Status)
 
 	incidentN3 = v2GetIncident(t, r, result.Result[0].IncidentID-1)
@@ -264,6 +268,8 @@ func TestV2PostIncidentsHandler(t *testing.T) {
 	assert.Equal(t, "SYSTEM", incidentN3.Updates[1].Status)
 	assert.Equal(t, fmt.Sprintf("Cloud Container Engine (Container, EU-DE, cce) moved from <a href='/incidents/%d'>Test incident for dcs</a>", incidentN3.ID-1), incidentN3.Updates[0].Text)
 	assert.Equal(t, fmt.Sprintf("Cloud Container Engine (Container, EU-NL, cce) moved from <a href='/incidents/%d'>Test incident for dcs</a>", incidentN3.ID-1), incidentN3.Updates[1].Text)
+	require.NotNil(t, incidentN3.Type)
+	assert.Equal(t, "incident", *incidentN3.Type)
 
 	t.Log("check response, if incident component is not present in the opened incidents, should create a new incident")
 	components = []int{3}
