@@ -358,7 +358,10 @@ func createIncident(dbInst *db.DB, log *zap.Logger, inc *db.Incident, descriptio
 		log.Info("the incident is maintenance, add planned status")
 
 		if description == "" {
-			description = fmt.Sprintf("Maintenance is planned from %s to %s", inc.StartDate.Format(time.DateTime), inc.EndDate.Format(time.DateTime))
+			description = fmt.Sprintf(
+				"Maintenance is planned from %s to %s",
+				inc.StartDate.Format(time.DateTime),
+				inc.EndDate.Format(time.DateTime))
 		}
 
 		inc.Statuses = append(inc.Statuses, db.IncidentStatus{

@@ -253,7 +253,7 @@ func TestV2PostIncidentsHandler(t *testing.T) {
 	assert.Equal(t, impact, *maintenanceIncident.Impact)
 	assert.Equal(t, system, *maintenanceIncident.System)
 	assert.Equal(t, incidentCreateData.Description, maintenanceIncident.Updates[0].Text)
-	assert.Equal(t, "description", maintenanceIncident.Updates[0].Status)
+	assert.Equal(t, v2.MaintenancePlanned, maintenanceIncident.Updates[0].Status)
 
 	incidentN3 = v2GetIncident(t, r, result.Result[0].IncidentID-1)
 	assert.Nil(t, incidentN3.EndDate)
@@ -963,4 +963,39 @@ func TestV2GetIncidentsFilteredHandler(t *testing.T) {
 			assert.ElementsMatch(t, tc.expectedIDs, actualIDs, "Unexpected incident IDs for: "+tc.name)
 		})
 	}
+}
+
+func TestV2PostMaintenanceHandler(t *testing.T) {
+	t.Log("start to test maintenance creation for /v2/incidents")
+	r, _, _ := initTests(t)
+
+	t.Log("create a maintenance")
+
+	components := []int{1, 2}
+	impact := 0
+	title := "Test maintenance incident for dcs"
+	startDate := time.Now().Add(time.Hour * 1).UTC()
+	endDate := time.Now().Add(time.Hour * 2).UTC()
+	system := false
+
+	incidentCreateData := v2.IncidentData{
+		Title:      title,
+		Impact:     &impact,
+		Components: components,
+		StartDate:  startDate,
+		EndDate:    &endDate,
+		System:     &system,
+	}
+
+	result := v2CreateIncident(t, r, &incidentCreateData)
+	assert.Equal(t, len(incidentCreateData.Components), len(result.Result))
+
+	incident := v2GetIncident(t, r, result.Result[0].IncidentID)
+	assert.Equal(t, incidentCreateData.StartDate.Truncate(time.Microsecond), incident.StartDate)
+	assert.Equal(t, incidentCreateData.EndDate.Truncate(time.Microsecond), *incident.EndDate)
+	assert.Equal(t, title, incident.Title)
+	assert.Equal(t, impact, *incident.Impact)
+	assert.Equal(t, system, *incident.System)
+	assert.NotNil(t, incident.Updates)
+	assert.Equal(t, v2.MaintenancePlanned, incident.Updates[0].Status)
 }
