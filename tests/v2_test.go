@@ -988,7 +988,7 @@ func TestV2PostMaintenanceHandler(t *testing.T) {
 	}
 
 	result := v2CreateIncident(t, r, &incidentCreateData)
-	assert.Equal(t, len(incidentCreateData.Components), len(result.Result))
+	assert.Len(t, incidentCreateData.Components, len(result.Result))
 
 	incident := v2GetIncident(t, r, result.Result[0].IncidentID)
 	assert.Equal(t, incidentCreateData.StartDate.Truncate(time.Microsecond), incident.StartDate)
