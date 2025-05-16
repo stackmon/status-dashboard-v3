@@ -1,17 +1,21 @@
 package v2
 
 const (
+	MaintenancePlanned    = "planned"
 	MaintenanceInProgress = "in progress"
 	// MaintenanceModified is placed if the time window was changed.
 	MaintenanceModified  = "modified"
 	MaintenanceCompleted = "completed"
+	MaintenanceCancelled = "cancelled"
 )
 
 //nolint:gochecknoglobals
 var maintenanceStatuses = map[string]struct{}{
+	MaintenancePlanned:    {},
 	MaintenanceInProgress: {},
 	MaintenanceModified:   {},
 	MaintenanceCompleted:  {},
+	MaintenanceCancelled:  {},
 }
 
 // Incident actions for opened incidents.
