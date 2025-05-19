@@ -205,7 +205,7 @@ func TestV2PostIncidentsHandler(t *testing.T) {
 	assert.Equal(t, system, *incident.System)
 	assert.Nil(t, incident.EndDate)
 	require.NotNil(t, incident.Type)
-	assert.Equal(t, "incident", *incident.Type)
+	assert.Equal(t, "incident", incident.Type)
 	assert.Nil(t, incident.Updates)
 
 	t.Log("create a new incident with the same components and the same impact, should close previous and move components to the new")
@@ -256,7 +256,7 @@ func TestV2PostIncidentsHandler(t *testing.T) {
 	assert.Equal(t, system, *maintenanceIncident.System)
 	assert.Equal(t, incidentCreateData.Description, maintenanceIncident.Updates[0].Text)
 	require.NotNil(t, maintenanceIncident.Type)
-	assert.Equal(t, "maintenance", *maintenanceIncident.Type)
+	assert.Equal(t, "maintenance", maintenanceIncident.Type)
 	assert.Equal(t, "description", maintenanceIncident.Updates[0].Status)
 
 	incidentN3 = v2GetIncident(t, r, result.Result[0].IncidentID-1)
@@ -269,7 +269,7 @@ func TestV2PostIncidentsHandler(t *testing.T) {
 	assert.Equal(t, fmt.Sprintf("Cloud Container Engine (Container, EU-DE, cce) moved from <a href='/incidents/%d'>Test incident for dcs</a>", incidentN3.ID-1), incidentN3.Updates[0].Text)
 	assert.Equal(t, fmt.Sprintf("Cloud Container Engine (Container, EU-NL, cce) moved from <a href='/incidents/%d'>Test incident for dcs</a>", incidentN3.ID-1), incidentN3.Updates[1].Text)
 	require.NotNil(t, incidentN3.Type)
-	assert.Equal(t, "incident", *incidentN3.Type)
+	assert.Equal(t, "incident", incidentN3.Type)
 
 	t.Log("check response, if incident component is not present in the opened incidents, should create a new incident")
 	components = []int{3}

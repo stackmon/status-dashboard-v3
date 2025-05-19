@@ -37,7 +37,8 @@ type IncidentData struct {
 	//    Types of incidents:
 	//    1. maintenance
 	//    2. incident
-	Type    *string             `json:"type,omitempty"`
+	// TODO: "Type" field should be mandatory after the migration
+	Type    string              `json:"type,omitempty"`
 	Updates []db.IncidentStatus `json:"updates,omitempty"`
 }
 
@@ -195,9 +196,9 @@ func toAPIIncident(inc *db.Incident) *Incident {
 		Updates:    inc.Statuses,
 	}
 	if *inc.Impact == 0 {
-		incData.Type = &[]string{"maintenance"}[0]
+		incData.Type = "maintenance"
 	} else {
-		incData.Type = &[]string{"incident"}[0]
+		incData.Type = "incident"
 	}
 
 	return &Incident{IncidentID{ID: int(inc.ID)}, incData}
