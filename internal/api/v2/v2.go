@@ -31,10 +31,15 @@ type IncidentData struct {
 	Impact     *int  `json:"impact" binding:"required,gte=0,lte=3"`
 	Components []int `json:"components" binding:"required"`
 	// Datetime format is standard: "2006-01-01T12:00:00Z"
-	StartDate time.Time           `json:"start_date" binding:"required"`
-	EndDate   *time.Time          `json:"end_date,omitempty"`
-	System    *bool               `json:"system,omitempty"`
-	Updates   []db.IncidentStatus `json:"updates,omitempty"`
+	StartDate time.Time  `json:"start_date" binding:"required"`
+	EndDate   *time.Time `json:"end_date,omitempty"`
+	System    *bool      `json:"system,omitempty"`
+	//    Types of incidents:
+	//    1. maintenance
+	//    2. incident
+	// TODO: "Type" field should be mandatory after the migration
+	Type    string              `json:"type,omitempty"`
+	Updates []db.IncidentStatus `json:"updates,omitempty"`
 }
 
 type Incident struct {
@@ -189,6 +194,11 @@ func toAPIIncident(inc *db.Incident) *Incident {
 		EndDate:    inc.EndDate,
 		System:     &inc.System,
 		Updates:    inc.Statuses,
+	}
+	if *inc.Impact == 0 {
+		incData.Type = "maintenance"
+	} else {
+		incData.Type = "incident"
 	}
 
 	return &Incident{IncidentID{ID: int(inc.ID)}, incData}
