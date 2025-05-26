@@ -67,11 +67,11 @@ func AuthenticationMW(prov *auth.Provider, logger *zap.Logger) gin.HandlerFunc {
 
 		rawToken := strings.TrimPrefix(authHeader, "Bearer ")
 		// Parse the JWT token and validate it using the Keycloak public key
-		token, err := jwt.Parse(rawToken, func(token *jwt.Token) (interface{}, error) { //nolint:revive
+		token, err := jwt.Parse(rawToken, func(token *jwt.Token) (interface{}, error) {
 			// Validate the token's signing method
-			// if _, ok := token.Method.(*jwt.SigningMethodRSA); !ok {
-			//	return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
-			// }
+			if _, ok := token.Method.(*jwt.SigningMethodRSA); !ok {
+				return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+			}
 
 			key, err := prov.GetPublicKey()
 			if err != nil {
@@ -79,6 +79,50 @@ func AuthenticationMW(prov *auth.Provider, logger *zap.Logger) gin.HandlerFunc {
 			}
 
 			return key, nil
+		})
+
+		if err != nil {
+			logger.Error("failed to parse and validate a token", zap.Error(err))
+			apiErrors.RaiseNotAuthorizedErr(c, apiErrors.ErrAuthNotAuthenticated)
+			return
+		}
+
+		if !token.Valid {
+			apiErrors.RaiseNotAuthorizedErr(c, apiErrors.ErrAuthNotAuthenticated)
+			return
+		}
+
+		c.Next()
+	}
+}
+
+// AuthenticationV1DeprecatedMW is a middleware for handling authentication only for Metric Processor.
+// TODO: remove this middleware after migration to Keycloak.
+func AuthenticationV1DeprecatedMW(prov *auth.Provider, logger *zap.Logger, secretKey string) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if prov.Disabled {
+			logger.Info("authentication is disabled")
+			c.Next()
+			return
+		}
+
+		logger.Info("start to process authentication request for V1")
+
+		authHeader := c.GetHeader("Authorization")
+		if authHeader == "" {
+			apiErrors.RaiseNotAuthorizedErr(c, apiErrors.ErrAuthNotAuthenticated)
+			return
+		}
+
+		rawToken := strings.TrimPrefix(authHeader, "Bearer ")
+		// Parse the JWT token and validate it using the Keycloak public key
+		token, err := jwt.Parse(rawToken, func(token *jwt.Token) (interface{}, error) {
+			// Validate the token's signing method
+			if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+				return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+			}
+
+			return []byte(secretKey), nil
 		})
 
 		if err != nil {
