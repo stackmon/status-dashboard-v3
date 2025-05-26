@@ -69,9 +69,9 @@ func AuthenticationMW(prov *auth.Provider, logger *zap.Logger) gin.HandlerFunc {
 		// Parse the JWT token and validate it using the Keycloak public key
 		token, err := jwt.Parse(rawToken, func(token *jwt.Token) (interface{}, error) {
 			// Validate the token's signing method
-			if _, ok := token.Method.(*jwt.SigningMethodRSA); !ok {
-				return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
-			}
+			//if _, ok := token.Method.(*jwt.SigningMethodRSA); !ok {
+			//	return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+			//}
 
 			key, err := prov.GetPublicKey()
 			if err != nil {
