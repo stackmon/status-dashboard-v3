@@ -16,7 +16,7 @@ func MoveIncidentToHigherImpact(
 		if len(incident.Components) > 1 {
 			log.Info("no active incidents with requested impact, opening the new one")
 			components := []db.Component{*storedComponent}
-			return dbInst.ExtractComponentsToNewIncident(components, incident, impact, text)
+			return dbInst.ExtractComponentsToNewIncident(components, incident, impact, text, "incident")
 		}
 		log.Info(
 			"only one component in the incident, increase impact",
