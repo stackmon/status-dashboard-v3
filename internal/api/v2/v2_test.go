@@ -523,8 +523,8 @@ func prepareAvailability(t *testing.T, mock sqlmock.Sqlmock, testTime time.Time)
 	startOfMonth := time.Date(testTime.Year(), testTime.Month(), 1, 0, 0, 0, 0, time.UTC)
 	startOfNextMonth := startOfMonth.AddDate(0, 1, 0)
 
-	rowsInc := sqlmock.NewRows([]string{"id", "text", "start_date", "end_date", "impact", "system"}).
-		AddRow(2, "Incident title B", startOfMonth, startOfNextMonth, 3, false)
+	rowsInc := sqlmock.NewRows([]string{"id", "text", "start_date", "end_date", "impact", "system", "type"}).
+		AddRow(2, "Incident title B", startOfMonth, startOfNextMonth, 3, false, "incident")
 	mock.ExpectQuery("^SELECT (.+) FROM \"incident\" WHERE \"incident\".\"id\" = \\$1$").WillReturnRows(rowsInc)
 
 	rowsStatus := sqlmock.NewRows([]string{"id", "incident_id", "timestamp", "text", "status"}).
