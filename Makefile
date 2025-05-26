@@ -28,9 +28,17 @@ lint-check-version:
 	@if [[ $(GO_LINT) == v$(GOLANGCI_LINT_VERSION) ]]; then echo "current installed version is actual to $(GOLANGCI_LINT_VERSION)"; else echo "current version $(GO_LINT) is not actual, please use $(GOLANGCI_LINT_VERSION)"; exit 1; fi
 
 migrate-up:
-	@echo staring migrations
-	migrate -database $(SD_DB) -path db/migrations up
+	@echo starting migrations
+	@migrate -database $(SD_DB) -path db/migrations up 1
 
 migrate-down:
 	@echo revert migrations
-	migrate -database $(SD_DB) -path db/migrations down
+	migrate -database $(SD_DB) -path db/migrations down 1
+
+migrate-create:
+	@echo create migration
+	@migrate create -ext sql -dir db/migrations -seq $(name)
+
+migrate-force:
+	@echo force migration
+	@migrate -database $(SD_DB) -path db/migrations force $(version)
