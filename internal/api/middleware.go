@@ -115,6 +115,7 @@ func AuthenticationV1DeprecatedMW(prov *auth.Provider, logger *zap.Logger, secre
 		}
 
 		rawToken := strings.TrimPrefix(authHeader, "Bearer ")
+		logger.Debug("raw token", zap.String("token", rawToken))
 		// Parse the JWT token and validate it using the Keycloak public key
 		token, err := jwt.Parse(rawToken, func(token *jwt.Token) (interface{}, error) {
 			// Validate the token's signing method
