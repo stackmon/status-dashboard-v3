@@ -214,6 +214,15 @@ func Logger(log *zap.Logger) gin.HandlerFunc {
 
 func CORSMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
+
+		var buf bytes.Buffer
+		tee := io.TeeReader(c.Request.Body, &buf)
+		body, _ := ioutil.ReadAll(tee)
+		c.Request.Body = ioutil.NopCloser(&buf)
+
+		fmt.Printf("request payload %s\n", string(body))
+		fmt.Printf("request headers %s", c.Request.Header)
+
 		c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
 		c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
 		c.Writer.Header().Set(
