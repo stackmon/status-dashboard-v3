@@ -13,10 +13,11 @@ import (
 )
 
 type API struct {
-	r       *gin.Engine
-	db      *db.DB
-	log     *zap.Logger
-	oa2Prov *auth.Provider
+	r           *gin.Engine
+	db          *db.DB
+	log         *zap.Logger
+	oa2Prov     *auth.Provider
+	secretKeyV1 string
 }
 
 func New(cfg *conf.Config, log *zap.Logger, database *db.DB) (*API, error) {
@@ -42,7 +43,7 @@ func New(cfg *conf.Config, log *zap.Logger, database *db.DB) (*API, error) {
 	r.Use(CORSMiddleware())
 	r.NoRoute(errors.Return404)
 
-	a := &API{r: r, db: database, log: log, oa2Prov: oa2Prov}
+	a := &API{r: r, db: database, log: log, oa2Prov: oa2Prov, secretKeyV1: cfg.SecretKeyV1}
 	a.InitRoutes()
 	return a, nil
 }

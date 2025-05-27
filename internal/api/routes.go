@@ -26,7 +26,10 @@ func (a *API) InitRoutes() {
 	v1API := a.r.Group(v1Group)
 	{
 		v1API.GET("component_status", v1.GetComponentsStatusHandler(a.db, a.log))
-		v1API.POST("component_status", AuthenticationMW(a.oa2Prov, a.log), v1.PostComponentStatusHandler(a.db, a.log))
+		v1API.POST("component_status",
+			AuthenticationV1DeprecatedMW(a.oa2Prov, a.log, a.secretKeyV1),
+			v1.PostComponentStatusHandler(a.db, a.log),
+		)
 
 		v1API.GET("incidents", v1.GetIncidentsHandler(a.db, a.log))
 	}
