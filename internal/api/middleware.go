@@ -1,7 +1,10 @@
 package api
 
 import (
+	"bytes"
 	"fmt"
+	"io"
+	"io/ioutil" //nolint:staticcheck
 	"net/http"
 	"strings"
 	"time"
@@ -113,6 +116,14 @@ func AuthenticationV1DeprecatedMW(prov *auth.Provider, logger *zap.Logger, secre
 			apiErrors.RaiseNotAuthorizedErr(c, apiErrors.ErrAuthNotAuthenticated)
 			return
 		}
+
+		var buf bytes.Buffer
+		tee := io.TeeReader(c.Request.Body, &buf)
+		body, _ := ioutil.ReadAll(tee)
+		c.Request.Body = ioutil.NopCloser(&buf)
+
+		logger.Debug("request payload", zap.String("payload", string(body)))
+		logger.Debug("request headers", zap.Any("headers", c.Request.Header))
 
 		rawToken := strings.TrimPrefix(authHeader, "Bearer ")
 		logger.Debug("raw token", zap.String("token", rawToken))
