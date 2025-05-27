@@ -221,10 +221,10 @@ func CORSMiddleware() gin.HandlerFunc {
 		c.Request.Body = ioutil.NopCloser(&buf)
 
 		fmt.Printf("request payload %s\n", string(body))
-		fmt.Printf("request headers %s", c.Request.Header)
+		fmt.Printf("request headers %s\n", c.Request.Header)
 
 		c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
-		c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
+		//c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
 		c.Writer.Header().Set(
 			"Access-Control-Allow-Headers",
 			"Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, "+
