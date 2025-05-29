@@ -2,7 +2,7 @@ default: test
 
 SHELL=/bin/bash
 
-SD_DB?="postgresql://sdb:sdb@172.30.0.3:25433/status_dashboard_test?sslmode=disable"
+SD_DB?="postgresql://pg:pass@localhost:5432/status_dashboard?sslmode=disable"
 GOLANGCI_LINT_VERSION?="2.1.6"
 
 test:
