@@ -133,6 +133,23 @@ func TestV2PostIncidentsHandlerNegative(t *testing.T) {
   "system":false,
   "type":"incident"
 }`
+	jsWrongMaintenanceImpact := `{
+  "title":"Maintenance with wrong impact",
+  "impact":1,
+  "components":[1],
+  "start_date":"2024-11-25T09:32:14.075Z",
+  "system":false,
+  "type":"maintenance"
+}`
+
+	jsWrongIncidentImpact := `{
+  "title":"Incident with maintenance impact",
+  "impact":0,
+  "components":[1],
+  "start_date":"2024-11-25T09:32:14.075Z",
+  "system":false,
+  "type":"incident"
+}`
 
 	testCases := map[string]*testCase{
 		"negative testcase, incident is not a maintenance and end_date is present": {
@@ -150,14 +167,30 @@ func TestV2PostIncidentsHandlerNegative(t *testing.T) {
 			Expected:     `{"errMsg":"component does not exist, component_id: 218"}`,
 			ExpectedCode: 400,
 		},
+		"negative testcase, maintenance with non-zero impact": {
+			JSON:         jsWrongMaintenanceImpact,
+			Expected:     `{"errMsg":"impact must be 0 for type 'maintenance' and gt 0 for 'incident'"}`,
+			ExpectedCode: 400,
+		},
+		"negative testcase, incident with zero impact": {
+			JSON:         jsWrongIncidentImpact,
+			Expected:     `{"errMsg":"impact must be 0 for type 'maintenance' and gt 0 for 'incident'"}`,
+			ExpectedCode: 400,
+		},
 	}
 
 	for title, c := range testCases {
 		t.Logf("start test case: %s\n", title)
+		t.Logf("Input JSON: %s", c.JSON)
 
 		w := httptest.NewRecorder()
 		req, _ := http.NewRequest(http.MethodPost, v2Incidents, strings.NewReader(c.JSON))
 		r.ServeHTTP(w, req)
+
+		t.Logf("Response Status Code: %d", w.Code)
+		t.Logf("Response Body: %s", w.Body.String())
+		t.Logf("Expected Status Code: %d", c.ExpectedCode)
+		t.Logf("Expected Response: %s", c.Expected)
 
 		assert.Equal(t, c.ExpectedCode, w.Code)
 		assert.Equal(t, c.Expected, w.Body.String())
