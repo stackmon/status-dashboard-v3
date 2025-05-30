@@ -341,17 +341,11 @@ type ProcessComponentResp struct {
 }
 
 func validateIncidentCreation(incData IncidentData) error {
-	if incData.Type == "maintenance" {
-		if *incData.Impact != 0 {
-			return apiErrors.ErrIncidentTypeImpactMismatch
-		}
-	} else {
-		if *incData.Impact == 0 {
-			return apiErrors.ErrIncidentTypeImpactMismatch
-		}
-		if incData.EndDate != nil {
-			return apiErrors.ErrIncidentEndDateShouldBeEmpty
-		}
+	if (incData.Type == "maintenance" && *incData.Impact != 0) || (incData.Type == "incident" && *incData.Impact == 0) {
+		return apiErrors.ErrIncidentTypeImpactMismatch
+	}
+	if incData.Type == "incident" && incData.EndDate != nil {
+		return apiErrors.ErrIncidentEndDateShouldBeEmpty
 	}
 
 	if len(incData.Updates) != 0 {
@@ -482,9 +476,6 @@ func validateEffectiveTypeAndImpact(effectiveType string, effectiveImpact int) e
 }
 
 func validateMaintenancePatch(incoming *PatchIncidentData) error {
-	if incoming.Impact != nil && *incoming.Impact != 0 {
-		return apiErrors.ErrIncidentPatchMaintenanceImpactForbidden
-	}
 	if _, ok := maintenanceStatuses[incoming.Status]; !ok {
 		return apiErrors.ErrIncidentPatchMaintenanceStatus
 	}
@@ -633,8 +624,7 @@ func PostIncidentExtractHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFu
 			movedComponents,
 			storedInc,
 			*storedInc.Impact,
-			*storedInc.Text,
-			storedInc.Type)
+			*storedInc.Text)
 		if err != nil {
 			apiErrors.RaiseInternalErr(c, err)
 			return

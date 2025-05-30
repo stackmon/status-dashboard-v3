@@ -13,6 +13,11 @@ import (
 	"github.com/stackmon/otc-status-dashboard/internal/conf"
 )
 
+const (
+	statusSYSTEM      = "SYSTEM"
+	eventTypeIncident = "incident"
+)
+
 type DB struct {
 	g *gorm.DB
 }
@@ -367,8 +372,6 @@ func (db *DB) SaveComponent(comp *Component) (uint, error) {
 	return comp.ID, nil
 }
 
-const statusSYSTEM = "SYSTEM"
-
 func (db *DB) MoveComponentFromOldToAnotherIncident(
 	comp *Component, incOld, incNew *Incident, closeOld bool,
 ) (*Incident, error) {
@@ -431,7 +434,7 @@ func (db *DB) MoveComponentFromOldToAnotherIncident(
 }
 
 func (db *DB) ExtractComponentsToNewIncident(
-	comp []Component, incOld *Incident, impact int, text string, incType string,
+	comp []Component, incOld *Incident, impact int, text string,
 ) (*Incident, error) {
 	if len(comp) == 0 {
 		return nil, fmt.Errorf("no components to extract")
@@ -446,7 +449,7 @@ func (db *DB) ExtractComponentsToNewIncident(
 		Impact:     &impact,
 		Statuses:   []IncidentStatus{},
 		System:     false,
-		Type:       incType,
+		Type:       eventTypeIncident,
 		Components: comp,
 	}
 
