@@ -94,6 +94,7 @@ func TestV2PostIncidentsHandlerNegative(t *testing.T) {
   "start_date":"2024-11-25T09:32:14.075Z",
   "end_date":"2024-11-25T09:32:14.075Z",
   "system":false,
+  "type":"incident",
   "updates":[
     {
       "id":163,
@@ -111,6 +112,7 @@ func TestV2PostIncidentsHandlerNegative(t *testing.T) {
   ],
   "start_date":"2024-11-25T09:32:14.075Z",
   "system":false,
+  "type":"incident",
   "updates":[
     {
       "id":163,
@@ -128,7 +130,25 @@ func TestV2PostIncidentsHandlerNegative(t *testing.T) {
     254
   ],
   "start_date":"2024-11-25T09:32:14.075Z",
-  "system":false
+  "system":false,
+  "type":"incident"
+}`
+	jsWrongMaintenanceImpact := `{
+  "title":"Maintenance with wrong impact",
+  "impact":1,
+  "components":[1],
+  "start_date":"2024-11-25T09:32:14.075Z",
+  "system":false,
+  "type":"maintenance"
+}`
+
+	jsWrongIncidentImpact := `{
+  "title":"Incident with maintenance impact",
+  "impact":0,
+  "components":[1],
+  "start_date":"2024-11-25T09:32:14.075Z",
+  "system":false,
+  "type":"incident"
 }`
 
 	testCases := map[string]*testCase{
@@ -147,14 +167,30 @@ func TestV2PostIncidentsHandlerNegative(t *testing.T) {
 			Expected:     `{"errMsg":"component does not exist, component_id: 218"}`,
 			ExpectedCode: 400,
 		},
+		"negative testcase, maintenance with non-zero impact": {
+			JSON:         jsWrongMaintenanceImpact,
+			Expected:     `{"errMsg":"impact must be 0 for type 'maintenance' and gt 0 for 'incident'"}`,
+			ExpectedCode: 400,
+		},
+		"negative testcase, incident with zero impact": {
+			JSON:         jsWrongIncidentImpact,
+			Expected:     `{"errMsg":"impact must be 0 for type 'maintenance' and gt 0 for 'incident'"}`,
+			ExpectedCode: 400,
+		},
 	}
 
 	for title, c := range testCases {
 		t.Logf("start test case: %s\n", title)
+		t.Logf("Input JSON: %s", c.JSON)
 
 		w := httptest.NewRecorder()
 		req, _ := http.NewRequest(http.MethodPost, v2Incidents, strings.NewReader(c.JSON))
 		r.ServeHTTP(w, req)
+
+		t.Logf("Response Status Code: %d", w.Code)
+		t.Logf("Response Body: %s", w.Body.String())
+		t.Logf("Expected Status Code: %d", c.ExpectedCode)
+		t.Logf("Expected Response: %s", c.Expected)
 
 		assert.Equal(t, c.ExpectedCode, w.Code)
 		assert.Equal(t, c.Expected, w.Body.String())
@@ -172,6 +208,7 @@ func TestV2PostIncidentsHandler(t *testing.T) {
 	title := "Test incident for dcs"
 	startDate := time.Now().AddDate(0, 0, -1).UTC()
 	system := false
+	incType := "incident"
 
 	incidentCreateData := v2.IncidentData{
 		Title:      title,
@@ -179,6 +216,7 @@ func TestV2PostIncidentsHandler(t *testing.T) {
 		Components: components,
 		StartDate:  startDate,
 		System:     &system,
+		Type:       incType,
 	}
 
 	incidents := v2GetIncidents(t, r)
@@ -241,6 +279,7 @@ func TestV2PostIncidentsHandler(t *testing.T) {
 	incidentCreateData.Description = "any description for maintenance incident"
 	endDate := time.Now().AddDate(0, 0, 1).UTC()
 	incidentCreateData.EndDate = &endDate
+	incidentCreateData.Type = "maintenance"
 
 	result = v2CreateIncident(t, r, &incidentCreateData)
 	assert.Equal(t, len(incidents)+3, result.Result[0].IncidentID)
@@ -280,6 +319,7 @@ func TestV2PostIncidentsHandler(t *testing.T) {
 		Components: components,
 		StartDate:  startDate,
 		System:     &system,
+		Type:       "incident",
 	}
 	result = v2CreateIncident(t, r, &incidentCreateData)
 	assert.Equal(t, 9, result.Result[0].IncidentID)
@@ -302,6 +342,7 @@ func TestV2PatchIncidentHandlerNegative(t *testing.T) {
 		Components: components,
 		StartDate:  startDate,
 		System:     &system,
+		Type:       "incident",
 	}
 
 	resp := v2CreateIncident(t, r, &incidentCreateData)
@@ -320,7 +361,8 @@ func TestV2PatchIncidentHandlerNegative(t *testing.T) {
 	 	"status": "in progress",
 	 	"update_date": "2024-12-11T14:46:03.877Z",
 	 	"start_date": "2024-12-11T14:46:03.877Z",
-	 	"end_date": "2024-12-11T14:46:03.877Z"
+	 	"end_date": "2024-12-11T14:46:03.877Z",
+		"type": "incident"
 	}`
 
 	jsWrongOpenedStartDate := `{
@@ -328,19 +370,22 @@ func TestV2PatchIncidentHandlerNegative(t *testing.T) {
 	 "message": "Any message why the incident was updated.",
 	 "status": "analysing",
 	 "update_date": "2024-12-11T14:46:03.877Z",
-	 "start_date": "2024-12-11T14:46:03.877Z"
+	 "start_date": "2024-12-11T14:46:03.877Z",
+	 "type": "incident"
 	}`
 	jsWrongOpenedStatusForChangingImpact := `{
 	"impact": 0,
 	"message": "Any message why the incident was updated.",
 	"status": "analysing",
-	"update_date": "2024-12-11T14:46:03.877Z"
+	"update_date": "2024-12-11T14:46:03.877Z",
+	"type": "maintenance"
 }`
 	jsWrongOpenedMaintenanceImpact := `{
 	 "impact": 0,
 	 "message": "Any message why the incident was updated.",
 	 "status": "impact changed",
-	 "update_date": "2024-12-11T14:46:03.877Z"
+	 "update_date": "2024-12-11T14:46:03.877Z",
+	 "type": "maintenance"
 	}`
 	testCases := map[string]*testCase{
 		"negative testcase, wrong status for opened incident": {
@@ -412,6 +457,7 @@ func TestV2PatchIncidentHandler(t *testing.T) {
 		Components: components,
 		StartDate:  startDate,
 		System:     &system,
+		Type:       "incident",
 	}
 
 	resp := v2CreateIncident(t, r, &incidentCreateData)
@@ -494,6 +540,7 @@ func TestV2PostIncidentExtractHandler(t *testing.T) {
 		Components: components,
 		StartDate:  startDate,
 		System:     &system,
+		Type:       "incident",
 	}
 
 	incidents := v2GetIncidents(t, r)
@@ -727,6 +774,7 @@ func TestV2GetComponentsAvailability(t *testing.T) {
 		StartDate:  startDate,
 		EndDate:    nil,
 		System:     &system,
+		Type:       "incident",
 	}
 
 	resultN1 := v2CreateIncident(t, r, &incidentCreateDataN1)
@@ -754,6 +802,7 @@ func TestV2GetComponentsAvailability(t *testing.T) {
 		StartDate:  startDate,
 		EndDate:    nil,
 		System:     &system,
+		Type:       "incident",
 	}
 
 	resultN2 := v2CreateIncident(t, r, &incidentCreateDataN2)
