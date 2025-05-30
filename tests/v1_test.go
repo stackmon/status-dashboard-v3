@@ -15,6 +15,7 @@ import (
 
 	v1 "github.com/stackmon/otc-status-dashboard/internal/api/v1"
 	"github.com/stackmon/otc-status-dashboard/internal/db"
+	"github.com/stackmon/otc-status-dashboard/internal/statuses"
 )
 
 func TestV1GetIncidentsHandler(t *testing.T) {
@@ -124,7 +125,7 @@ func TestV1PostComponentsStatusHandler(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, componentCreateData.Impact, *newInc.Impact)
 	assert.Len(t, newInc.Updates, 1)
-	assert.Equal(t, "SYSTEM", newInc.Updates[0].Status)
+	assert.Equal(t, statuses.OutDatedSystem, newInc.Updates[0].Status)
 	assert.Equal(t, "impact changed from 1 to 2", newInc.Updates[0].Text)
 	assert.NotNil(t, newInc.Updates[0].Timestamp)
 
@@ -147,7 +148,7 @@ func TestV1PostComponentsStatusHandler(t *testing.T) {
 	for _, u := range newInc.Updates {
 		if strings.HasPrefix(u.Text, "Cloud Container Engine") {
 			assert.Equal(t, "Cloud Container Engine (Container, EU-NL, cce) added", u.Text)
-			assert.Equal(t, "SYSTEM", u.Status)
+			assert.Equal(t, statuses.OutDatedSystem, u.Status)
 		}
 	}
 
@@ -307,7 +308,7 @@ func checkIncidentsDataAfterMoveV1(t *testing.T, r *gin.Engine) {
 			assert.Nil(t, inc.EndDate)
 			assert.Equal(t, 3, *inc.Impact)
 			assert.Len(t, inc.Updates, 1)
-			assert.Equal(t, "SYSTEM", inc.Updates[0].Status)
+			assert.Equal(t, statuses.OutDatedSystem, inc.Updates[0].Status)
 			assert.Equal(t, "Distributed Cache Service (Database, EU-NL, dcs) moved from <a href='/incidents/2'>Test incident for dcs</a>", inc.Updates[0].Text)
 		case 2:
 			assert.Nil(t, inc.EndDate)
@@ -358,8 +359,8 @@ func checkIncidentsDataAfterMoveAndClosedIncidentV1(t *testing.T, r *gin.Engine)
 			assert.Nil(t, inc.EndDate)
 			assert.Equal(t, 3, *inc.Impact)
 			assert.Len(t, inc.Updates, 2)
-			assert.Equal(t, "SYSTEM", inc.Updates[0].Status)
-			assert.Equal(t, "SYSTEM", inc.Updates[1].Status)
+			assert.Equal(t, statuses.OutDatedSystem, inc.Updates[0].Status)
+			assert.Equal(t, statuses.OutDatedSystem, inc.Updates[1].Status)
 			assert.Equal(t, "Distributed Cache Service (Database, EU-NL, dcs) moved from <a href='/incidents/2'>Test incident for dcs</a>", inc.Updates[0].Text)
 			assert.Equal(t, "Cloud Container Engine (Container, EU-NL, cce) moved from <a href='/incidents/2'>Test incident for dcs</a>", inc.Updates[1].Text)
 		case 2:

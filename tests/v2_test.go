@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	v2 "github.com/stackmon/otc-status-dashboard/internal/api/v2"
+	"github.com/stackmon/otc-status-dashboard/internal/statuses"
 )
 
 const (
@@ -218,8 +219,8 @@ func TestV2PostIncidentsHandler(t *testing.T) {
 	assert.Len(t, oldIncident.Components, 1)
 	assert.NotNil(t, oldIncident.Updates)
 	assert.Len(t, oldIncident.Updates, 2)
-	assert.Equal(t, "SYSTEM", oldIncident.Updates[0].Status)
-	assert.Equal(t, "SYSTEM", oldIncident.Updates[1].Status)
+	assert.Equal(t, statuses.OutDatedSystem, oldIncident.Updates[0].Status)
+	assert.Equal(t, statuses.OutDatedSystem, oldIncident.Updates[1].Status)
 	assert.Equal(t, fmt.Sprintf("Cloud Container Engine (Container, EU-DE, cce) moved to <a href='/incidents/%d'>Test incident for dcs</a>", result.Result[0].IncidentID), oldIncident.Updates[0].Text)
 	assert.Equal(t, fmt.Sprintf("Cloud Container Engine (Container, EU-NL, cce) moved to <a href='/incidents/%d'>Test incident for dcs</a>, Incident closed by system", result.Result[0].IncidentID), oldIncident.Updates[1].Text)
 
@@ -228,8 +229,8 @@ func TestV2PostIncidentsHandler(t *testing.T) {
 	assert.Len(t, incidentN3.Components, 2)
 	assert.NotNil(t, incidentN3.Updates)
 	assert.Len(t, incidentN3.Updates, 2)
-	assert.Equal(t, "SYSTEM", incidentN3.Updates[0].Status)
-	assert.Equal(t, "SYSTEM", incidentN3.Updates[1].Status)
+	assert.Equal(t, statuses.OutDatedSystem, incidentN3.Updates[0].Status)
+	assert.Equal(t, statuses.OutDatedSystem, incidentN3.Updates[1].Status)
 	assert.Equal(t, fmt.Sprintf("Cloud Container Engine (Container, EU-DE, cce) moved from <a href='/incidents/%d'>Test incident for dcs</a>", result.Result[0].IncidentID-1), incidentN3.Updates[0].Text)
 	assert.Equal(t, fmt.Sprintf("Cloud Container Engine (Container, EU-NL, cce) moved from <a href='/incidents/%d'>Test incident for dcs</a>", result.Result[0].IncidentID-1), incidentN3.Updates[1].Text)
 
@@ -255,6 +256,7 @@ func TestV2PostIncidentsHandler(t *testing.T) {
 	assert.Equal(t, impact, *maintenanceIncident.Impact)
 	assert.Equal(t, system, *maintenanceIncident.System)
 	assert.Equal(t, incidentCreateData.Description, maintenanceIncident.Updates[0].Text)
+	assert.Equal(t, statuses.MaintenancePlanned, maintenanceIncident.Updates[0].Status)
 	require.NotNil(t, maintenanceIncident.Type)
 	assert.Equal(t, "maintenance", maintenanceIncident.Type)
 	assert.Equal(t, "description", maintenanceIncident.Updates[0].Status)
@@ -264,8 +266,8 @@ func TestV2PostIncidentsHandler(t *testing.T) {
 	assert.Len(t, incidentN3.Components, 2)
 	assert.NotNil(t, incidentN3.Updates)
 	assert.Len(t, incidentN3.Updates, 2)
-	assert.Equal(t, "SYSTEM", incidentN3.Updates[0].Status)
-	assert.Equal(t, "SYSTEM", incidentN3.Updates[1].Status)
+	assert.Equal(t, statuses.OutDatedSystem, incidentN3.Updates[0].Status)
+	assert.Equal(t, statuses.OutDatedSystem, incidentN3.Updates[1].Status)
 	assert.Equal(t, fmt.Sprintf("Cloud Container Engine (Container, EU-DE, cce) moved from <a href='/incidents/%d'>Test incident for dcs</a>", incidentN3.ID-1), incidentN3.Updates[0].Text)
 	assert.Equal(t, fmt.Sprintf("Cloud Container Engine (Container, EU-NL, cce) moved from <a href='/incidents/%d'>Test incident for dcs</a>", incidentN3.ID-1), incidentN3.Updates[1].Text)
 	require.NotNil(t, incidentN3.Type)
@@ -434,13 +436,13 @@ func TestV2PatchIncidentHandler(t *testing.T) {
 	t.Logf("patching incident impact, from %d to %d", impact, newImpact)
 
 	pData.Impact = &newImpact
-	pData.Status = v2.IncidentImpactChanged
+	pData.Status = statuses.IncidentImpactChanged
 
 	inc = internalPatch(incID, &pData)
 	assert.Equal(t, newImpact, *inc.Impact)
 
 	t.Logf("close incident")
-	pData.Status = v2.IncidentResolved
+	pData.Status = statuses.IncidentResolved
 	updateDate := time.Now().UTC()
 	pData.UpdateDate = updateDate
 
@@ -452,7 +454,7 @@ func TestV2PatchIncidentHandler(t *testing.T) {
 	startDate = time.Now().AddDate(0, 0, -1).UTC()
 	endDate := time.Now().UTC()
 
-	pData.Status = v2.IncidentChanged
+	pData.Status = statuses.IncidentChanged
 	pData.StartDate = &startDate
 	pData.EndDate = &endDate
 
@@ -463,7 +465,7 @@ func TestV2PatchIncidentHandler(t *testing.T) {
 
 	t.Logf("reopen closed incident")
 
-	pData.Status = v2.IncidentReopened
+	pData.Status = statuses.IncidentReopened
 	pData.StartDate = nil
 	pData.EndDate = nil
 	inc = internalPatch(incID, &pData)
@@ -471,7 +473,7 @@ func TestV2PatchIncidentHandler(t *testing.T) {
 
 	t.Logf("final close the test incident")
 
-	pData.Status = v2.IncidentResolved
+	pData.Status = statuses.IncidentResolved
 	inc = internalPatch(incID, &pData)
 	assert.NotNil(t, inc.EndDate)
 }
@@ -969,4 +971,39 @@ func TestV2GetIncidentsFilteredHandler(t *testing.T) {
 			assert.ElementsMatch(t, tc.expectedIDs, actualIDs, "Unexpected incident IDs for: "+tc.name)
 		})
 	}
+}
+
+func TestV2PostMaintenanceHandler(t *testing.T) {
+	t.Log("start to test maintenance creation for /v2/incidents")
+	r, _, _ := initTests(t)
+
+	t.Log("create a maintenance")
+
+	components := []int{1, 2}
+	impact := 0
+	title := "Test maintenance incident for dcs"
+	startDate := time.Now().Add(time.Hour * 1).UTC()
+	endDate := time.Now().Add(time.Hour * 2).UTC()
+	system := false
+
+	incidentCreateData := v2.IncidentData{
+		Title:      title,
+		Impact:     &impact,
+		Components: components,
+		StartDate:  startDate,
+		EndDate:    &endDate,
+		System:     &system,
+	}
+
+	result := v2CreateIncident(t, r, &incidentCreateData)
+	assert.Len(t, incidentCreateData.Components, len(result.Result))
+
+	incident := v2GetIncident(t, r, result.Result[0].IncidentID)
+	assert.Equal(t, incidentCreateData.StartDate.Truncate(time.Microsecond), incident.StartDate)
+	assert.Equal(t, incidentCreateData.EndDate.Truncate(time.Microsecond), *incident.EndDate)
+	assert.Equal(t, title, incident.Title)
+	assert.Equal(t, impact, *incident.Impact)
+	assert.Equal(t, system, *incident.System)
+	assert.NotNil(t, incident.Updates)
+	assert.Equal(t, statuses.MaintenancePlanned, incident.Updates[0].Status)
 }
