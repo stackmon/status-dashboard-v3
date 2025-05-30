@@ -10,7 +10,7 @@ import (
 	"github.com/stackmon/otc-status-dashboard/internal/statuses"
 )
 
-const defaultPeriod = time.Second * 10
+const defaultPeriod = time.Minute * 1
 
 type Checker struct {
 	db              *db.DB
