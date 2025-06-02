@@ -11,6 +11,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/stackmon/otc-status-dashboard/internal/app"
+	"github.com/stackmon/otc-status-dashboard/internal/checker"
 	"github.com/stackmon/otc-status-dashboard/internal/conf"
 )
 
@@ -28,6 +29,12 @@ func main() {
 		logger.Fatal("fail to init app", zap.Error(err))
 	}
 
+	ch, err := checker.New(c, logger)
+	if err != nil {
+		logger.Error("fail to init checker", zap.Error(err))
+	}
+	stopCh := make(chan struct{})
+
 	ctx, done := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer done()
 
@@ -37,11 +44,19 @@ func main() {
 		}
 	}()
 
+	go func() {
+		ch.Run(stopCh)
+	}()
+
 	<-ctx.Done()
 	s.Log.Info("shutdown app")
 
 	if err = s.Shutdown(ctx); err != nil {
 		logger.Fatal("app shutdown failed", zap.Error(err))
+	}
+
+	if err = ch.Shutdown(stopCh); err != nil {
+		logger.Fatal("checker shutdown failed", zap.Error(err))
 	}
 
 	logger.Info("app exited")
