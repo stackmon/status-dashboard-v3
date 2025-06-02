@@ -7,24 +7,25 @@ import (
 
 	apiErrors "github.com/stackmon/otc-status-dashboard/internal/api/errors"
 	"github.com/stackmon/otc-status-dashboard/internal/db"
+	"github.com/stackmon/otc-status-dashboard/internal/statuses"
 )
 
 // IsValidIncidentFilterStatus checks if the status is valid for maintenance or incidents.
-func IsValidIncidentFilterStatus(status string) bool {
-	if _, ok := maintenanceStatuses[status]; ok {
+func IsValidIncidentFilterStatus(status statuses.EventStatus) bool {
+	if statuses.IsMaintenanceStatus(status) {
 		return true
 	}
-	if _, ok := incidentOpenStatuses[status]; ok {
+	if statuses.IsIncidentOpenStatus(status) {
 		return true
 	}
-	if _, ok := incidentClosedStatuses[status]; ok {
+	if statuses.IsIncidentClosedStatus(status) {
 		return true
 	}
 	return false
 }
 
 // validateAndSetStatus validates the query status and sets it on db.IncidentsParams.
-func validateAndSetStatus(queryStatus *string, params *db.IncidentsParams) error {
+func validateAndSetStatus(queryStatus *statuses.EventStatus, params *db.IncidentsParams) error {
 	if queryStatus != nil {
 		if !IsValidIncidentFilterStatus(*queryStatus) {
 			return apiErrors.ErrIncidentFQueryInvalidFormat

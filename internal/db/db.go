@@ -11,6 +11,7 @@ import (
 	"moul.io/zapgorm2"
 
 	"github.com/stackmon/otc-status-dashboard/internal/conf"
+	"github.com/stackmon/otc-status-dashboard/internal/statuses"
 )
 
 const (
@@ -42,9 +43,17 @@ func New(c *conf.Config) (*DB, error) {
 	return &DB{g: g}, nil
 }
 
+func (db *DB) Close() error {
+	sqlDB, err := db.g.DB()
+	if err != nil {
+		return err
+	}
+	return sqlDB.Close()
+}
+
 type IncidentsParams struct {
 	Type         *string
-	Status       *string
+	Status       *statuses.EventStatus
 	StartDate    *time.Time
 	EndDate      *time.Time
 	Impact       *int
@@ -389,7 +398,7 @@ func (db *DB) MoveComponentFromOldToAnotherIncident(
 	text := fmt.Sprintf("%s moved from %s", comp.PrintAttrs(), incOld.Link())
 	incNew.Statuses = append(incNew.Statuses, IncidentStatus{
 		IncidentID: incNew.ID,
-		Status:     statusSYSTEM,
+		Status:     statuses.OutDatedSystem,
 		Text:       text,
 		Timestamp:  timeNow,
 	})
@@ -401,7 +410,7 @@ func (db *DB) MoveComponentFromOldToAnotherIncident(
 
 	incOld.Statuses = append(incOld.Statuses, IncidentStatus{
 		IncidentID: incOld.ID,
-		Status:     statusSYSTEM,
+		Status:     statuses.OutDatedSystem,
 		Text:       text,
 		Timestamp:  timeNow,
 	})
@@ -462,7 +471,7 @@ func (db *DB) ExtractComponentsToNewIncident(
 		incText := fmt.Sprintf("%s moved from %s", c.PrintAttrs(), incOld.Link())
 		inc.Statuses = append(inc.Statuses, IncidentStatus{
 			IncidentID: id,
-			Status:     statusSYSTEM,
+			Status:     statuses.OutDatedSystem,
 			Text:       incText,
 			Timestamp:  timeNow,
 		})
@@ -482,7 +491,7 @@ func (db *DB) ExtractComponentsToNewIncident(
 		incText := fmt.Sprintf("%s moved to %s", c.PrintAttrs(), inc.Link())
 		incOld.Statuses = append(incOld.Statuses, IncidentStatus{
 			IncidentID: inc.ID,
-			Status:     statusSYSTEM,
+			Status:     statuses.OutDatedSystem,
 			Text:       incText,
 			Timestamp:  timeNow,
 		})
@@ -501,7 +510,7 @@ func (db *DB) IncreaseIncidentImpact(inc *Incident, impact int) (*Incident, erro
 	text := fmt.Sprintf("impact changed from %d to %d", *inc.Impact, impact)
 	inc.Statuses = append(inc.Statuses, IncidentStatus{
 		IncidentID: inc.ID,
-		Status:     statusSYSTEM,
+		Status:     statuses.OutDatedSystem,
 		Text:       text,
 		Timestamp:  timeNow,
 	})
