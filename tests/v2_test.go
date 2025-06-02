@@ -298,7 +298,7 @@ func TestV2PostIncidentsHandler(t *testing.T) {
 	assert.Equal(t, statuses.MaintenancePlanned, maintenanceIncident.Updates[0].Status)
 	require.NotNil(t, maintenanceIncident.Type)
 	assert.Equal(t, "maintenance", maintenanceIncident.Type)
-	assert.Equal(t, "description", maintenanceIncident.Updates[0].Status)
+	assert.Equal(t, statuses.MaintenancePlanned, maintenanceIncident.Updates[0].Status)
 
 	incidentN3 = v2GetIncident(t, r, result.Result[0].IncidentID-1)
 	assert.Nil(t, incidentN3.EndDate)
@@ -1042,6 +1042,7 @@ func TestV2PostMaintenanceHandler(t *testing.T) {
 		StartDate:  startDate,
 		EndDate:    &endDate,
 		System:     &system,
+		Type:       "maintenance",
 	}
 
 	result := v2CreateIncident(t, r, &incidentCreateData)
