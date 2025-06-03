@@ -38,8 +38,8 @@ type IncidentData struct {
 	//    Types of incidents:
 	//    1. maintenance
 	//    2. incident
-	// TODO: "Type" field should be mandatory after the migration
-	Type    string              `json:"type,omitempty"`
+	// Type field is mandatory.
+	Type    string              `json:"type" binding:"required,oneof=maintenance incident"`
 	Updates []db.IncidentStatus `json:"updates,omitempty"`
 }
 
@@ -195,11 +195,7 @@ func toAPIIncident(inc *db.Incident) *Incident {
 		EndDate:    inc.EndDate,
 		System:     &inc.System,
 		Updates:    inc.Statuses,
-	}
-	if *inc.Impact == 0 {
-		incData.Type = "maintenance"
-	} else {
-		incData.Type = "incident"
+		Type:       inc.Type,
 	}
 
 	return &Incident{IncidentID{ID: int(inc.ID)}, incData}
@@ -265,6 +261,7 @@ func PostIncidentHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc { //
 			EndDate:    incData.EndDate,
 			Impact:     incData.Impact,
 			System:     *incData.System,
+			Type:       incData.Type,
 			Components: components,
 		}
 
@@ -345,7 +342,10 @@ type ProcessComponentResp struct {
 }
 
 func validateIncidentCreation(incData IncidentData) error {
-	if *incData.Impact != 0 && incData.EndDate != nil {
+	if (incData.Type == "maintenance" && *incData.Impact != 0) || (incData.Type == "incident" && *incData.Impact == 0) {
+		return apiErrors.ErrIncidentTypeImpactMismatch
+	}
+	if incData.Type == "incident" && incData.EndDate != nil {
 		return apiErrors.ErrIncidentEndDateShouldBeEmpty
 	}
 
@@ -396,6 +396,7 @@ type PatchIncidentData struct {
 	UpdateDate time.Time            `json:"update_date" binding:"required"`
 	StartDate  *time.Time           `json:"start_date,omitempty"`
 	EndDate    *time.Time           `json:"end_date,omitempty"`
+	Type       string               `json:"type,omitempty"`
 }
 
 func PatchIncidentHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
@@ -459,17 +460,50 @@ func PatchIncidentHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 	}
 }
 
+func isValidIncidentType(t string) bool {
+	switch t {
+	case "maintenance", "incident":
+		return true
+	default:
+		return false
+	}
+}
+
+func validateEffectiveTypeAndImpact(effectiveType string, effectiveImpact int) error {
+	if effectiveType == "maintenance" && effectiveImpact != 0 {
+		return apiErrors.ErrIncidentTypeImpactMismatch
+	}
+	if effectiveType == "incident" && effectiveImpact == 0 {
+		return apiErrors.ErrIncidentTypeImpactMismatch
+	}
+	return nil
+}
+
+func validateMaintenancePatch(incoming *PatchIncidentData) error {
+	if !statuses.IsMaintenanceStatus(incoming.Status) {
+		return apiErrors.ErrIncidentPatchMaintenanceStatus
+	}
+	return nil
+}
+
 func checkPatchData(incoming *PatchIncidentData, stored *db.Incident) error {
+	if incoming.Type != "" && !isValidIncidentType(incoming.Type) {
+		return apiErrors.ErrIncidentInvalidType
+	}
+	effectiveType := stored.Type
+	if incoming.Type != "" {
+		effectiveType = incoming.Type
+	}
+	effectiveImpact := *stored.Impact
+	if incoming.Impact != nil {
+		effectiveImpact = *incoming.Impact
+	}
+	if err := validateEffectiveTypeAndImpact(effectiveType, effectiveImpact); err != nil {
+		return err
+	}
+
 	if *stored.Impact == 0 {
-		if incoming.Impact != nil && *incoming.Impact != 0 {
-			return apiErrors.ErrIncidentPatchMaintenanceImpactForbidden
-		}
-
-		if !statuses.IsMaintenanceStatus(incoming.Status) {
-			return apiErrors.ErrIncidentPatchMaintenanceStatus
-		}
-
-		return nil
+		return validateMaintenancePatch(incoming)
 	}
 
 	if stored.EndDate != nil {
@@ -521,6 +555,14 @@ func updateFields(income *PatchIncidentData, stored *db.Incident) {
 
 	if income.Impact != nil {
 		stored.Impact = income.Impact
+	}
+
+	if income.Type != "" {
+		stored.Type = income.Type
+	}
+
+	if income.Type != "" {
+		stored.Type = income.Type
 	}
 
 	if income.Status == statuses.IncidentReopened {
@@ -587,7 +629,11 @@ func PostIncidentExtractHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFu
 			return
 		}
 
-		inc, err := dbInst.ExtractComponentsToNewIncident(movedComponents, storedInc, *storedInc.Impact, *storedInc.Text)
+		inc, err := dbInst.ExtractComponentsToNewIncident(
+			movedComponents,
+			storedInc,
+			*storedInc.Impact,
+			*storedInc.Text)
 		if err != nil {
 			apiErrors.RaiseInternalErr(c, err)
 			return
@@ -797,6 +843,7 @@ func GetComponentsAvailabilityHandler(dbInst *db.DB, logger *zap.Logger) gin.Han
 						StartDate: *inc.StartDate,
 						EndDate:   inc.EndDate,
 						Updates:   nil,
+						Type:      inc.Type,
 					},
 				}
 				incidents[i] = newInc

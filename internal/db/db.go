@@ -14,6 +14,11 @@ import (
 	"github.com/stackmon/otc-status-dashboard/internal/statuses"
 )
 
+const (
+	statusSYSTEM      = "SYSTEM"
+	eventTypeIncident = "incident"
+)
+
 type DB struct {
 	g *gorm.DB
 }
@@ -453,6 +458,7 @@ func (db *DB) ExtractComponentsToNewIncident(
 		Impact:     &impact,
 		Statuses:   []IncidentStatus{},
 		System:     false,
+		Type:       eventTypeIncident,
 		Components: comp,
 	}
 
