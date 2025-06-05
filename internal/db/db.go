@@ -11,6 +11,12 @@ import (
 	"moul.io/zapgorm2"
 
 	"github.com/stackmon/otc-status-dashboard/internal/conf"
+	"github.com/stackmon/otc-status-dashboard/internal/statuses"
+)
+
+const (
+	statusSYSTEM      = "SYSTEM"
+	eventTypeIncident = "incident"
 )
 
 type DB struct {
@@ -37,15 +43,30 @@ func New(c *conf.Config) (*DB, error) {
 	return &DB{g: g}, nil
 }
 
+func (db *DB) Close() error {
+	sqlDB, err := db.g.DB()
+	if err != nil {
+		return err
+	}
+	return sqlDB.Close()
+}
+
 type IncidentsParams struct {
-	LastCount int
-	IsOpened  bool
+	Type         *string
+	Status       *statuses.EventStatus
+	StartDate    *time.Time
+	EndDate      *time.Time
+	Impact       *int
+	IsSystem     *bool
+	ComponentIDs []int
+	LastCount    int
+	IsOpened     *bool
 }
 
 func (db *DB) GetIncidents(params ...*IncidentsParams) ([]*Incident, error) {
 	var incidents []*Incident
 	var param IncidentsParams
-	if params != nil && params[0] != nil {
+	if len(params) > 0 && params[0] != nil {
 		param = *params[0]
 	}
 
@@ -54,18 +75,63 @@ func (db *DB) GetIncidents(params ...*IncidentsParams) ([]*Incident, error) {
 		Preload("Components", func(db *gorm.DB) *gorm.DB { return db.Select("ID, Name") }).
 		Preload("Components.Attrs")
 
-	if param.IsOpened {
-		r.Where("end_date is NULL").Find(&incidents)
-		if r.Error != nil {
-			return nil, r.Error
+	if param.Type != nil {
+		switch *param.Type {
+		case "maintenance":
+			r = r.Where("impact = ?", 0)
+		case "incident":
+			r = r.Where("impact > ?", 0)
 		}
-		return incidents, nil
 	}
 
-	r.Find(&incidents)
+	if param.IsOpened != nil {
+		if *param.IsOpened {
+			r = r.Where("end_date is NULL")
+		} else {
+			r = r.Where("end_date is NOT NULL")
+		}
+	}
 
-	if r.Error != nil {
-		return nil, r.Error
+	if param.Status != nil {
+		latestStatus := db.g.Model(&IncidentStatus{}).
+			Select("MAX(timestamp)").
+			Where("incident_status.incident_id = incident.id")
+
+		r = r.Joins("JOIN incident_status latest_is ON latest_is.incident_id = incident.id").
+			Where("latest_is.status = ? AND latest_is.timestamp = (?)", *param.Status, latestStatus)
+		r = r.Group("incident.id")
+	}
+
+	switch {
+	case param.StartDate != nil && param.EndDate != nil:
+		r = r.Where("incident.start_date >= ? AND incident.end_date <= ?", *param.StartDate, *param.EndDate)
+	case param.StartDate != nil && param.EndDate == nil:
+		r = r.Where("incident.start_date >= ?", *param.StartDate)
+	case param.EndDate != nil && param.StartDate == nil:
+		r = r.Where("incident.end_date <= ?", *param.EndDate)
+	}
+
+	if param.Impact != nil {
+		r = r.Where("incident.impact = ?", *param.Impact)
+	}
+
+	if param.IsSystem != nil {
+		r = r.Where("incident.system = ?", *param.IsSystem)
+	}
+
+	if len(param.ComponentIDs) > 0 {
+		r = r.Joins("JOIN incident_component_relation icr ON icr.incident_id = incident.id").
+			Where("icr.component_id IN (?)", param.ComponentIDs).Group("incident.id")
+	}
+
+	r = r.Order("incident.start_date DESC")
+
+	if param.LastCount != 0 {
+		r = r.Limit(param.LastCount)
+	}
+
+	if err := r.Find(&incidents).Error; err != nil {
+		return nil, err
 	}
 	return incidents, nil
 }
@@ -149,7 +215,6 @@ func (db *DB) GetIncidentsByComponentID(componentID uint, params ...*IncidentsPa
 	if r.Error != nil {
 		return nil, r.Error
 	}
-
 	return incidents, nil
 }
 
@@ -319,8 +384,6 @@ func (db *DB) SaveComponent(comp *Component) (uint, error) {
 	return comp.ID, nil
 }
 
-const statusSYSTEM = "SYSTEM"
-
 func (db *DB) MoveComponentFromOldToAnotherIncident(
 	comp *Component, incOld, incNew *Incident, closeOld bool,
 ) (*Incident, error) {
@@ -338,7 +401,7 @@ func (db *DB) MoveComponentFromOldToAnotherIncident(
 	text := fmt.Sprintf("%s moved from %s", comp.PrintAttrs(), incOld.Link())
 	incNew.Statuses = append(incNew.Statuses, IncidentStatus{
 		IncidentID: incNew.ID,
-		Status:     statusSYSTEM,
+		Status:     statuses.OutDatedSystem,
 		Text:       text,
 		Timestamp:  timeNow,
 	})
@@ -350,7 +413,7 @@ func (db *DB) MoveComponentFromOldToAnotherIncident(
 
 	incOld.Statuses = append(incOld.Statuses, IncidentStatus{
 		IncidentID: incOld.ID,
-		Status:     statusSYSTEM,
+		Status:     statuses.OutDatedSystem,
 		Text:       text,
 		Timestamp:  timeNow,
 	})
@@ -382,9 +445,13 @@ func (db *DB) MoveComponentFromOldToAnotherIncident(
 	return incNew, nil
 }
 
-func (db *DB) ExtractComponentToNewIncident(
-	comp *Component, incOld *Incident, impact int, text string,
+func (db *DB) ExtractComponentsToNewIncident(
+	comp []Component, incOld *Incident, impact int, text string,
 ) (*Incident, error) {
+	if len(comp) == 0 {
+		return nil, fmt.Errorf("no components to extract")
+	}
+
 	timeNow := time.Now().UTC()
 
 	inc := &Incident{
@@ -394,7 +461,8 @@ func (db *DB) ExtractComponentToNewIncident(
 		Impact:     &impact,
 		Statuses:   []IncidentStatus{},
 		System:     false,
-		Components: []Component{*comp},
+		Type:       eventTypeIncident,
+		Components: comp,
 	}
 
 	id, err := db.SaveIncident(inc)
@@ -402,31 +470,35 @@ func (db *DB) ExtractComponentToNewIncident(
 		return nil, err
 	}
 
-	incText := fmt.Sprintf("%s moved from %s", comp.PrintAttrs(), incOld.Link())
-	inc.Statuses = append(inc.Statuses, IncidentStatus{
-		IncidentID: id,
-		Status:     statusSYSTEM,
-		Text:       incText,
-		Timestamp:  timeNow,
-	})
+	for _, c := range comp {
+		incText := fmt.Sprintf("%s moved from %s", c.PrintAttrs(), incOld.Link())
+		inc.Statuses = append(inc.Statuses, IncidentStatus{
+			IncidentID: id,
+			Status:     statuses.OutDatedSystem,
+			Text:       incText,
+			Timestamp:  timeNow,
+		})
+	}
 
 	err = db.ModifyIncident(inc)
 	if err != nil {
 		return nil, err
 	}
 
-	err = db.g.Model(incOld).Association("Components").Delete(comp)
-	if err != nil {
-		return nil, err
-	}
+	for _, c := range comp {
+		err = db.g.Model(incOld).Association("Components").Delete(c)
+		if err != nil {
+			return nil, err
+		}
 
-	incText = fmt.Sprintf("%s moved to %s", comp.PrintAttrs(), inc.Link())
-	incOld.Statuses = append(incOld.Statuses, IncidentStatus{
-		IncidentID: inc.ID,
-		Status:     statusSYSTEM,
-		Text:       incText,
-		Timestamp:  timeNow,
-	})
+		incText := fmt.Sprintf("%s moved to %s", c.PrintAttrs(), inc.Link())
+		incOld.Statuses = append(incOld.Statuses, IncidentStatus{
+			IncidentID: inc.ID,
+			Status:     statuses.OutDatedSystem,
+			Text:       incText,
+			Timestamp:  timeNow,
+		})
+	}
 
 	err = db.ModifyIncident(incOld)
 	if err != nil {
@@ -441,7 +513,7 @@ func (db *DB) IncreaseIncidentImpact(inc *Incident, impact int) (*Incident, erro
 	text := fmt.Sprintf("impact changed from %d to %d", *inc.Impact, impact)
 	inc.Statuses = append(inc.Statuses, IncidentStatus{
 		IncidentID: inc.ID,
-		Status:     statusSYSTEM,
+		Status:     statuses.OutDatedSystem,
 		Text:       text,
 		Timestamp:  timeNow,
 	})

@@ -3,6 +3,8 @@ package db
 import (
 	"fmt"
 	"time"
+
+	"github.com/stackmon/otc-status-dashboard/internal/statuses"
 )
 
 type Component struct {
@@ -62,6 +64,7 @@ type Incident struct {
 	Impact     *int             `json:"impact" gorm:"not null"`
 	Statuses   []IncidentStatus `json:"updates" gorm:"foreignKey:IncidentID"`
 	System     bool             `json:"system" gorm:"not null"`
+	Type       string           `json:"type" gorm:"not null"`
 	Components []Component      `json:"components" gorm:"many2many:incident_component_relation"`
 }
 
@@ -75,11 +78,11 @@ func (in *Incident) Link() string {
 
 // IncidentStatus is a db table representation.
 type IncidentStatus struct {
-	ID         uint      `json:"-" gorm:"primaryKey;autoIncrement:true;"`
-	IncidentID uint      `json:"-"`
-	Status     string    `json:"status"`
-	Text       string    `json:"text"`
-	Timestamp  time.Time `json:"timestamp"`
+	ID         uint                 `json:"-" gorm:"primaryKey;autoIncrement:true;"`
+	IncidentID uint                 `json:"-"`
+	Status     statuses.EventStatus `json:"status"`
+	Text       string               `json:"text"`
+	Timestamp  time.Time            `json:"timestamp"`
 }
 
 func (is *IncidentStatus) TableName() string {

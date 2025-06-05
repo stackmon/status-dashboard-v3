@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	v2 "github.com/stackmon/otc-status-dashboard/internal/api/v2"
+	"github.com/stackmon/otc-status-dashboard/internal/statuses"
 )
 
 const (
@@ -22,11 +23,17 @@ const (
 	v2Availability = "/v2/availability"
 )
 
+// V2IncidentsListResponse defines the expected structure for the GET /v2/incidents endpoint.
+type V2IncidentsListResponse struct {
+	Data    []*v2.Incident `json:"data"`
+	Message string         `json:"message,omitempty"`
+}
+
 func TestV2GetIncidentsHandler(t *testing.T) {
 	t.Log("start to test GET /v2/incidents")
 	r, _, _ := initTests(t)
 
-	incidentStr := `{"id":1,"title":"Closed incident without any update","impact":1,"components":[1],"start_date":"2024-10-24T10:12:42Z","end_date":"2024-10-24T11:12:42Z","system":false,"updates":[{"status":"resolved","text":"close incident","timestamp":"2024-10-24T11:12:42.559346Z"}]}`
+	incidentStr := `{"id":1,"title":"Closed incident without any update","impact":1,"components":[1],"start_date":"2024-10-24T10:12:42Z","end_date":"2024-10-24T11:12:42Z","system":false,"type":"incident","updates":[{"status":"resolved","text":"close incident","timestamp":"2024-10-24T11:12:42.559346Z"}]}`
 
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest(http.MethodGet, v2Incidents, nil)
@@ -88,6 +95,7 @@ func TestV2PostIncidentsHandlerNegative(t *testing.T) {
   "start_date":"2024-11-25T09:32:14.075Z",
   "end_date":"2024-11-25T09:32:14.075Z",
   "system":false,
+  "type":"incident",
   "updates":[
     {
       "id":163,
@@ -105,6 +113,7 @@ func TestV2PostIncidentsHandlerNegative(t *testing.T) {
   ],
   "start_date":"2024-11-25T09:32:14.075Z",
   "system":false,
+  "type":"incident",
   "updates":[
     {
       "id":163,
@@ -122,7 +131,25 @@ func TestV2PostIncidentsHandlerNegative(t *testing.T) {
     254
   ],
   "start_date":"2024-11-25T09:32:14.075Z",
-  "system":false
+  "system":false,
+  "type":"incident"
+}`
+	jsWrongMaintenanceImpact := `{
+  "title":"Maintenance with wrong impact",
+  "impact":1,
+  "components":[1],
+  "start_date":"2024-11-25T09:32:14.075Z",
+  "system":false,
+  "type":"maintenance"
+}`
+
+	jsWrongIncidentImpact := `{
+  "title":"Incident with maintenance impact",
+  "impact":0,
+  "components":[1],
+  "start_date":"2024-11-25T09:32:14.075Z",
+  "system":false,
+  "type":"incident"
 }`
 
 	testCases := map[string]*testCase{
@@ -141,14 +168,30 @@ func TestV2PostIncidentsHandlerNegative(t *testing.T) {
 			Expected:     `{"errMsg":"component does not exist, component_id: 218"}`,
 			ExpectedCode: 400,
 		},
+		"negative testcase, maintenance with non-zero impact": {
+			JSON:         jsWrongMaintenanceImpact,
+			Expected:     `{"errMsg":"impact must be 0 for type 'maintenance' and gt 0 for 'incident'"}`,
+			ExpectedCode: 400,
+		},
+		"negative testcase, incident with zero impact": {
+			JSON:         jsWrongIncidentImpact,
+			Expected:     `{"errMsg":"impact must be 0 for type 'maintenance' and gt 0 for 'incident'"}`,
+			ExpectedCode: 400,
+		},
 	}
 
 	for title, c := range testCases {
 		t.Logf("start test case: %s\n", title)
+		t.Logf("Input JSON: %s", c.JSON)
 
 		w := httptest.NewRecorder()
 		req, _ := http.NewRequest(http.MethodPost, v2Incidents, strings.NewReader(c.JSON))
 		r.ServeHTTP(w, req)
+
+		t.Logf("Response Status Code: %d", w.Code)
+		t.Logf("Response Body: %s", w.Body.String())
+		t.Logf("Expected Status Code: %d", c.ExpectedCode)
+		t.Logf("Expected Response: %s", c.Expected)
 
 		assert.Equal(t, c.ExpectedCode, w.Code)
 		assert.Equal(t, c.Expected, w.Body.String())
@@ -166,6 +209,7 @@ func TestV2PostIncidentsHandler(t *testing.T) {
 	title := "Test incident for dcs"
 	startDate := time.Now().AddDate(0, 0, -1).UTC()
 	system := false
+	incType := "incident"
 
 	incidentCreateData := v2.IncidentData{
 		Title:      title,
@@ -173,6 +217,7 @@ func TestV2PostIncidentsHandler(t *testing.T) {
 		Components: components,
 		StartDate:  startDate,
 		System:     &system,
+		Type:       incType,
 	}
 
 	incidents := v2GetIncidents(t, r)
@@ -193,11 +238,13 @@ func TestV2PostIncidentsHandler(t *testing.T) {
 	assert.Equal(t, len(incidents)+1, result.Result[1].IncidentID)
 
 	incident := v2GetIncident(t, r, result.Result[0].IncidentID)
-	assert.Equal(t, incidentCreateData.StartDate, incident.StartDate)
+	assert.Equal(t, incidentCreateData.StartDate.Truncate(time.Microsecond), incident.StartDate)
 	assert.Equal(t, title, incident.Title)
 	assert.Equal(t, impact, *incident.Impact)
 	assert.Equal(t, system, *incident.System)
 	assert.Nil(t, incident.EndDate)
+	require.NotNil(t, incident.Type)
+	assert.Equal(t, "incident", incident.Type)
 	assert.Nil(t, incident.Updates)
 
 	t.Log("create a new incident with the same components and the same impact, should close previous and move components to the new")
@@ -210,8 +257,8 @@ func TestV2PostIncidentsHandler(t *testing.T) {
 	assert.Len(t, oldIncident.Components, 1)
 	assert.NotNil(t, oldIncident.Updates)
 	assert.Len(t, oldIncident.Updates, 2)
-	assert.Equal(t, "SYSTEM", oldIncident.Updates[0].Status)
-	assert.Equal(t, "SYSTEM", oldIncident.Updates[1].Status)
+	assert.Equal(t, statuses.OutDatedSystem, oldIncident.Updates[0].Status)
+	assert.Equal(t, statuses.OutDatedSystem, oldIncident.Updates[1].Status)
 	assert.Equal(t, fmt.Sprintf("Cloud Container Engine (Container, EU-DE, cce) moved to <a href='/incidents/%d'>Test incident for dcs</a>", result.Result[0].IncidentID), oldIncident.Updates[0].Text)
 	assert.Equal(t, fmt.Sprintf("Cloud Container Engine (Container, EU-NL, cce) moved to <a href='/incidents/%d'>Test incident for dcs</a>, Incident closed by system", result.Result[0].IncidentID), oldIncident.Updates[1].Text)
 
@@ -220,8 +267,8 @@ func TestV2PostIncidentsHandler(t *testing.T) {
 	assert.Len(t, incidentN3.Components, 2)
 	assert.NotNil(t, incidentN3.Updates)
 	assert.Len(t, incidentN3.Updates, 2)
-	assert.Equal(t, "SYSTEM", incidentN3.Updates[0].Status)
-	assert.Equal(t, "SYSTEM", incidentN3.Updates[1].Status)
+	assert.Equal(t, statuses.OutDatedSystem, incidentN3.Updates[0].Status)
+	assert.Equal(t, statuses.OutDatedSystem, incidentN3.Updates[1].Status)
 	assert.Equal(t, fmt.Sprintf("Cloud Container Engine (Container, EU-DE, cce) moved from <a href='/incidents/%d'>Test incident for dcs</a>", result.Result[0].IncidentID-1), incidentN3.Updates[0].Text)
 	assert.Equal(t, fmt.Sprintf("Cloud Container Engine (Container, EU-NL, cce) moved from <a href='/incidents/%d'>Test incident for dcs</a>", result.Result[0].IncidentID-1), incidentN3.Updates[1].Text)
 
@@ -233,29 +280,37 @@ func TestV2PostIncidentsHandler(t *testing.T) {
 	incidentCreateData.Description = "any description for maintenance incident"
 	endDate := time.Now().AddDate(0, 0, 1).UTC()
 	incidentCreateData.EndDate = &endDate
+	incidentCreateData.Type = "maintenance"
 
 	result = v2CreateIncident(t, r, &incidentCreateData)
 	assert.Equal(t, len(incidents)+3, result.Result[0].IncidentID)
 	assert.Equal(t, len(incidents)+3, result.Result[1].IncidentID)
 
 	maintenanceIncident := v2GetIncident(t, r, result.Result[0].IncidentID)
-	assert.Equal(t, incidentCreateData.StartDate, maintenanceIncident.StartDate)
-	assert.Equal(t, incidentCreateData.EndDate, maintenanceIncident.EndDate)
+	assert.Equal(t, incidentCreateData.StartDate.Truncate(time.Microsecond), maintenanceIncident.StartDate)
+	require.NotNil(t, incidentCreateData.EndDate)
+	require.NotNil(t, maintenanceIncident.EndDate)
+	assert.Equal(t, incidentCreateData.EndDate.Truncate(time.Microsecond), maintenanceIncident.EndDate.Truncate(time.Microsecond))
 	assert.Equal(t, title, maintenanceIncident.Title)
 	assert.Equal(t, impact, *maintenanceIncident.Impact)
 	assert.Equal(t, system, *maintenanceIncident.System)
 	assert.Equal(t, incidentCreateData.Description, maintenanceIncident.Updates[0].Text)
-	assert.Equal(t, "description", maintenanceIncident.Updates[0].Status)
+	assert.Equal(t, statuses.MaintenancePlanned, maintenanceIncident.Updates[0].Status)
+	require.NotNil(t, maintenanceIncident.Type)
+	assert.Equal(t, "maintenance", maintenanceIncident.Type)
+	assert.Equal(t, statuses.MaintenancePlanned, maintenanceIncident.Updates[0].Status)
 
 	incidentN3 = v2GetIncident(t, r, result.Result[0].IncidentID-1)
 	assert.Nil(t, incidentN3.EndDate)
 	assert.Len(t, incidentN3.Components, 2)
 	assert.NotNil(t, incidentN3.Updates)
 	assert.Len(t, incidentN3.Updates, 2)
-	assert.Equal(t, "SYSTEM", incidentN3.Updates[0].Status)
-	assert.Equal(t, "SYSTEM", incidentN3.Updates[1].Status)
+	assert.Equal(t, statuses.OutDatedSystem, incidentN3.Updates[0].Status)
+	assert.Equal(t, statuses.OutDatedSystem, incidentN3.Updates[1].Status)
 	assert.Equal(t, fmt.Sprintf("Cloud Container Engine (Container, EU-DE, cce) moved from <a href='/incidents/%d'>Test incident for dcs</a>", incidentN3.ID-1), incidentN3.Updates[0].Text)
 	assert.Equal(t, fmt.Sprintf("Cloud Container Engine (Container, EU-NL, cce) moved from <a href='/incidents/%d'>Test incident for dcs</a>", incidentN3.ID-1), incidentN3.Updates[1].Text)
+	require.NotNil(t, incidentN3.Type)
+	assert.Equal(t, "incident", incidentN3.Type)
 
 	t.Log("check response, if incident component is not present in the opened incidents, should create a new incident")
 	components = []int{3}
@@ -266,6 +321,7 @@ func TestV2PostIncidentsHandler(t *testing.T) {
 		Components: components,
 		StartDate:  startDate,
 		System:     &system,
+		Type:       "incident",
 	}
 	result = v2CreateIncident(t, r, &incidentCreateData)
 	assert.Equal(t, 9, result.Result[0].IncidentID)
@@ -288,6 +344,7 @@ func TestV2PatchIncidentHandlerNegative(t *testing.T) {
 		Components: components,
 		StartDate:  startDate,
 		System:     &system,
+		Type:       "incident",
 	}
 
 	resp := v2CreateIncident(t, r, &incidentCreateData)
@@ -306,7 +363,8 @@ func TestV2PatchIncidentHandlerNegative(t *testing.T) {
 	 	"status": "in progress",
 	 	"update_date": "2024-12-11T14:46:03.877Z",
 	 	"start_date": "2024-12-11T14:46:03.877Z",
-	 	"end_date": "2024-12-11T14:46:03.877Z"
+	 	"end_date": "2024-12-11T14:46:03.877Z",
+		"type": "incident"
 	}`
 
 	jsWrongOpenedStartDate := `{
@@ -314,19 +372,22 @@ func TestV2PatchIncidentHandlerNegative(t *testing.T) {
 	 "message": "Any message why the incident was updated.",
 	 "status": "analysing",
 	 "update_date": "2024-12-11T14:46:03.877Z",
-	 "start_date": "2024-12-11T14:46:03.877Z"
+	 "start_date": "2024-12-11T14:46:03.877Z",
+	 "type": "incident"
 	}`
 	jsWrongOpenedStatusForChangingImpact := `{
 	"impact": 0,
 	"message": "Any message why the incident was updated.",
 	"status": "analysing",
-	"update_date": "2024-12-11T14:46:03.877Z"
+	"update_date": "2024-12-11T14:46:03.877Z",
+	"type": "maintenance"
 }`
 	jsWrongOpenedMaintenanceImpact := `{
 	 "impact": 0,
 	 "message": "Any message why the incident was updated.",
 	 "status": "impact changed",
-	 "update_date": "2024-12-11T14:46:03.877Z"
+	 "update_date": "2024-12-11T14:46:03.877Z",
+	 "type": "maintenance"
 	}`
 	testCases := map[string]*testCase{
 		"negative testcase, wrong status for opened incident": {
@@ -398,6 +459,7 @@ func TestV2PatchIncidentHandler(t *testing.T) {
 		Components: components,
 		StartDate:  startDate,
 		System:     &system,
+		Type:       "incident",
 	}
 
 	resp := v2CreateIncident(t, r, &incidentCreateData)
@@ -420,34 +482,36 @@ func TestV2PatchIncidentHandler(t *testing.T) {
 	t.Logf("patching incident impact, from %d to %d", impact, newImpact)
 
 	pData.Impact = &newImpact
-	pData.Status = v2.IncidentImpactChanged
+	pData.Status = statuses.IncidentImpactChanged
 
 	inc = internalPatch(incID, &pData)
 	assert.Equal(t, newImpact, *inc.Impact)
 
 	t.Logf("close incident")
-	pData.Status = v2.IncidentResolved
+	pData.Status = statuses.IncidentResolved
 	updateDate := time.Now().UTC()
 	pData.UpdateDate = updateDate
 
 	inc = internalPatch(incID, &pData)
-	assert.Equal(t, updateDate, *inc.EndDate)
+	require.NotNil(t, inc.EndDate)
+	assert.Equal(t, updateDate.Truncate(time.Microsecond), inc.EndDate.Truncate(time.Microsecond))
 
 	t.Logf("patching closed incident, change start date and end date")
 	startDate = time.Now().AddDate(0, 0, -1).UTC()
 	endDate := time.Now().UTC()
 
-	pData.Status = v2.IncidentChanged
+	pData.Status = statuses.IncidentChanged
 	pData.StartDate = &startDate
 	pData.EndDate = &endDate
 
 	inc = internalPatch(incID, &pData)
-	assert.Equal(t, startDate, inc.StartDate)
-	assert.Equal(t, endDate, *inc.EndDate)
+	assert.Equal(t, startDate.Truncate(time.Microsecond), inc.StartDate)
+	require.NotNil(t, inc.EndDate)
+	assert.Equal(t, endDate.Truncate(time.Microsecond), inc.EndDate.Truncate(time.Microsecond))
 
 	t.Logf("reopen closed incident")
 
-	pData.Status = v2.IncidentReopened
+	pData.Status = statuses.IncidentReopened
 	pData.StartDate = nil
 	pData.EndDate = nil
 	inc = internalPatch(incID, &pData)
@@ -455,9 +519,76 @@ func TestV2PatchIncidentHandler(t *testing.T) {
 
 	t.Logf("final close the test incident")
 
-	pData.Status = v2.IncidentResolved
+	pData.Status = statuses.IncidentResolved
 	inc = internalPatch(incID, &pData)
 	assert.NotNil(t, inc.EndDate)
+}
+
+func TestV2PostIncidentExtractHandler(t *testing.T) {
+	t.Log("start to test incident creation for /v2/incidents")
+	r, _, _ := initTests(t)
+
+	t.Log("create an incident")
+
+	components := []int{1, 2}
+	impact := 1
+	title := "Test incident for dcs"
+	startDate := time.Now().AddDate(0, 0, -1).UTC()
+	system := false
+
+	incidentCreateData := v2.IncidentData{
+		Title:      title,
+		Impact:     &impact,
+		Components: components,
+		StartDate:  startDate,
+		System:     &system,
+		Type:       "incident",
+	}
+
+	incidents := v2GetIncidents(t, r)
+	for _, inc := range incidents {
+		if inc.EndDate == nil {
+			endDate := inc.StartDate.Add(time.Hour * 1)
+			inc.EndDate = &endDate
+			v2PatchIncident(t, r, inc)
+		}
+	}
+
+	result := v2CreateIncident(t, r, &incidentCreateData)
+
+	t.Logf("create an incident with components: %v", components)
+	type IncidentData struct {
+		Components []int `json:"components"`
+	}
+	movedComponents := IncidentData{Components: []int{2}}
+	data, err := json.Marshal(movedComponents)
+	require.NoError(t, err)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodPost, v2Incidents+fmt.Sprintf("/%d/extract", result.Result[0].IncidentID), bytes.NewReader(data))
+	r.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code)
+
+	newInc := &v2.Incident{}
+	err = json.Unmarshal(w.Body.Bytes(), newInc)
+	require.NoError(t, err)
+	assert.Len(t, newInc.Components, 1)
+	assert.Equal(t, incidentCreateData.Impact, newInc.Impact)
+	assert.Equal(t, fmt.Sprintf("Cloud Container Engine (Container, EU-NL, cce) moved from <a href='/incidents/%d'>Test incident for dcs</a>", result.Result[0].IncidentID), newInc.Updates[0].Text)
+
+	createdInc := v2GetIncident(t, r, result.Result[0].IncidentID)
+	assert.Equal(t, fmt.Sprintf("Cloud Container Engine (Container, EU-NL, cce) moved to <a href='/incidents/%d'>Test incident for dcs</a>", newInc.ID), createdInc.Updates[0].Text)
+
+	// start negative case
+	movedComponents = IncidentData{Components: []int{1}}
+	data, err = json.Marshal(movedComponents)
+	require.NoError(t, err)
+
+	w = httptest.NewRecorder()
+	req, _ = http.NewRequest(http.MethodPost, v2Incidents+fmt.Sprintf("/%d/extract", result.Result[0].IncidentID), bytes.NewReader(data))
+	r.ServeHTTP(w, req)
+	require.Equal(t, http.StatusBadRequest, w.Code)
+	assert.JSONEq(t, `{"errMsg":"can not move all components to the new incident, keep at least one"}`, w.Body.String())
 }
 
 func v2CreateIncident(t *testing.T, r *gin.Engine, inc *v2.IncidentData) *v2.PostIncidentResp {
@@ -635,7 +766,7 @@ func TestV2GetComponentsAvailability(t *testing.T) {
 	impact := 3
 	title := "Test incident for dns N1"
 	startDate := time.Date(2024, 12, 1, 0, 0, 0, 0, time.UTC)
-	system := false
+	system := true
 
 	// Incident N1
 	incidentCreateDataN1 := v2.IncidentData{
@@ -645,6 +776,7 @@ func TestV2GetComponentsAvailability(t *testing.T) {
 		StartDate:  startDate,
 		EndDate:    nil,
 		System:     &system,
+		Type:       "incident",
 	}
 
 	resultN1 := v2CreateIncident(t, r, &incidentCreateDataN1)
@@ -672,6 +804,7 @@ func TestV2GetComponentsAvailability(t *testing.T) {
 		StartDate:  startDate,
 		EndDate:    nil,
 		System:     &system,
+		Type:       "incident",
 	}
 
 	resultN2 := v2CreateIncident(t, r, &incidentCreateDataN2)
@@ -723,4 +856,204 @@ func checkComponentAvailability(t *testing.T, compAvail v2.ComponentAvailability
 				"Availability percentage should be 100% for all months except the target months")
 		}
 	}
+}
+
+func TestV2GetIncidentsFilteredHandler(t *testing.T) {
+	t.Log("start to test GET /v2/incidents with filters")
+	r, _, _ := initTests(t)
+
+	type filterTestCase struct {
+		name          string
+		queryParams   map[string]string
+		expectedIDs   []int
+		expectedCount int
+	}
+
+	testCases := []filterTestCase{
+		{
+			name:          "No filters",
+			queryParams:   nil,
+			expectedIDs:   []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15},
+			expectedCount: 15,
+		},
+		{
+			name:        "Filter by start_date",
+			queryParams: map[string]string{"start_date": time.Date(2025, 2, 1, 0, 0, 0, 0, time.UTC).Format(time.RFC3339)},
+			// Incidents starting on or after 2025-02-01 (2,3,4,5,6,7,8,9,10,11,12,13)
+			expectedIDs:   []int{2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13},
+			expectedCount: 12,
+		},
+		{
+			name:        "Filter by end_date",
+			queryParams: map[string]string{"end_date": time.Date(2025, 2, 1, 0, 0, 0, 0, time.UTC).Format(time.RFC3339)},
+			// Incidents starting on or before 2025-02-01 (1, 12, 13)
+			expectedIDs:   []int{1, 14, 15},
+			expectedCount: 3,
+		},
+		{
+			name:        "Filter by impact minor (1)",
+			queryParams: map[string]string{"impact": "1"},
+			// Actual incident id's: 1, 6, 7, 9, 10, 12, 13
+			expectedIDs:   []int{1, 6, 7, 9, 10, 12, 13},
+			expectedCount: 7,
+		},
+		{
+			name:        "Filter by impact major (2)",
+			queryParams: map[string]string{"impact": "2"},
+			// Actual incident id's: 2, 4, 11
+			expectedIDs:   []int{2, 4, 11},
+			expectedCount: 3,
+		},
+		{
+			name:        "Filter by impact maintenance (0)",
+			queryParams: map[string]string{"impact": "0"},
+			// Actual incident id's: 8
+			expectedIDs:   []int{8},
+			expectedCount: 1,
+		},
+		{
+			name:        "Filter by component_id 1",
+			queryParams: map[string]string{"components": "1"},
+			// Actual incident id's: 1, 5, 8, 10, 11
+			expectedIDs:   []int{1, 5, 8, 10, 11, 12},
+			expectedCount: 6,
+		},
+		{
+			name:          "Filter by non-existent component_id 8",
+			queryParams:   map[string]string{"components": "8"},
+			expectedIDs:   []int{},
+			expectedCount: 0,
+		},
+		{
+			name:        "Filter by system true",
+			queryParams: map[string]string{"system": "true"},
+			// Actual incident id's: 14, 15
+			expectedIDs:   []int{14, 15},
+			expectedCount: 2,
+		},
+		{
+			name:        "Filter by system false",
+			queryParams: map[string]string{"system": "false"},
+			// Actual incident id's: 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11
+			expectedIDs:   []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13},
+			expectedCount: 13,
+		},
+		{
+			name:        "Filter by active true",
+			queryParams: map[string]string{"opened": "true"},
+			// IsOpened (End Date = <nil>) Actual incident id's: 7, 9
+			expectedIDs:   []int{12, 13},
+			expectedCount: 2,
+		},
+		{
+			name:        "Filter by active false",
+			queryParams: map[string]string{"opened": "false"},
+			// Closed (End Date != <nil>) Actual incident id's: 1, 2, 3, 4, 5, 6, 8, 10, 11, 14, 15
+			expectedIDs:   []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 14, 15},
+			expectedCount: 13,
+		},
+		{
+			name:        "Combination: active true and impact 1",
+			queryParams: map[string]string{"opened": "true", "impact": "1"},
+			// Active: [12, 13]
+			// Impact 1: [1, 6, 7, 9, 10, 12, 13]
+			// Intersection: [12, 13]
+			expectedIDs:   []int{12, 13},
+			expectedCount: 2,
+		},
+		{
+			name:        "Combination: component_id 3 and system true",
+			queryParams: map[string]string{"components": "3", "system": "true"},
+			// Component 3: [9]
+			// System true: [14, 15]
+			// Intersection: []
+			expectedIDs:   []int{},
+			expectedCount: 0,
+		},
+		{
+			name:        "Date range: 2025-01-30 to 2025-02-06",
+			queryParams: map[string]string{"start_date": time.Date(2024, 12, 01, 0, 0, 0, 0, time.UTC).Format(time.RFC3339), "end_date": time.Date(2024, 12, 17, 0, 0, 0, 0, time.UTC).Format(time.RFC3339)},
+			// Incidents starting between 2024-12-01 and 2024-12-17 (inclusive for start_date)
+			// No pre-existing incidents in this range.
+			expectedIDs:   []int{14},
+			expectedCount: 1,
+		},
+		{
+			name:        "Filter by impact 3 (outage)",
+			queryParams: map[string]string{"impact": "3"},
+			// Actual incident id's: 3, 5, 14, 15
+			expectedIDs:   []int{3, 5, 14, 15},
+			expectedCount: 4,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			req, _ := http.NewRequest(http.MethodGet, v2Incidents, nil)
+
+			q := req.URL.Query()
+			for k, v := range tc.queryParams {
+				q.Add(k, v)
+			}
+			req.URL.RawQuery = q.Encode()
+
+			r.ServeHTTP(w, req)
+			t.Logf("Test case: %s, Query: %s, Response Body: %s", tc.name, req.URL.RawQuery, w.Body.String())
+
+			assert.Equal(t, http.StatusOK, w.Code, "Unexpected status code for: "+tc.name)
+
+			var responseData V2IncidentsListResponse
+			err := json.Unmarshal(w.Body.Bytes(), &responseData)
+			require.NoError(t, err, "Failed to unmarshal response for: "+tc.name)
+
+			actualIncidents := responseData.Data
+			assert.Len(t, actualIncidents, tc.expectedCount, "Unexpected number of incidents for: "+tc.name)
+
+			// When incidents are found or not, the message field should ideally be empty.
+			assert.Empty(t, responseData.Message, "Expected no message for: "+tc.name)
+
+			actualIDs := make([]int, len(actualIncidents))
+			for i, inc := range actualIncidents {
+				actualIDs[i] = inc.ID
+			}
+			assert.ElementsMatch(t, tc.expectedIDs, actualIDs, "Unexpected incident IDs for: "+tc.name)
+		})
+	}
+}
+
+func TestV2PostMaintenanceHandler(t *testing.T) {
+	t.Log("start to test maintenance creation for /v2/incidents")
+	r, _, _ := initTests(t)
+
+	t.Log("create a maintenance")
+
+	components := []int{1, 2}
+	impact := 0
+	title := "Test maintenance incident for dcs"
+	startDate := time.Now().Add(time.Hour * 1).UTC()
+	endDate := time.Now().Add(time.Hour * 2).UTC()
+	system := false
+
+	incidentCreateData := v2.IncidentData{
+		Title:      title,
+		Impact:     &impact,
+		Components: components,
+		StartDate:  startDate,
+		EndDate:    &endDate,
+		System:     &system,
+		Type:       "maintenance",
+	}
+
+	result := v2CreateIncident(t, r, &incidentCreateData)
+	assert.Len(t, incidentCreateData.Components, len(result.Result))
+
+	incident := v2GetIncident(t, r, result.Result[0].IncidentID)
+	assert.Equal(t, incidentCreateData.StartDate.Truncate(time.Microsecond), incident.StartDate)
+	assert.Equal(t, incidentCreateData.EndDate.Truncate(time.Microsecond), *incident.EndDate)
+	assert.Equal(t, title, incident.Title)
+	assert.Equal(t, impact, *incident.Impact)
+	assert.Equal(t, system, *incident.System)
+	assert.NotNil(t, incident.Updates)
+	assert.Equal(t, statuses.MaintenancePlanned, incident.Updates[0].Status)
 }

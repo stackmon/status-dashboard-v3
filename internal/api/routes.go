@@ -26,7 +26,10 @@ func (a *API) InitRoutes() {
 	v1API := a.r.Group(v1Group)
 	{
 		v1API.GET("component_status", v1.GetComponentsStatusHandler(a.db, a.log))
-		v1API.POST("component_status", AuthenticationMW(a.oa2Prov, a.log), v1.PostComponentStatusHandler(a.db, a.log))
+		v1API.POST("component_status",
+			AuthenticationV1DeprecatedMW(a.oa2Prov, a.log, a.secretKeyV1),
+			v1.PostComponentStatusHandler(a.db, a.log),
+		)
 
 		v1API.GET("incidents", v1.GetIncidentsHandler(a.db, a.log))
 	}
@@ -45,11 +48,12 @@ func (a *API) InitRoutes() {
 		)
 		v2API.GET("incidents/:id", v2.GetIncidentHandler(a.db, a.log))
 		v2API.PATCH("incidents/:id", AuthenticationMW(a.oa2Prov, a.log), v2.PatchIncidentHandler(a.db, a.log))
+		v2API.POST("incidents/:id/extract",
+			AuthenticationMW(a.oa2Prov, a.log),
+			ValidateComponentsMW(a.db, a.log),
+			v2.PostIncidentExtractHandler(a.db, a.log))
 
 		v2API.GET("availability", v2.GetComponentsAvailabilityHandler(a.db, a.log))
-
-		//nolint:gocritic
-		//v2API.GET("/separate/<incident_id>/<component_id>") - > investigate it!!!
 	}
 
 	rssFEED := a.r.Group("rss")

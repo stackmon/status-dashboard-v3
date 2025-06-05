@@ -1,3 +1,4 @@
+DROP table if exists alembic_version cascade;
 DROP table if exists component cascade;
 DROP table if exists component_attribute cascade ;
 DROP table if exists incident cascade ;
