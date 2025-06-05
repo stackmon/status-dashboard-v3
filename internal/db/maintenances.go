@@ -14,7 +14,7 @@ func (db *DB) GetMaintenances(after uint) ([]*Incident, error) {
 	r.Where("incident.impact = 0")
 
 	if after > 0 {
-		r.Where("incident.id > ?", after)
+		r.Where("incident.id >= ?", after)
 	}
 
 	r = r.Order("incident.id DESC")
