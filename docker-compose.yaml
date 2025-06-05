@@ -2,7 +2,6 @@ services:
   database:
     container_name: database
     image: postgres:15.8
-    restart: always
     environment:
       - POSTGRES_USER=pg
       - POSTGRES_PASSWORD=pass
@@ -14,7 +13,6 @@ services:
   keycloak:
     container_name: keycloak
     image: quay.io/keycloak/keycloak:26.0.6
-    restart: always
     environment:
       - KC_BOOTSTRAP_ADMIN_USERNAME=admin
       - KC_BOOTSTRAP_ADMIN_PASSWORD=admin

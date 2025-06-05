@@ -2,9 +2,9 @@ package api
 
 import (
 	"github.com/stackmon/otc-status-dashboard/internal/api/auth"
-	"github.com/stackmon/otc-status-dashboard/internal/api/rss"
 	v1 "github.com/stackmon/otc-status-dashboard/internal/api/v1"
 	v2 "github.com/stackmon/otc-status-dashboard/internal/api/v2"
+	"github.com/stackmon/otc-status-dashboard/internal/rss"
 )
 
 const (
