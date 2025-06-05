@@ -1,25 +1,31 @@
 //nolint:exhaustive
-package statuses
+package event
 
 import (
 	"fmt"
 	"time"
 )
 
-type EventStatus string
-
-const OutDatedSystem EventStatus = "SYSTEM"
-
 const (
-	MaintenancePlanned    EventStatus = "planned"
-	MaintenanceInProgress EventStatus = "in progress"
-	// MaintenanceModified is placed if the time window was changed.
-	MaintenanceModified  EventStatus = "modified"
-	MaintenanceCompleted EventStatus = "completed"
-	MaintenanceCancelled EventStatus = "cancelled"
+	TypeMaintenance = "maintenance"
+	TypeIncident    = "incident"
+	TypeInformation = "info"
 )
 
-func IsMaintenanceStatus(status EventStatus) bool {
+type Status string
+
+const OutDatedSystem Status = "SYSTEM"
+
+const (
+	MaintenancePlanned    Status = "planned"
+	MaintenanceInProgress Status = "in progress"
+	// MaintenanceModified is placed if the time window was changed.
+	MaintenanceModified  Status = "modified"
+	MaintenanceCompleted Status = "completed"
+	MaintenanceCancelled Status = "cancelled"
+)
+
+func IsMaintenanceStatus(status Status) bool {
 	switch status {
 	case MaintenancePlanned, MaintenanceInProgress, MaintenanceModified,
 		MaintenanceCompleted, MaintenanceCancelled:
@@ -31,15 +37,15 @@ func IsMaintenanceStatus(status EventStatus) bool {
 
 // Incident actions for opened incidents.
 const (
-	IncidentDetected      EventStatus = "detected" // not implemented yet
-	IncidentAnalysing     EventStatus = "analysing"
-	IncidentFixing        EventStatus = "fixing"
-	IncidentImpactChanged EventStatus = "impact changed"
-	IncidentObserving     EventStatus = "observing"
-	IncidentResolved      EventStatus = "resolved"
+	IncidentDetected      Status = "detected" // not implemented yet
+	IncidentAnalysing     Status = "analysing"
+	IncidentFixing        Status = "fixing"
+	IncidentImpactChanged Status = "impact changed"
+	IncidentObserving     Status = "observing"
+	IncidentResolved      Status = "resolved"
 )
 
-func IsIncidentOpenStatus(status EventStatus) bool {
+func IsIncidentOpenStatus(status Status) bool {
 	switch status {
 	case IncidentDetected, IncidentAnalysing, IncidentFixing,
 		IncidentImpactChanged, IncidentObserving, IncidentResolved:
@@ -51,12 +57,12 @@ func IsIncidentOpenStatus(status EventStatus) bool {
 
 // These statuses are using only for closed incidents.
 const (
-	IncidentReopened EventStatus = "reopened"
+	IncidentReopened Status = "reopened"
 	// IncidentChanged indicates if the end date was changed for closed incident.
-	IncidentChanged EventStatus = "changed"
+	IncidentChanged Status = "changed"
 )
 
-func IsIncidentClosedStatus(status EventStatus) bool {
+func IsIncidentClosedStatus(status Status) bool {
 	switch status {
 	case IncidentReopened, IncidentChanged:
 		return true

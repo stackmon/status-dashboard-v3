@@ -11,12 +11,7 @@ import (
 	"moul.io/zapgorm2"
 
 	"github.com/stackmon/otc-status-dashboard/internal/conf"
-	"github.com/stackmon/otc-status-dashboard/internal/statuses"
-)
-
-const (
-	statusSYSTEM      = "SYSTEM"
-	eventTypeIncident = "incident"
+	"github.com/stackmon/otc-status-dashboard/internal/event"
 )
 
 type DB struct {
@@ -53,7 +48,7 @@ func (db *DB) Close() error {
 
 type IncidentsParams struct {
 	Type         *string
-	Status       *statuses.EventStatus
+	Status       *event.Status
 	StartDate    *time.Time
 	EndDate      *time.Time
 	Impact       *int
@@ -398,7 +393,7 @@ func (db *DB) MoveComponentFromOldToAnotherIncident(
 	text := fmt.Sprintf("%s moved from %s", comp.PrintAttrs(), incOld.Link())
 	incNew.Statuses = append(incNew.Statuses, IncidentStatus{
 		IncidentID: incNew.ID,
-		Status:     statuses.OutDatedSystem,
+		Status:     event.OutDatedSystem,
 		Text:       text,
 		Timestamp:  timeNow,
 	})
@@ -410,7 +405,7 @@ func (db *DB) MoveComponentFromOldToAnotherIncident(
 
 	incOld.Statuses = append(incOld.Statuses, IncidentStatus{
 		IncidentID: incOld.ID,
-		Status:     statuses.OutDatedSystem,
+		Status:     event.OutDatedSystem,
 		Text:       text,
 		Timestamp:  timeNow,
 	})
@@ -458,7 +453,7 @@ func (db *DB) ExtractComponentsToNewIncident(
 		Impact:     &impact,
 		Statuses:   []IncidentStatus{},
 		System:     false,
-		Type:       eventTypeIncident,
+		Type:       event.TypeIncident,
 		Components: comp,
 	}
 
@@ -471,7 +466,7 @@ func (db *DB) ExtractComponentsToNewIncident(
 		incText := fmt.Sprintf("%s moved from %s", c.PrintAttrs(), incOld.Link())
 		inc.Statuses = append(inc.Statuses, IncidentStatus{
 			IncidentID: id,
-			Status:     statuses.OutDatedSystem,
+			Status:     event.OutDatedSystem,
 			Text:       incText,
 			Timestamp:  timeNow,
 		})
@@ -491,7 +486,7 @@ func (db *DB) ExtractComponentsToNewIncident(
 		incText := fmt.Sprintf("%s moved to %s", c.PrintAttrs(), inc.Link())
 		incOld.Statuses = append(incOld.Statuses, IncidentStatus{
 			IncidentID: inc.ID,
-			Status:     statuses.OutDatedSystem,
+			Status:     event.OutDatedSystem,
 			Text:       incText,
 			Timestamp:  timeNow,
 		})
@@ -510,7 +505,7 @@ func (db *DB) IncreaseIncidentImpact(inc *Incident, impact int) (*Incident, erro
 	text := fmt.Sprintf("impact changed from %d to %d", *inc.Impact, impact)
 	inc.Statuses = append(inc.Statuses, IncidentStatus{
 		IncidentID: inc.ID,
-		Status:     statuses.OutDatedSystem,
+		Status:     event.OutDatedSystem,
 		Text:       text,
 		Timestamp:  timeNow,
 	})
