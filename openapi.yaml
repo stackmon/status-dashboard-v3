@@ -607,6 +607,7 @@ components:
         - impact
         - components
         - start_date
+        - type
       properties:
         title:
           type: string
@@ -632,6 +633,12 @@ components:
         system:
           type: boolean
           example: false
+        type:
+          type: string
+          enum:
+            - "incident"
+            - "maintenance"
+          example: "incident"
     IncidentPostResponse:
       type: object
       properties:

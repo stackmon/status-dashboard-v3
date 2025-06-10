@@ -14,7 +14,7 @@ import (
 	"github.com/stackmon/otc-status-dashboard/internal/api/common"
 	apiErrors "github.com/stackmon/otc-status-dashboard/internal/api/errors"
 	"github.com/stackmon/otc-status-dashboard/internal/db"
-	"github.com/stackmon/otc-status-dashboard/internal/statuses"
+	"github.com/stackmon/otc-status-dashboard/internal/event"
 )
 
 const (
@@ -42,9 +42,9 @@ type IncidentData struct {
 
 // IncidentStatus is a db table representation.
 type IncidentStatus struct {
-	Status    statuses.EventStatus `json:"status"`
-	Text      string               `json:"text"`
-	Timestamp SD2Time              `json:"timestamp"`
+	Status    event.Status `json:"status"`
+	Text      string       `json:"text"`
+	Timestamp SD2Time      `json:"timestamp"`
 }
 
 type Incident struct {

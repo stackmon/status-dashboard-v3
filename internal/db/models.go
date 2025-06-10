@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/stackmon/otc-status-dashboard/internal/statuses"
+	"github.com/stackmon/otc-status-dashboard/internal/event"
 )
 
 type Component struct {
@@ -78,11 +78,11 @@ func (in *Incident) Link() string {
 
 // IncidentStatus is a db table representation.
 type IncidentStatus struct {
-	ID         uint                 `json:"-" gorm:"primaryKey;autoIncrement:true;"`
-	IncidentID uint                 `json:"-"`
-	Status     statuses.EventStatus `json:"status"`
-	Text       string               `json:"text"`
-	Timestamp  time.Time            `json:"timestamp"`
+	ID         uint         `json:"-" gorm:"primaryKey;autoIncrement:true;"`
+	IncidentID uint         `json:"-"`
+	Status     event.Status `json:"status"`
+	Text       string       `json:"text"`
+	Timestamp  time.Time    `json:"timestamp"`
 }
 
 func (is *IncidentStatus) TableName() string {
