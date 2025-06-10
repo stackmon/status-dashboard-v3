@@ -12,7 +12,7 @@ import (
 
 	apiErrors "github.com/stackmon/otc-status-dashboard/internal/api/errors"
 	"github.com/stackmon/otc-status-dashboard/internal/db"
-	"github.com/stackmon/otc-status-dashboard/internal/statuses"
+	"github.com/stackmon/otc-status-dashboard/internal/event"
 )
 
 type IncidentID struct {
@@ -49,14 +49,14 @@ type Incident struct {
 }
 
 type APIGetIncidentsQuery struct {
-	Type       *string               `form:"type" binding:"omitempty,oneof=maintenance incident"`
-	Opened     *bool                 `form:"opened" binding:"omitempty"`
-	Status     *statuses.EventStatus `form:"status"` // Custom validation in validateAndSetStatus
-	StartDate  *time.Time            `form:"start_date" binding:"omitempty"`
-	EndDate    *time.Time            `form:"end_date" binding:"omitempty"`
-	Impact     *int                  `form:"impact" binding:"omitempty,gte=0,lte=3"`
-	System     *bool                 `form:"system" binding:"omitempty"`
-	Components *string               `form:"components"` // Custom validation in parseAndSetComponents
+	Type       *string       `form:"type" binding:"omitempty,oneof=maintenance incident"`
+	Opened     *bool         `form:"opened" binding:"omitempty"`
+	Status     *event.Status `form:"status"` // Custom validation in validateAndSetStatus
+	StartDate  *time.Time    `form:"start_date" binding:"omitempty"`
+	EndDate    *time.Time    `form:"end_date" binding:"omitempty"`
+	Impact     *int          `form:"impact" binding:"omitempty,gte=0,lte=3"`
+	System     *bool         `form:"system" binding:"omitempty"`
+	Components *string       `form:"components"` // Custom validation in parseAndSetComponents
 }
 
 func bindIncidentsQuery(c *gin.Context) (*APIGetIncidentsQuery, error) {
@@ -201,33 +201,6 @@ func toAPIIncident(inc *db.Incident) *Incident {
 	return &Incident{IncidentID{ID: int(inc.ID)}, incData}
 }
 
-// TODO: copy-paste from the legacy, it's implemented, but only for API. We should discuss about this functionality.
-//
-//	 Process component status update and open new incident if required:
-//
-//	- current active maintenance for the component - do nothing
-//	- current active incident for the component - do nothing
-//	- current active incident NOT for the component - add component into
-//	  the list of affected components
-//	- no active incidents - create new one
-//	- current active incident for the component and requested
-//	  impact > current impact - run handling:
-//
-//	  If a component exists in an incident, but the requested
-//	  impact is higher than the current one, then the component
-//	  will be moved to another incident if it exists with the
-//	  requested impact, otherwise a new incident will be created
-//	  and the component will be moved to the new incident.
-//	  If there is only one component in an incident, and an
-//	  incident with the requested impact does not exist,
-//	  then the impact of the incident will be changed to a higher
-//	  one, otherwise the component will be moved to an existing
-//	  incident with the requested impact, and the current incident
-//	  will be closed by the system.
-//	  The movement of a component and the closure of an incident
-//	  will be reflected in the incident statuses.
-//
-// TODO: skip this check, will be redesigned after the new incident management
 // PostIncidentHandler creates an incident.
 func PostIncidentHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc { //nolint:gocognit
 	return func(c *gin.Context) {
@@ -237,7 +210,7 @@ func PostIncidentHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc { //
 			return
 		}
 
-		if err := validateIncidentCreation(incData); err != nil {
+		if err := validateEventCreation(incData); err != nil {
 			apiErrors.RaiseBadRequestErr(c, err)
 			return
 		}
@@ -341,12 +314,18 @@ type ProcessComponentResp struct {
 	Error       string `json:"error,omitempty"`
 }
 
-func validateIncidentCreation(incData IncidentData) error {
-	if (incData.Type == "maintenance" && *incData.Impact != 0) || (incData.Type == "incident" && *incData.Impact == 0) {
+func validateEventCreation(incData IncidentData) error {
+	if (incData.Type == event.TypeMaintenance && *incData.Impact != 0) ||
+		(incData.Type == event.TypeIncident && *incData.Impact == 0) {
 		return apiErrors.ErrIncidentTypeImpactMismatch
 	}
-	if incData.Type == "incident" && incData.EndDate != nil {
+
+	if incData.Type == event.TypeIncident && incData.EndDate != nil {
 		return apiErrors.ErrIncidentEndDateShouldBeEmpty
+	}
+
+	if incData.Type == event.TypeMaintenance && incData.EndDate == nil {
+		return apiErrors.ErrMaintenanceEndDateEmpty
 	}
 
 	if len(incData.Updates) != 0 {
@@ -369,12 +348,12 @@ func createIncident(dbInst *db.DB, log *zap.Logger, inc *db.Incident, descriptio
 		log.Info("the incident is maintenance, add planned status")
 
 		if description == "" {
-			description = statuses.MaintenancePlannedDescription(*inc.StartDate, *inc.EndDate)
+			description = event.MaintenancePlannedDescription(*inc.StartDate, *inc.EndDate)
 		}
 
 		inc.Statuses = append(inc.Statuses, db.IncidentStatus{
 			IncidentID: inc.ID,
-			Status:     statuses.MaintenancePlanned,
+			Status:     event.MaintenancePlanned,
 			Text:       description,
 			Timestamp:  time.Now().UTC(),
 		})
@@ -389,14 +368,14 @@ func createIncident(dbInst *db.DB, log *zap.Logger, inc *db.Incident, descriptio
 }
 
 type PatchIncidentData struct {
-	Title      *string              `json:"title,omitempty"`
-	Impact     *int                 `json:"impact,omitempty"`
-	Message    string               `json:"message" binding:"required"`
-	Status     statuses.EventStatus `json:"status" binding:"required"`
-	UpdateDate time.Time            `json:"update_date" binding:"required"`
-	StartDate  *time.Time           `json:"start_date,omitempty"`
-	EndDate    *time.Time           `json:"end_date,omitempty"`
-	Type       string               `json:"type,omitempty"`
+	Title      *string      `json:"title,omitempty"`
+	Impact     *int         `json:"impact,omitempty"`
+	Message    string       `json:"message" binding:"required"`
+	Status     event.Status `json:"status" binding:"required"`
+	UpdateDate time.Time    `json:"update_date" binding:"required"`
+	StartDate  *time.Time   `json:"start_date,omitempty"`
+	EndDate    *time.Time   `json:"end_date,omitempty"`
+	Type       string       `json:"type,omitempty"`
 }
 
 func PatchIncidentHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
@@ -442,7 +421,7 @@ func PatchIncidentHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 			return
 		}
 
-		if incData.Status == statuses.IncidentReopened {
+		if incData.Status == event.IncidentReopened {
 			err = dbInst.ReOpenIncident(storedIncident)
 			if err != nil {
 				apiErrors.RaiseInternalErr(c, err)
@@ -480,7 +459,7 @@ func validateEffectiveTypeAndImpact(effectiveType string, effectiveImpact int) e
 }
 
 func validateMaintenancePatch(incoming *PatchIncidentData) error {
-	if !statuses.IsMaintenanceStatus(incoming.Status) {
+	if !event.IsMaintenanceStatus(incoming.Status) {
 		return apiErrors.ErrIncidentPatchMaintenanceStatus
 	}
 	return nil
@@ -507,11 +486,11 @@ func checkPatchData(incoming *PatchIncidentData, stored *db.Incident) error {
 	}
 
 	if stored.EndDate != nil {
-		if !statuses.IsIncidentClosedStatus(incoming.Status) {
+		if !event.IsIncidentClosedStatus(incoming.Status) {
 			return apiErrors.ErrIncidentPatchClosedStatus
 		}
 
-		if (incoming.StartDate != nil || incoming.EndDate != nil) && incoming.Status != statuses.IncidentChanged {
+		if (incoming.StartDate != nil || incoming.EndDate != nil) && incoming.Status != event.IncidentChanged {
 			return apiErrors.ErrIncidentPatchClosedStatus
 		}
 
@@ -519,7 +498,7 @@ func checkPatchData(incoming *PatchIncidentData, stored *db.Incident) error {
 	}
 
 	if (incoming.Impact != nil && *incoming.Impact != *stored.Impact) &&
-		incoming.Status != statuses.IncidentImpactChanged {
+		incoming.Status != event.IncidentImpactChanged {
 		return apiErrors.ErrIncidentPatchImpactStatusWrong
 	}
 
@@ -527,7 +506,7 @@ func checkPatchData(incoming *PatchIncidentData, stored *db.Incident) error {
 		return apiErrors.ErrIncidentPatchImpactToMaintenanceForbidden
 	}
 
-	if !statuses.IsIncidentOpenStatus(incoming.Status) {
+	if !event.IsIncidentOpenStatus(incoming.Status) {
 		return apiErrors.ErrIncidentPatchStatus
 	}
 
@@ -565,11 +544,11 @@ func updateFields(income *PatchIncidentData, stored *db.Incident) {
 		stored.Type = income.Type
 	}
 
-	if income.Status == statuses.IncidentReopened {
+	if income.Status == event.IncidentReopened {
 		stored.EndDate = nil
 	}
 
-	if income.Status == statuses.IncidentResolved {
+	if income.Status == event.IncidentResolved {
 		stored.EndDate = &income.UpdateDate
 	}
 }

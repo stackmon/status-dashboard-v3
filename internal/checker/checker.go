@@ -1,21 +1,23 @@
 package checker
 
 import (
+	"slices"
 	"time"
 
 	"go.uber.org/zap"
 
 	"github.com/stackmon/otc-status-dashboard/internal/conf"
 	"github.com/stackmon/otc-status-dashboard/internal/db"
-	"github.com/stackmon/otc-status-dashboard/internal/statuses"
+	"github.com/stackmon/otc-status-dashboard/internal/event"
 )
 
-const defaultPeriod = time.Minute * 1
+const defaultPeriod = time.Minute * 5
 
 type Checker struct {
-	db              *db.DB
-	log             *zap.Logger
-	lastCompletedID uint
+	db  *db.DB
+	log *zap.Logger
+	// lastID is the earliest planned or in progress maintenance ID.
+	lastID uint
 }
 
 func New(c *conf.Config, log *zap.Logger) (*Checker, error) {
@@ -35,11 +37,16 @@ type StatusHistory struct {
 
 func (ch *Checker) Check() error {
 	ch.log.Info("check maintenances statuses")
-	maintenances, err := ch.db.GetMaintenances(ch.lastCompletedID)
+	if ch.lastID == 0 {
+		ch.log.Info("no last completed maintenance, starting from the beginning")
+	}
+
+	maintenances, err := ch.db.GetMaintenances(ch.lastID)
 	if err != nil {
 		return err
 	}
 
+	var actualMN []uint
 	for _, mn := range maintenances {
 		sHistory := calculateStatusHistory(mn)
 		actualStatus := calculateCurrentStatus(sHistory, mn)
@@ -48,13 +55,15 @@ func (ch *Checker) Check() error {
 		missedStatuses := make([]db.IncidentStatus, 0)
 
 		switch actualStatus { //nolint:exhaustive
-		case statuses.MaintenancePlanned:
+		case event.MaintenancePlanned:
 			ch.fixPlannedStatus(sHistory, mn)
-		case statuses.MaintenanceInProgress:
+			actualMN = append(actualMN, mn.ID)
+		case event.MaintenanceInProgress:
 			ch.fixInProgressStatus(sHistory, mn)
-		case statuses.MaintenanceCompleted:
+			actualMN = append(actualMN, mn.ID)
+		case event.MaintenanceCompleted:
 			ch.fixCompletedStatus(sHistory, mn)
-		case statuses.MaintenanceCancelled:
+		case event.MaintenanceCancelled:
 			ch.fixCancelledStatus(sHistory, mn)
 		}
 
@@ -65,45 +74,59 @@ func (ch *Checker) Check() error {
 		}
 	}
 
+	if len(actualMN) == 0 {
+		for _, mn := range maintenances {
+			if mn.ID > ch.lastID {
+				ch.lastID = mn.ID
+			}
+		}
+		ch.log.Debug("there are no actual maintenances, set the last ID to the last one", zap.Uint("lastID", ch.lastID))
+	} else {
+		ch.lastID = slices.Min(actualMN)
+		ch.log.Debug("set the last ID to the earliest planned or in progress maintenance", zap.Uint("lastID", ch.lastID))
+	}
+
+	ch.log.Info("finished checking maintenances")
+
 	return nil
 }
 
 func calculateStatusHistory(mn *db.Incident) *StatusHistory {
 	sHistory := &StatusHistory{}
 	for _, st := range mn.Statuses {
-		if st.Status == statuses.MaintenancePlanned {
+		if st.Status == event.MaintenancePlanned {
 			sHistory.hasPlanned = true
 		}
-		if st.Status == statuses.MaintenanceInProgress {
+		if st.Status == event.MaintenanceInProgress {
 			sHistory.hasInProgress = true
 		}
-		if st.Status == statuses.MaintenanceCompleted {
+		if st.Status == event.MaintenanceCompleted {
 			sHistory.hasCompleted = true
 		}
-		if st.Status == statuses.MaintenanceCancelled {
+		if st.Status == event.MaintenanceCancelled {
 			sHistory.hasCancelled = true
 		}
 	}
 
 	return sHistory
 }
-func calculateCurrentStatus(sHistory *StatusHistory, mn *db.Incident) statuses.EventStatus {
+func calculateCurrentStatus(sHistory *StatusHistory, mn *db.Incident) event.Status {
 	if sHistory.hasCancelled {
-		return statuses.MaintenanceCancelled
+		return event.MaintenanceCancelled
 	}
 
-	now := time.Now()
+	now := time.Now().UTC()
 
 	// calculate the mn current status
 	if mn.StartDate.After(now) {
-		return statuses.MaintenancePlanned
+		return event.MaintenancePlanned
 	}
 
 	if mn.StartDate.Before(now) && mn.EndDate.After(now) {
-		return statuses.MaintenanceInProgress
+		return event.MaintenanceInProgress
 	}
 
-	return statuses.MaintenanceCompleted
+	return event.MaintenanceCompleted
 }
 
 func (ch *Checker) fixPlannedStatus(sHistory *StatusHistory, mn *db.Incident) {
@@ -114,8 +137,8 @@ func (ch *Checker) fixPlannedStatus(sHistory *StatusHistory, mn *db.Incident) {
 
 	mn.Statuses = append(mn.Statuses, db.IncidentStatus{
 		IncidentID: mn.ID,
-		Status:     statuses.MaintenancePlanned,
-		Text:       statuses.MaintenancePlannedDescription(*mn.StartDate, *mn.EndDate),
+		Status:     event.MaintenancePlanned,
+		Text:       event.MaintenancePlannedDescription(*mn.StartDate, *mn.EndDate),
 		Timestamp:  *mn.StartDate,
 	})
 
@@ -134,7 +157,7 @@ func (ch *Checker) fixInProgressStatus(sHistory *StatusHistory, mn *db.Incident)
 
 	mn.Statuses = append(mn.Statuses, db.IncidentStatus{
 		IncidentID: mn.ID,
-		Status:     statuses.MaintenanceInProgress,
+		Status:     event.MaintenanceInProgress,
 		Text:       "The maintenance is started.",
 		Timestamp:  *mn.StartDate,
 	})
@@ -153,7 +176,7 @@ func (ch *Checker) fixCompletedStatus(sHistory *StatusHistory, mn *db.Incident) 
 	}
 	mn.Statuses = append(mn.Statuses, db.IncidentStatus{
 		IncidentID: mn.ID,
-		Status:     statuses.MaintenanceCompleted,
+		Status:     event.MaintenanceCompleted,
 		Text:       "The maintenance is completed.",
 		Timestamp:  *mn.EndDate,
 	})
