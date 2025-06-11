@@ -170,12 +170,12 @@ func TestV2PostIncidentsHandlerNegative(t *testing.T) {
 		},
 		"negative testcase, maintenance with non-zero impact": {
 			JSON:         jsWrongMaintenanceImpact,
-			Expected:     `{"errMsg":"impact must be 0 for type 'maintenance' and gt 0 for 'incident'"}`,
+			Expected:     `{"errMsg":"impact must be 0 for type 'maintenance' or 'info' and gt 0 for 'incident'"}`,
 			ExpectedCode: 400,
 		},
 		"negative testcase, incident with zero impact": {
 			JSON:         jsWrongIncidentImpact,
-			Expected:     `{"errMsg":"impact must be 0 for type 'maintenance' and gt 0 for 'incident'"}`,
+			Expected:     `{"errMsg":"impact must be 0 for type 'maintenance' or 'info' and gt 0 for 'incident'"}`,
 			ExpectedCode: 400,
 		},
 	}

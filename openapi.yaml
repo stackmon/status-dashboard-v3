@@ -238,11 +238,11 @@ paths:
       parameters:
         - name: type
           in: query
-          description: Filter by incident type ('incident' for impact > 0, 'maintenance' for impact = 0).
+          description: Filter by incident type ('incident' for impact > 0, 'maintenance | information' for impact = 0).
           required: false
           schema:
             type: string
-            enum: [incident, maintenance]
+            enum: [incident, maintenance, information]
         - name: opened
           in: query
           description: Filter by open status ('true' for open incidents, 'false' for closed incidents).

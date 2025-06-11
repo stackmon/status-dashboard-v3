@@ -24,7 +24,7 @@ type IncidentData struct {
 	//TODO: this field only valid for incident creation (legacy), but it should be an additional field in DB.
 	Description string `json:"description,omitempty"`
 	//    INCIDENT_IMPACTS = {
-	//        0: Impact(0, "maintenance", "Scheduled maintenance"),
+	//        0: Impact(0, "maintenance", "Scheduled maintenance", "info"),
 	//        1: Impact(1, "minor", "Minor incident (i.e. performance impact)"),
 	//        2: Impact(2, "major", "Major incident"),
 	//        3: Impact(3, "outage", "Service outage"),
@@ -37,9 +37,10 @@ type IncidentData struct {
 	System    *bool      `json:"system,omitempty"`
 	//    Types of incidents:
 	//    1. maintenance
-	//    2. incident
+	//    2. info
+	//    3. incident
 	// Type field is mandatory.
-	Type    string              `json:"type" binding:"required,oneof=maintenance incident"`
+	Type    string              `json:"type" binding:"required,oneof=maintenance info incident"`
 	Updates []db.IncidentStatus `json:"updates,omitempty"`
 }
 
@@ -49,7 +50,7 @@ type Incident struct {
 }
 
 type APIGetIncidentsQuery struct {
-	Type       *string       `form:"type" binding:"omitempty,oneof=maintenance incident"`
+	Type       *string       `form:"type" binding:"omitempty,oneof=maintenance info incident"`
 	Opened     *bool         `form:"opened" binding:"omitempty"`
 	Status     *event.Status `form:"status"` // Custom validation in validateAndSetStatus
 	StartDate  *time.Time    `form:"start_date" binding:"omitempty"`
@@ -315,7 +316,7 @@ type ProcessComponentResp struct {
 }
 
 func validateEventCreation(incData IncidentData) error {
-	if (incData.Type == event.TypeMaintenance && *incData.Impact != 0) ||
+	if ((incData.Type == event.TypeMaintenance || incData.Type == event.TypeInformation) && *incData.Impact != 0) ||
 		(incData.Type == event.TypeIncident && *incData.Impact == 0) {
 		return apiErrors.ErrIncidentTypeImpactMismatch
 	}
@@ -324,7 +325,7 @@ func validateEventCreation(incData IncidentData) error {
 		return apiErrors.ErrIncidentEndDateShouldBeEmpty
 	}
 
-	if incData.Type == event.TypeMaintenance && incData.EndDate == nil {
+	if (incData.Type == event.TypeMaintenance || incData.Type == event.TypeInformation) && incData.EndDate == nil {
 		return apiErrors.ErrMaintenanceEndDateEmpty
 	}
 
@@ -345,7 +346,7 @@ func createIncident(dbInst *db.DB, log *zap.Logger, inc *db.Incident, descriptio
 	inc.ID = id
 
 	if *inc.Impact == 0 {
-		log.Info("the incident is maintenance, add planned status")
+		log.Info("the incident is maintenance or info, add planned status")
 
 		if description == "" {
 			description = event.MaintenancePlannedDescription(*inc.StartDate, *inc.EndDate)
@@ -441,7 +442,7 @@ func PatchIncidentHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 
 func isValidIncidentType(t string) bool {
 	switch t {
-	case "maintenance", "incident":
+	case "maintenance", "info", "incident":
 		return true
 	default:
 		return false
@@ -449,7 +450,7 @@ func isValidIncidentType(t string) bool {
 }
 
 func validateEffectiveTypeAndImpact(effectiveType string, effectiveImpact int) error {
-	if effectiveType == "maintenance" && effectiveImpact != 0 {
+	if (effectiveType == "maintenance" || effectiveType == "info") && effectiveImpact != 0 {
 		return apiErrors.ErrIncidentTypeImpactMismatch
 	}
 	if effectiveType == "incident" && effectiveImpact == 0 {

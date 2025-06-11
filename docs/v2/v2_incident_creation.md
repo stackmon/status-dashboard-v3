@@ -22,7 +22,7 @@ The example:
 
 Fields `title`, `impact`, `components`, `start_date` are required.
 The field `end_date` can be not nil only if `impact` is `0`.
-The field `description` only valid for maintenance incidents (will be changed in the next releases).
+The field `description` only valid for maintenance or info incidents (will be changed in the next releases).
 
 ### Business logic
 
