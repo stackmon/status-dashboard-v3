@@ -44,6 +44,17 @@ func (c *Component) Region() string {
 	return region
 }
 
+func (c *Component) Type() string {
+	var cType string
+	for _, a := range c.Attrs {
+		if a.Name == "type" {
+			cType = a.Value
+		}
+	}
+
+	return cType
+}
+
 type ComponentAttr struct {
 	ID          uint   `json:"-"`
 	ComponentID uint   `json:"-"`

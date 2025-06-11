@@ -13,27 +13,34 @@ import (
 
 	apiErrors "github.com/stackmon/otc-status-dashboard/internal/api/errors"
 	"github.com/stackmon/otc-status-dashboard/internal/db"
+	"github.com/stackmon/otc-status-dashboard/internal/event"
 )
 
 const generalTitle = "Incidents | Status Dashboard"
-const maxIncidents = 10
+const maxEvents = 10
 
 var errRSSWrongParams = fmt.Errorf( //nolint:staticcheck
 	"Status Dashboard RSS feed\nPlease read the documentation to\nmake the correct request",
 )
 
-// Pay attention, the impact levels will be changed.
-var impactRepresentation = map[int]string{ //nolint:gochecknoglobals
-	0: "Scheduled maintenance",
-	1: "Minor incident (i.e. performance impact)",
-	2: "Major incident",
-	3: "Service outage",
-}
+const (
+	maintenanceImpactTextRepr = "Scheduled maintenance"
+	minorImpactTextRepr       = "Minor incident (i.e. performance impact)"
+	majorImpactTextRepr       = "Major incident"
+	outageImpactTextRepr      = "Service outage"
+)
 
 // getIncidentImpactsStr returns a string representation of the incident impact level.
 // The numeric values (0,1,2,3) represent specific impact levels for the incident.
 func getIncidentImpactsStr(impact int) string {
-	return impactRepresentation[impact]
+	switch impact {
+	case 1:
+		return minorImpactTextRepr
+	case 2: //nolint:mnd
+		return majorImpactTextRepr
+	}
+
+	return outageImpactTextRepr
 }
 
 func HandleRSS(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
@@ -58,7 +65,7 @@ func HandleRSS(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 			componentName: componentName,
 		}
 
-		incidents, err := getIncidents(dbInst, logger, params, maxIncidents)
+		events, err := getEvents(dbInst, logger, params, maxEvents)
 		if err != nil {
 			if componentName != "" {
 				apiErrors.RaiseStatusNotFoundErr(c, err)
@@ -68,7 +75,7 @@ func HandleRSS(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 			return
 		}
 
-		feedTitle := prepareTitle(region, componentName)
+		feedTitle := prepareFeedTitle(region, componentName)
 
 		feed := &feeds.Feed{
 			Title:       feedTitle,
@@ -77,11 +84,11 @@ func HandleRSS(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 			Created:     time.Now(),
 		}
 
-		incidents = sortIncidents(incidents)
+		events = sortEvents(events)
 		var feedItems []*feeds.Item
 
-		for _, incident := range incidents {
-			item := createFeedItemsForIncident(incident, baseURL)
+		for _, e := range events {
+			item := createFeedItems(e, baseURL)
 			feedItems = append(feedItems, item...)
 		}
 
@@ -114,7 +121,7 @@ type feedParams struct {
 	componentName string
 }
 
-func getIncidents(dbInstance *db.DB, log *zap.Logger, params feedParams, maxIncidents int) ([]*db.Incident, error) {
+func getEvents(dbInstance *db.DB, log *zap.Logger, params feedParams, maxIncidents int) ([]*db.Incident, error) {
 	var incidents []*db.Incident
 	var err error
 
@@ -158,7 +165,20 @@ func getIncidents(dbInstance *db.DB, log *zap.Logger, params feedParams, maxInci
 	return incidents, nil
 }
 
-func createFeedItemsForIncident(incident *db.Incident, baseURL string) []*feeds.Item {
+func createFeedItems(incident *db.Incident, baseURL string) []*feeds.Item {
+	if incident.Type == event.TypeMaintenance {
+		return createMaintenanceFeedItems(incident, baseURL)
+	}
+
+	if incident.Type == event.TypeInformation {
+		//TODO: placeholder for information type events
+		return nil
+	}
+
+	return createIncidentFeedItems(incident, baseURL)
+}
+
+func createIncidentFeedItems(incident *db.Incident, baseURL string) []*feeds.Item {
 	var feedItems []*feeds.Item
 
 	impact := getIncidentImpactsStr(*incident.Impact)
@@ -184,7 +204,6 @@ func createFeedItemsForIncident(incident *db.Incident, baseURL string) []*feeds.
 		}
 	}
 
-	// Create a general item for the incident
 	item := &feeds.Item{
 		Title:       title,
 		Link:        &feeds.Link{Href: fmt.Sprintf("%s/incidents/%d", baseURL, incident.ID)},
@@ -199,9 +218,9 @@ func createFeedItemsForIncident(incident *db.Incident, baseURL string) []*feeds.
 		d := fmt.Sprintf("An update was provided at %s UTC for ", s.Timestamp.Format(time.DateTime))
 		if len(incident.Components) > 1 {
 			for _, c := range incident.Components {
-				d += fmt.Sprintf("%s (%s),", c.Name, c.Region())
+				d += fmt.Sprintf("%s (%s), ", c.Name, c.Region())
 			}
-			d = strings.TrimSuffix(d, ",")
+			d = strings.TrimSuffix(d, ", ")
 		} else {
 			d += fmt.Sprintf("%s in %s", incident.Components[0].Name, incident.Components[0].Region())
 		}
@@ -221,18 +240,102 @@ func createFeedItemsForIncident(incident *db.Incident, baseURL string) []*feeds.
 	return feedItems
 }
 
-func prepareTitle(region string, component string) string {
-	if region != "" {
-		if component != "" {
-			return fmt.Sprintf("%s (%s) - %s", component, region, generalTitle)
+func createMaintenanceFeedItems(maintenance *db.Incident, baseURL string) []*feeds.Item {
+	var feedItems []*feeds.Item
+
+	compTypes := make([]string, 0, len(maintenance.Components))
+	compNames := make([]string, 0, len(maintenance.Components))
+
+	for _, c := range maintenance.Components {
+		compTypes = append(compTypes, c.Type())
+		compNames = append(compNames, fmt.Sprintf("%s (%s)", c.Name, c.Region()))
+	}
+	compShortNames := strings.Join(compTypes, ", ")
+	compLongNames := strings.Join(compNames, ", ")
+
+	// the next logic is used for the backward compatibility with the description status
+	var genDesc string
+	var newGenDesc string
+	for _, s := range maintenance.Statuses {
+		if s.Status == "description" {
+			genDesc = s.Text
 		}
-		return fmt.Sprintf("%s - %s", region, generalTitle)
+		if s.Status == event.MaintenancePlanned {
+			newGenDesc = s.Text
+		}
 	}
 
-	return generalTitle
+	if genDesc == "" {
+		genDesc = newGenDesc
+	}
+
+	for _, s := range maintenance.Statuses {
+		var title string
+		var description string
+
+		switch s.Status { //nolint:exhaustive
+		case event.MaintenancePlanned:
+			title = fmt.Sprintf("Maintenance planned for %s", compShortNames)
+			description = fmt.Sprintf("A maintenance is planned for %s between %s UTC and %s UTC: %s",
+				compLongNames,
+				maintenance.StartDate.Format(time.DateTime),
+				maintenance.EndDate.Format(time.DateTime),
+				s.Text,
+			)
+		case event.MaintenanceInProgress:
+			title = fmt.Sprintf("Maintenance started for %s", compShortNames)
+			description = fmt.Sprintf("A maintenance started for %s planned until %s UTC: %s",
+				compLongNames,
+				maintenance.EndDate.Format(time.DateTime),
+				genDesc,
+			)
+		case event.MaintenanceModified:
+			title = fmt.Sprintf("Maintenance modified for %s", compShortNames)
+			description = fmt.Sprintf("A maintenance modified for %s: %s",
+				compLongNames,
+				s.Text,
+			)
+		case event.MaintenanceCompleted:
+			title = fmt.Sprintf("Maintenance completed for %s", compShortNames)
+			description = fmt.Sprintf("A maintenance completed for %s.",
+				compLongNames,
+			)
+		case event.MaintenanceCancelled:
+			title = fmt.Sprintf("Maintenance cancelled for %s", compShortNames)
+			description = fmt.Sprintf("A maintenance cancelled for %s.",
+				compLongNames,
+			)
+		default:
+			// skip unknown statuses and status "description"
+			continue
+		}
+
+		upd := &feeds.Item{
+			Title:       title,
+			Link:        &feeds.Link{Href: fmt.Sprintf("%s/incidents/%d", baseURL, maintenance.ID)},
+			Created:     s.Timestamp,
+			Description: description,
+		}
+
+		feedItems = append(feedItems, upd)
+	}
+
+	return feedItems
 }
 
-func sortIncidents(incidents []*db.Incident) []*db.Incident {
+func prepareFeedTitle(region string, component string) string {
+	if region == "" {
+		return generalTitle
+	}
+
+	if component != "" {
+		return fmt.Sprintf("%s (%s) - %s", component, region, generalTitle)
+	}
+
+	return fmt.Sprintf("%s - %s", region, generalTitle)
+}
+
+func sortEvents(incidents []*db.Incident) []*db.Incident {
 	openIncidents := make([]*db.Incident, 0)
 	closedIncidents := make([]*db.Incident, 0)
 
