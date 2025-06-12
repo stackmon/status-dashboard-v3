@@ -57,26 +57,46 @@ func TestGetIncidentsHandlerFilters(t *testing.T) {
 
 	// Mock data setup
 	incidentA := db.Incident{
-		ID:         1,
-		Text:       &[]string{"Incident title A"}[0],
-		StartDate:  &testTime,
-		EndDate:    &testEndTime,
-		Impact:     &impact0, // Maintenance
-		Type:       maintenanceType,
-		System:     systemFalse,
-		Components: []db.Component{{ID: 150, Name: "Component A"}},
-		Statuses:   []db.IncidentStatus{{ID: 1, IncidentID: 1, Timestamp: testEndTime, Text: "Maintenance completed.", Status: "completed"}},
+		ID:        1,
+		Text:      &[]string{"Incident title A"}[0],
+		StartDate: &testTime,
+		EndDate:   &testEndTime,
+		Impact:    &impact0, // Maintenance
+		Type:      maintenanceType,
+		System:    systemFalse,
+		Components: []db.Component{
+			{
+				ID:   150,
+				Name: "Component A",
+				Attrs: []db.ComponentAttr{
+					{ID: 859, ComponentID: 150, Name: "category", Value: "A"},
+					{ID: 860, ComponentID: 150, Name: "region", Value: "A"},
+					{ID: 861, ComponentID: 150, Name: "type", Value: "b"},
+				},
+			},
+		},
+		Statuses: []db.IncidentStatus{{ID: 1, IncidentID: 1, Timestamp: testEndTime, Text: "Maintenance completed.", Status: "completed"}},
 	}
 	incidentB := db.Incident{
-		ID:         2,
-		Text:       &[]string{"Incident title B"}[0],
-		StartDate:  &testTime,
-		EndDate:    nil,      // Opened
-		Impact:     &impact3, // Incident
-		Type:       incidentType,
-		System:     systemTrue,
-		Components: []db.Component{{ID: 151, Name: "Component B"}},
-		Statuses:   []db.IncidentStatus{{ID: 2, IncidentID: 2, Timestamp: testTime, Text: "Incident analysing.", Status: "analysing"}},
+		ID:        2,
+		Text:      &[]string{"Incident title B"}[0],
+		StartDate: &testTime,
+		EndDate:   nil,      // Opened
+		Impact:    &impact3, // Incident
+		Type:      incidentType,
+		System:    systemTrue,
+		Components: []db.Component{
+			{
+				ID:   151,
+				Name: "Component B",
+				Attrs: []db.ComponentAttr{
+					{ID: 862, ComponentID: 151, Name: "category", Value: "B"},
+					{ID: 863, ComponentID: 151, Name: "region", Value: "B"},
+					{ID: 864, ComponentID: 151, Name: "type", Value: "a"},
+				},
+			},
+		},
+		Statuses: []db.IncidentStatus{{ID: 2, IncidentID: 2, Timestamp: testTime, Text: "Incident analysing.", Status: "analysing"}},
 	}
 
 	// Expected JSON responses (simplified for brevity)
@@ -443,11 +463,6 @@ func prepareIncident(t *testing.T, mock sqlmock.Sqlmock, testTime time.Time) {
 		AddRow(151, "Component B")
 	mock.ExpectQuery("^SELECT (.+) FROM \"component\"(.+)").WillReturnRows(rowsComp)
 
-	rowsStatus := sqlmock.NewRows([]string{"id", "incident_id", "timestamp", "text", "status"}).
-		AddRow(1, 1, testTime.Add(time.Hour*72), "Issue solved.", "resolved").
-		AddRow(2, 2, testTime.Add(time.Hour*72), "Issue solved.", "resolved")
-	mock.ExpectQuery("^SELECT (.+) FROM \"incident_status\"").WillReturnRows(rowsStatus)
-
 	rowsCompAttr := sqlmock.NewRows([]string{"id", "component_id", "name", "value"}).
 		AddRows([][]driver.Value{
 			{859, 150, "category", "A"},
@@ -458,6 +473,11 @@ func prepareIncident(t *testing.T, mock sqlmock.Sqlmock, testTime time.Time) {
 			{864, 151, "type", "a"},
 		}...)
 	mock.ExpectQuery("^SELECT (.+) FROM \"component_attribute\"").WillReturnRows(rowsCompAttr)
+
+	rowsStatus := sqlmock.NewRows([]string{"id", "incident_id", "timestamp", "text", "status"}).
+		AddRow(1, 1, testTime.Add(time.Hour*72), "Issue solved.", "resolved").
+		AddRow(2, 2, testTime.Add(time.Hour*72), "Issue solved.", "resolved")
+	mock.ExpectQuery("^SELECT (.+) FROM \"incident_status\"").WillReturnRows(rowsStatus)
 
 	mock.NewRowsWithColumnDefinition()
 }
@@ -482,18 +502,26 @@ func prepareMockForIncidents(t *testing.T, mock sqlmock.Sqlmock, result []*db.In
 
 		rowsIncComp := sqlmock.NewRows([]string{"incident_id", "component_id"})
 		rowsComp := sqlmock.NewRows([]string{"id", "name"})
+		rowsCompAttr := sqlmock.NewRows([]string{"id", "component_id", "name", "value"})
 		rowsStatus := sqlmock.NewRows([]string{"id", "incident_id", "timestamp", "text", "status"})
 		for _, inc := range result {
 			for _, comp := range inc.Components {
 				rowsIncComp.AddRow(inc.ID, comp.ID)
 				rowsComp.AddRow(comp.ID, comp.Name)
+				for _, attr := range comp.Attrs {
+					rowsCompAttr.AddRow(attr.ID, attr.ComponentID, attr.Name, attr.Value)
+				}
 			}
 			for _, status := range inc.Statuses {
 				rowsStatus.AddRow(status.ID, status.IncidentID, status.Timestamp, status.Text, status.Status)
 			}
 		}
+
 		mock.ExpectQuery(`^SELECT (.+) FROM "incident_component_relation"`).WithArgs(incidentIDs...).WillReturnRows(rowsIncComp)
 		mock.ExpectQuery(`^SELECT (.+) FROM "component"`).WithArgs(componentIDs...).WillReturnRows(rowsComp)
+
+		mock.ExpectQuery("^SELECT (.+) FROM \"component_attribute\"").WillReturnRows(rowsCompAttr)
+
 		mock.ExpectQuery(`^SELECT (.+) FROM "incident_status"`).WithArgs(incidentIDs...).WillReturnRows(rowsStatus)
 	} else {
 		// Expect query but return no rows

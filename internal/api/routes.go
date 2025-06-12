@@ -5,6 +5,7 @@ import (
 	"github.com/stackmon/otc-status-dashboard/internal/api/rss"
 	v1 "github.com/stackmon/otc-status-dashboard/internal/api/v1"
 	v2 "github.com/stackmon/otc-status-dashboard/internal/api/v2"
+	newRSS "github.com/stackmon/otc-status-dashboard/internal/rss"
 )
 
 const (
@@ -54,6 +55,9 @@ func (a *API) InitRoutes() {
 			v2.PostIncidentExtractHandler(a.db, a.log))
 
 		v2API.GET("availability", v2.GetComponentsAvailabilityHandler(a.db, a.log))
+
+		// For testing purposes only
+		v2API.GET("rss", newRSS.HandleRSS(a.db, a.log))
 	}
 
 	rssFEED := a.r.Group("rss")
