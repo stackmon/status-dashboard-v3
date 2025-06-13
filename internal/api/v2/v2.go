@@ -272,7 +272,7 @@ func PostIncidentHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc { //
 
 		log.Info("start to analyse component movement")
 		result := make([]*ProcessComponentResp, 0)
-		// holly shit, but it moved from original logic
+		// It moved from original logic
 		for _, comp := range incIn.Components {
 			compResult := &ProcessComponentResp{
 				ComponentID: int(comp.ID),
@@ -376,7 +376,7 @@ type PatchIncidentData struct {
 	UpdateDate time.Time    `json:"update_date" binding:"required"`
 	StartDate  *time.Time   `json:"start_date,omitempty"`
 	EndDate    *time.Time   `json:"end_date,omitempty"`
-	Type       string       `json:"type,omitempty"`
+	Type       string       `json:"type,omitempty" binding:"omitempty,oneof=maintenance info incident"`
 }
 
 func PatchIncidentHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
@@ -440,15 +440,6 @@ func PatchIncidentHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 	}
 }
 
-func isValidIncidentType(t string) bool {
-	switch t {
-	case "maintenance", "info", "incident":
-		return true
-	default:
-		return false
-	}
-}
-
 func validateEffectiveTypeAndImpact(effectiveType string, effectiveImpact int) error {
 	if (effectiveType == "maintenance" || effectiveType == "info") && effectiveImpact != 0 {
 		return apiErrors.ErrIncidentTypeImpactMismatch
@@ -467,9 +458,7 @@ func validateMaintenancePatch(incoming *PatchIncidentData) error {
 }
 
 func checkPatchData(incoming *PatchIncidentData, stored *db.Incident) error {
-	if incoming.Type != "" && !isValidIncidentType(incoming.Type) {
-		return apiErrors.ErrIncidentInvalidType
-	}
+	// incoming.Type is now validated by the 'oneof' binding tag in PatchIncidentData
 	effectiveType := stored.Type
 	if incoming.Type != "" {
 		effectiveType = incoming.Type
