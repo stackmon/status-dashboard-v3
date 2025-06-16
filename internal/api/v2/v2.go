@@ -252,9 +252,9 @@ func PostIncidentHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc { //
 			return
 		}
 
-		if len(openedIncidents) == 0 || *incData.Impact == 0 {
+		if len(openedIncidents) == 0 || *incData.Impact == 0 || incData.Type == "info" {
 			if *incData.Impact == 0 {
-				log.Info("the incident is maintenance, finish the incident creation")
+				log.Info("the event is maintenance or info, finish the incident creation")
 			} else {
 				log.Info("no opened incidents, finish the incident creation")
 			}
