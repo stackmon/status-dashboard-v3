@@ -9,5 +9,8 @@ bin/
 *.bak
 *.test
 *.txt
+*.sql
+*.json
 .env
 .vscode
+__debug*

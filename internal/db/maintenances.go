@@ -11,7 +11,7 @@ func (db *DB) GetMaintenances(after uint) ([]*Incident, error) {
 		Preload("Statuses").
 		Preload("Components", func(db *gorm.DB) *gorm.DB { return db.Select("ID") })
 
-	r.Where("incident.impact = 0")
+	r.Where("incident.type = 'maintenance'")
 
 	if after > 0 {
 		r.Where("incident.id >= ?", after)
