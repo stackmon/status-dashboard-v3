@@ -57,7 +57,7 @@ func (a *API) InitRoutes() {
 		v2API.GET("availability", v2.GetComponentsAvailabilityHandler(a.db, a.log))
 
 		// For testing purposes only
-		v2API.GET("rss", newRSS.HandleRSS(a.db, a.log))
+		v2API.GET("rss/", newRSS.HandleRSS(a.db, a.log))
 	}
 
 	rssFEED := a.r.Group("rss")
