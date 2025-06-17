@@ -5,8 +5,10 @@ import "errors"
 var ErrIncidentDSNotExist = errors.New("incident does not exist")
 var ErrIncidentEndDateShouldBeEmpty = errors.New("incident end_date should be empty")
 var ErrIncidentUpdatesShouldBeEmpty = errors.New("incident updates should be empty")
-var ErrIncidentTypeImpactMismatch = errors.New("impact must be 0 for type 'maintenance' and gt 0 for 'incident'")
-var ErrIncidentInvalidType = errors.New("incident type is invalid, must be 'maintenance' or 'incident'")
+var ErrIncidentTypeImpactMismatch = errors.New(
+	"impact must be 0 for type 'maintenance' or 'info' and gt 0 for 'incident'",
+)
+var ErrIncidentInvalidType = errors.New("incident type is invalid, must be 'maintenance' 'info' or 'incident'")
 
 var ErrIncidentCreationMaintenanceExists = errors.New("incident creation failed, component in maintenance")
 var ErrIncidentCreationLowImpact = errors.New(

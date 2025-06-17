@@ -170,12 +170,12 @@ func TestV2PostIncidentsHandlerNegative(t *testing.T) {
 		},
 		"negative testcase, maintenance with non-zero impact": {
 			JSON:         jsWrongMaintenanceImpact,
-			Expected:     `{"errMsg":"impact must be 0 for type 'maintenance' and gt 0 for 'incident'"}`,
+			Expected:     `{"errMsg":"impact must be 0 for type 'maintenance' or 'info' and gt 0 for 'incident'"}`,
 			ExpectedCode: 400,
 		},
 		"negative testcase, incident with zero impact": {
 			JSON:         jsWrongIncidentImpact,
-			Expected:     `{"errMsg":"impact must be 0 for type 'maintenance' and gt 0 for 'incident'"}`,
+			Expected:     `{"errMsg":"impact must be 0 for type 'maintenance' or 'info' and gt 0 for 'incident'"}`,
 			ExpectedCode: 400,
 		},
 	}
@@ -1056,4 +1056,129 @@ func TestV2PostMaintenanceHandler(t *testing.T) {
 	assert.Equal(t, system, *incident.System)
 	assert.NotNil(t, incident.Updates)
 	assert.Equal(t, event.MaintenancePlanned, incident.Updates[0].Status)
+}
+
+func TestV2PostInfoWithExistingEventsHandler(t *testing.T) {
+	t.Log("start to test 'info' incident creation when an 'incident' and a 'maintenance' for the same component already exist")
+	r, _, _ := initTests(t)
+
+	// 1. Preparation: Close any existing open incidents for a clean state.
+	incidentsBeforeTest := v2GetIncidents(t, r)
+	for _, inc := range incidentsBeforeTest {
+		if inc.EndDate == nil {
+			t.Logf("Closing pre-existing open incident ID: %d for test setup", inc.ID)
+			endDate := inc.StartDate.Add(time.Hour * 1)
+			inc.EndDate = &endDate
+			v2PatchIncident(t, r, inc)
+		}
+	}
+
+	// 2. Create an active "incident" type event.
+	t.Log("Create an active 'incident' type event")
+	incidentComponentID := 1
+	initialIncidentImpact := 1
+	initialIncidentTitle := "Initial incident event"
+	initialIncidentStartDate := time.Now().AddDate(0, 0, -1).UTC()
+	initialIncidentSystem := false
+
+	initialIncidentData := v2.IncidentData{
+		Title:      initialIncidentTitle,
+		Impact:     &initialIncidentImpact,
+		Components: []int{incidentComponentID},
+		StartDate:  initialIncidentStartDate,
+		System:     &initialIncidentSystem,
+		Type:       "incident",
+	}
+
+	initialIncidentResp := v2CreateIncident(t, r, &initialIncidentData)
+	require.NotNil(t, initialIncidentResp, "Failed to create initial incident")
+	require.Len(t, initialIncidentResp.Result, 1, "Initial incident response should have one result")
+	initialIncidentID := initialIncidentResp.Result[0].IncidentID
+	t.Logf("Created active 'incident' with ID: %d for component %d", initialIncidentID, incidentComponentID)
+
+	// 3. Create a planned "maintenance" type event for the SAME component.
+	t.Log("Step 3: Create a planned 'maintenance' type event for the same component")
+	maintenanceImpact := 0 // Maintenance impact is typically 0
+	maintenanceTitle := "Planned Maintenance for Component"
+	maintenanceStartDate := time.Now().AddDate(0, 0, 7).UTC()
+	maintenanceEndDate := time.Now().AddDate(0, 0, 7).Add(time.Hour * 2).UTC()
+	maintenanceSystem := false
+
+	maintenanceIncidentData := v2.IncidentData{
+		Title:      maintenanceTitle,
+		Impact:     &maintenanceImpact,
+		Components: []int{incidentComponentID},
+		StartDate:  maintenanceStartDate,
+		EndDate:    &maintenanceEndDate,
+		System:     &maintenanceSystem,
+		Type:       "maintenance",
+	}
+
+	maintenanceIncidentResp := v2CreateIncident(t, r, &maintenanceIncidentData)
+	require.NotNil(t, maintenanceIncidentResp, "Failed to create 'maintenance' incident")
+	require.Len(t, maintenanceIncidentResp.Result, 1, "'Maintenance' incident response should have one result")
+	maintenanceIncidentID := maintenanceIncidentResp.Result[0].IncidentID
+	t.Logf("Created planned 'maintenance' with ID: %d for component %d, starting at %s", maintenanceIncidentID, incidentComponentID, maintenanceStartDate)
+
+	// 4. Create a new "info" type event for the SAME component.
+	t.Log("Step 4: Create a new 'info' type event for the same component")
+	infoImpact := 0
+	infoTitle := "Informational Update During Active Incident and Before Maintenance"
+	infoStartDate := time.Now().Add(time.Minute * -30).UTC()
+	infoEndDate := time.Now().Add(time.Minute * 30).UTC()
+	infoSystem := false
+
+	infoIncidentData := v2.IncidentData{
+		Title:      infoTitle,
+		Impact:     &infoImpact,
+		Components: []int{incidentComponentID},
+		StartDate:  infoStartDate,
+		EndDate:    &infoEndDate,
+		System:     &infoSystem,
+		Type:       "info",
+	}
+
+	infoIncidentResp := v2CreateIncident(t, r, &infoIncidentData)
+	require.NotNil(t, infoIncidentResp, "Failed to create 'info' incident")
+	require.Len(t, infoIncidentResp.Result, 1, "'Info' incident response should have one result")
+	infoIncidentID := infoIncidentResp.Result[0].IncidentID
+	t.Logf("Created 'info' incident with ID: %d for component %d", infoIncidentID, incidentComponentID)
+
+	// Assertions.
+	t.Log("Step 5: Perform assertions")
+	assert.NotEqual(t, initialIncidentID, infoIncidentID, "Info incident should have a new, distinct ID")
+	assert.NotEqual(t, maintenanceIncidentID, infoIncidentID, "Info incident should have a new, distinct ID from maintenance")
+
+	// Verify the 'info' incident.
+	fetchedInfoIncident := v2GetIncident(t, r, infoIncidentID)
+	assert.Equal(t, infoTitle, fetchedInfoIncident.Title)
+	assert.Equal(t, "info", fetchedInfoIncident.Type)
+	assert.Equal(t, infoImpact, *fetchedInfoIncident.Impact)
+	assert.Contains(t, fetchedInfoIncident.Components, incidentComponentID)
+	require.NotNil(t, fetchedInfoIncident.EndDate)
+	assert.True(t, infoEndDate.Truncate(time.Second).Equal(fetchedInfoIncident.EndDate.Truncate(time.Second)))
+
+	// Verify the initial 'incident' event is still open.
+	fetchedInitialIncident := v2GetIncident(t, r, initialIncidentID)
+	assert.Equal(t, initialIncidentTitle, fetchedInitialIncident.Title)
+	assert.Equal(t, "incident", fetchedInitialIncident.Type)
+	assert.Nil(t, fetchedInitialIncident.EndDate, "Initial 'incident' event should still be open")
+	assert.Contains(t, fetchedInitialIncident.Components, incidentComponentID, "Initial 'incident' should still have its component")
+	assert.Len(t, fetchedInitialIncident.Components, 1, "Initial 'incident' should only have its original component")
+
+	// Verify the planned 'maintenance' event is still scheduled.
+	fetchedMaintenanceIncident := v2GetIncident(t, r, maintenanceIncidentID)
+	assert.Equal(t, maintenanceTitle, fetchedMaintenanceIncident.Title)
+	assert.Equal(t, "maintenance", fetchedMaintenanceIncident.Type)
+	require.NotNil(t, fetchedMaintenanceIncident.EndDate, "Maintenance event should have an end date")
+	assert.True(t, maintenanceEndDate.Truncate(time.Second).Equal(fetchedMaintenanceIncident.EndDate.Truncate(time.Second)), "Maintenance end date mismatch")
+	assert.Contains(t, fetchedMaintenanceIncident.Components, incidentComponentID, "Maintenance event should still have its component")
+	assert.Len(t, fetchedMaintenanceIncident.Components, 1, "Maintenance event should only have its original component")
+
+	// 6. Debug: Log all incidents as JSON.
+	t.Log("Step 6: Log all incidents for debugging")
+	allIncidents := v2GetIncidents(t, r)
+	allIncidentsJSON, err := json.MarshalIndent(allIncidents, "", "  ")
+	require.NoError(t, err, "Failed to marshal all incidents to JSON")
+	t.Logf("All incidents at the end of the test:\n%s", string(allIncidentsJSON))
 }
