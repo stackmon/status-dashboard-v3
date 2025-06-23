@@ -441,7 +441,7 @@ func (db *DB) MoveComponentFromOldToAnotherIncident(
 }
 
 func (db *DB) ExtractComponentsToNewIncident(
-	comp []Component, incOld *Incident, impact int, text string,
+	comp []Component, incOld *Incident, impact int, text string, description string,
 ) (*Incident, error) {
 	if len(comp) == 0 {
 		return nil, fmt.Errorf("no components to extract")
@@ -450,14 +450,15 @@ func (db *DB) ExtractComponentsToNewIncident(
 	timeNow := time.Now().UTC()
 
 	inc := &Incident{
-		Text:       &text,
-		StartDate:  &timeNow,
-		EndDate:    nil,
-		Impact:     &impact,
-		Statuses:   []IncidentStatus{},
-		System:     false,
-		Type:       event.TypeIncident,
-		Components: comp,
+		Text:        &text,
+		Description: &description,
+		StartDate:   &timeNow,
+		EndDate:     nil,
+		Impact:      &impact,
+		Statuses:    []IncidentStatus{},
+		System:      false,
+		Type:        event.TypeIncident,
+		Components:  comp,
 	}
 
 	id, err := db.SaveIncident(inc)
