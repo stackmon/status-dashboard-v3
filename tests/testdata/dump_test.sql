@@ -111,6 +111,7 @@ ALTER SEQUENCE public.component_id_seq OWNED BY public.component.id;
 CREATE TABLE public.incident (
     id integer NOT NULL,
     text character varying NOT NULL,
+    description text,
     start_date timestamp without time zone NOT NULL,
     end_date timestamp without time zone,
     impact smallint NOT NULL,

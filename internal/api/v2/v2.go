@@ -354,9 +354,18 @@ func createIncident(dbInst *db.DB, log *zap.Logger, inc *db.Incident) error {
 
 	if *inc.Impact == 0 {
 		log.Info("the incident is maintenance or info, add planned status")
+		var statusText string
+		switch inc.Type {
+		case event.TypeInformation:
+			statusText = event.InfoPlannedDescription(*inc.StartDate, *inc.EndDate)
+		case event.TypeMaintenance:
+			statusText = event.MaintenancePlannedDescription(*inc.StartDate, *inc.EndDate)
+		}
+
 		inc.Statuses = append(inc.Statuses, db.IncidentStatus{
 			IncidentID: inc.ID,
 			Status:     event.MaintenancePlanned,
+			Text:       statusText,
 			Timestamp:  time.Now().UTC(),
 		})
 		err = dbInst.ModifyIncident(inc)
@@ -604,7 +613,7 @@ func PostIncidentExtractHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFu
 			storedInc,
 			*storedInc.Impact,
 			*storedInc.Text,
-			*storedInc.Description)
+			storedInc.Description)
 		if err != nil {
 			apiErrors.RaiseInternalErr(c, err)
 			return
