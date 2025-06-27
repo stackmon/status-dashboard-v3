@@ -207,17 +207,19 @@ func TestV2PostIncidentsHandler(t *testing.T) {
 	components := []int{1, 2}
 	impact := 1
 	title := "Test incident for dcs"
+	description := "any description for incident"
 	startDate := time.Now().AddDate(0, 0, -1).UTC()
 	system := false
 	incType := "incident"
 
 	incidentCreateData := v2.IncidentData{
-		Title:      title,
-		Impact:     &impact,
-		Components: components,
-		StartDate:  startDate,
-		System:     &system,
-		Type:       incType,
+		Title:       title,
+		Description: description,
+		Impact:      &impact,
+		Components:  components,
+		StartDate:   startDate,
+		System:      &system,
+		Type:        incType,
 	}
 
 	incidents := v2GetIncidents(t, r)
@@ -294,7 +296,7 @@ func TestV2PostIncidentsHandler(t *testing.T) {
 	assert.Equal(t, title, maintenanceIncident.Title)
 	assert.Equal(t, impact, *maintenanceIncident.Impact)
 	assert.Equal(t, system, *maintenanceIncident.System)
-	assert.Equal(t, incidentCreateData.Description, maintenanceIncident.Updates[0].Text)
+	assert.Equal(t, incidentCreateData.Description, maintenanceIncident.Description)
 	assert.Equal(t, event.MaintenancePlanned, maintenanceIncident.Updates[0].Status)
 	require.NotNil(t, maintenanceIncident.Type)
 	assert.Equal(t, "maintenance", maintenanceIncident.Type)
@@ -316,14 +318,16 @@ func TestV2PostIncidentsHandler(t *testing.T) {
 	components = []int{3}
 	impact = 1
 	incidentCreateData = v2.IncidentData{
-		Title:      "Test for another different component",
-		Impact:     &impact,
-		Components: components,
-		StartDate:  startDate,
-		System:     &system,
-		Type:       "incident",
+		Title:       "Test for another different component",
+		Description: "Any description for incident with different component",
+		Impact:      &impact,
+		Components:  components,
+		StartDate:   startDate,
+		System:      &system,
+		Type:        "incident",
 	}
 	result = v2CreateIncident(t, r, &incidentCreateData)
+	fmt.Printf("result: %+v\n", result)
 	assert.Equal(t, 9, result.Result[0].IncidentID)
 	assert.Equal(t, 3, result.Result[0].ComponentID)
 }
@@ -339,12 +343,13 @@ func TestV2PatchIncidentHandlerNegative(t *testing.T) {
 	system := false
 
 	incidentCreateData := v2.IncidentData{
-		Title:      title,
-		Impact:     &impact,
-		Components: components,
-		StartDate:  startDate,
-		System:     &system,
-		Type:       "incident",
+		Title:       title,
+		Description: "any description for incident",
+		Impact:      &impact,
+		Components:  components,
+		StartDate:   startDate,
+		System:      &system,
+		Type:        "incident",
 	}
 
 	resp := v2CreateIncident(t, r, &incidentCreateData)
@@ -433,6 +438,7 @@ func TestV2PatchIncidentHandler(t *testing.T) {
 	components := []int{1}
 	impact := 1
 	title := "Test incident for patching test"
+	description := "Test case Patch. Any description for incident"
 	startDate := time.Now().AddDate(0, 0, -2).UTC()
 	system := false
 
@@ -454,29 +460,33 @@ func TestV2PatchIncidentHandler(t *testing.T) {
 	}
 
 	incidentCreateData := v2.IncidentData{
-		Title:      title,
-		Impact:     &impact,
-		Components: components,
-		StartDate:  startDate,
-		System:     &system,
-		Type:       "incident",
+		Title:       title,
+		Description: description,
+		Impact:      &impact,
+		Components:  components,
+		StartDate:   startDate,
+		System:      &system,
+		Type:        "incident",
 	}
 
 	resp := v2CreateIncident(t, r, &incidentCreateData)
 	incID := resp.Result[0].IncidentID
 
 	newTitle := "patched incident title"
+	newDescription := "patched incident description"
 	t.Logf("patching incident title, from %s to %s", title, newTitle)
 
 	pData := v2.PatchIncidentData{
-		Title:      &newTitle,
-		Message:    "update title",
-		Status:     "analysing",
-		UpdateDate: time.Now().UTC(),
+		Title:       &newTitle,
+		Description: &newDescription,
+		Message:     "update title",
+		Status:      "analysing",
+		UpdateDate:  time.Now().UTC(),
 	}
 
 	inc := internalPatch(incID, &pData)
 	assert.Equal(t, newTitle, inc.Title)
+	assert.Equal(t, newDescription, inc.Description)
 
 	newImpact := 2
 	t.Logf("patching incident impact, from %d to %d", impact, newImpact)
@@ -533,16 +543,18 @@ func TestV2PostIncidentExtractHandler(t *testing.T) {
 	components := []int{1, 2}
 	impact := 1
 	title := "Test incident for dcs"
+	description := "Test incident for extraction"
 	startDate := time.Now().AddDate(0, 0, -1).UTC()
 	system := false
 
 	incidentCreateData := v2.IncidentData{
-		Title:      title,
-		Impact:     &impact,
-		Components: components,
-		StartDate:  startDate,
-		System:     &system,
-		Type:       "incident",
+		Title:       title,
+		Description: description,
+		Impact:      &impact,
+		Components:  components,
+		StartDate:   startDate,
+		System:      &system,
+		Type:        "incident",
 	}
 
 	incidents := v2GetIncidents(t, r)
@@ -574,6 +586,7 @@ func TestV2PostIncidentExtractHandler(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, newInc.Components, 1)
 	assert.Equal(t, incidentCreateData.Impact, newInc.Impact)
+	assert.Equal(t, description, newInc.Description)
 	assert.Equal(t, fmt.Sprintf("Cloud Container Engine (Container, EU-NL, cce) moved from <a href='/incidents/%d'>Test incident for dcs</a>", result.Result[0].IncidentID), newInc.Updates[0].Text)
 
 	createdInc := v2GetIncident(t, r, result.Result[0].IncidentID)
@@ -1031,18 +1044,20 @@ func TestV2PostMaintenanceHandler(t *testing.T) {
 	components := []int{1, 2}
 	impact := 0
 	title := "Test maintenance incident for dcs"
+	description := "Test maintenance description"
 	startDate := time.Now().Add(time.Hour * 1).UTC()
 	endDate := time.Now().Add(time.Hour * 2).UTC()
 	system := false
 
 	incidentCreateData := v2.IncidentData{
-		Title:      title,
-		Impact:     &impact,
-		Components: components,
-		StartDate:  startDate,
-		EndDate:    &endDate,
-		System:     &system,
-		Type:       "maintenance",
+		Title:       title,
+		Description: description,
+		Impact:      &impact,
+		Components:  components,
+		StartDate:   startDate,
+		EndDate:     &endDate,
+		System:      &system,
+		Type:        "maintenance",
 	}
 
 	result := v2CreateIncident(t, r, &incidentCreateData)
@@ -1054,6 +1069,7 @@ func TestV2PostMaintenanceHandler(t *testing.T) {
 	assert.Equal(t, title, incident.Title)
 	assert.Equal(t, impact, *incident.Impact)
 	assert.Equal(t, system, *incident.System)
+	assert.Equal(t, description, incident.Description)
 	assert.NotNil(t, incident.Updates)
 	assert.Equal(t, event.MaintenancePlanned, incident.Updates[0].Status)
 }
@@ -1078,16 +1094,18 @@ func TestV2PostInfoWithExistingEventsHandler(t *testing.T) {
 	incidentComponentID := 1
 	initialIncidentImpact := 1
 	initialIncidentTitle := "Initial incident event"
+	initialIncidentDescription := "Description for the initial incident"
 	initialIncidentStartDate := time.Now().AddDate(0, 0, -1).UTC()
 	initialIncidentSystem := false
 
 	initialIncidentData := v2.IncidentData{
-		Title:      initialIncidentTitle,
-		Impact:     &initialIncidentImpact,
-		Components: []int{incidentComponentID},
-		StartDate:  initialIncidentStartDate,
-		System:     &initialIncidentSystem,
-		Type:       "incident",
+		Title:       initialIncidentTitle,
+		Description: initialIncidentDescription,
+		Impact:      &initialIncidentImpact,
+		Components:  []int{incidentComponentID},
+		StartDate:   initialIncidentStartDate,
+		System:      &initialIncidentSystem,
+		Type:        "incident",
 	}
 
 	initialIncidentResp := v2CreateIncident(t, r, &initialIncidentData)
@@ -1100,18 +1118,20 @@ func TestV2PostInfoWithExistingEventsHandler(t *testing.T) {
 	t.Log("Step 3: Create a planned 'maintenance' type event for the same component")
 	maintenanceImpact := 0 // Maintenance impact is typically 0
 	maintenanceTitle := "Planned Maintenance for Component"
+	maintenanceDescription := "Description for the maintenance event"
 	maintenanceStartDate := time.Now().AddDate(0, 0, 7).UTC()
 	maintenanceEndDate := time.Now().AddDate(0, 0, 7).Add(time.Hour * 2).UTC()
 	maintenanceSystem := false
 
 	maintenanceIncidentData := v2.IncidentData{
-		Title:      maintenanceTitle,
-		Impact:     &maintenanceImpact,
-		Components: []int{incidentComponentID},
-		StartDate:  maintenanceStartDate,
-		EndDate:    &maintenanceEndDate,
-		System:     &maintenanceSystem,
-		Type:       "maintenance",
+		Title:       maintenanceTitle,
+		Description: maintenanceDescription,
+		Impact:      &maintenanceImpact,
+		Components:  []int{incidentComponentID},
+		StartDate:   maintenanceStartDate,
+		EndDate:     &maintenanceEndDate,
+		System:      &maintenanceSystem,
+		Type:        "maintenance",
 	}
 
 	maintenanceIncidentResp := v2CreateIncident(t, r, &maintenanceIncidentData)
@@ -1124,18 +1144,20 @@ func TestV2PostInfoWithExistingEventsHandler(t *testing.T) {
 	t.Log("Step 4: Create a new 'info' type event for the same component")
 	infoImpact := 0
 	infoTitle := "Informational Update During Active Incident and Before Maintenance"
+	infoDescription := "Description for the info event"
 	infoStartDate := time.Now().Add(time.Minute * -30).UTC()
 	infoEndDate := time.Now().Add(time.Minute * 30).UTC()
 	infoSystem := false
 
 	infoIncidentData := v2.IncidentData{
-		Title:      infoTitle,
-		Impact:     &infoImpact,
-		Components: []int{incidentComponentID},
-		StartDate:  infoStartDate,
-		EndDate:    &infoEndDate,
-		System:     &infoSystem,
-		Type:       "info",
+		Title:       infoTitle,
+		Description: infoDescription,
+		Impact:      &infoImpact,
+		Components:  []int{incidentComponentID},
+		StartDate:   infoStartDate,
+		EndDate:     &infoEndDate,
+		System:      &infoSystem,
+		Type:        "info",
 	}
 
 	infoIncidentResp := v2CreateIncident(t, r, &infoIncidentData)
@@ -1152,6 +1174,7 @@ func TestV2PostInfoWithExistingEventsHandler(t *testing.T) {
 	// Verify the 'info' incident.
 	fetchedInfoIncident := v2GetIncident(t, r, infoIncidentID)
 	assert.Equal(t, infoTitle, fetchedInfoIncident.Title)
+	assert.Equal(t, infoDescription, fetchedInfoIncident.Description)
 	assert.Equal(t, "info", fetchedInfoIncident.Type)
 	assert.Equal(t, infoImpact, *fetchedInfoIncident.Impact)
 	assert.Contains(t, fetchedInfoIncident.Components, incidentComponentID)
@@ -1161,6 +1184,7 @@ func TestV2PostInfoWithExistingEventsHandler(t *testing.T) {
 	// Verify the initial 'incident' event is still open.
 	fetchedInitialIncident := v2GetIncident(t, r, initialIncidentID)
 	assert.Equal(t, initialIncidentTitle, fetchedInitialIncident.Title)
+	assert.Equal(t, initialIncidentDescription, fetchedInitialIncident.Description)
 	assert.Equal(t, "incident", fetchedInitialIncident.Type)
 	assert.Nil(t, fetchedInitialIncident.EndDate, "Initial 'incident' event should still be open")
 	assert.Contains(t, fetchedInitialIncident.Components, incidentComponentID, "Initial 'incident' should still have its component")
@@ -1169,6 +1193,7 @@ func TestV2PostInfoWithExistingEventsHandler(t *testing.T) {
 	// Verify the planned 'maintenance' event is still scheduled.
 	fetchedMaintenanceIncident := v2GetIncident(t, r, maintenanceIncidentID)
 	assert.Equal(t, maintenanceTitle, fetchedMaintenanceIncident.Title)
+	assert.Equal(t, maintenanceDescription, fetchedMaintenanceIncident.Description)
 	assert.Equal(t, "maintenance", fetchedMaintenanceIncident.Type)
 	require.NotNil(t, fetchedMaintenanceIncident.EndDate, "Maintenance event should have an end date")
 	assert.True(t, maintenanceEndDate.Truncate(time.Second).Equal(fetchedMaintenanceIncident.EndDate.Truncate(time.Second)), "Maintenance end date mismatch")

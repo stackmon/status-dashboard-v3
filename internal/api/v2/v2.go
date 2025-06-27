@@ -357,9 +357,9 @@ func createIncident(dbInst *db.DB, log *zap.Logger, inc *db.Incident) error {
 		var statusText string
 		switch inc.Type {
 		case event.TypeInformation:
-			statusText = event.InfoPlannedDescription(*inc.StartDate, *inc.EndDate)
+			statusText = event.InfoPlannedStatusText(*inc.StartDate, *inc.EndDate)
 		case event.TypeMaintenance:
-			statusText = event.MaintenancePlannedDescription(*inc.StartDate, *inc.EndDate)
+			statusText = event.MaintenancePlannedStatusText(*inc.StartDate, *inc.EndDate)
 		}
 
 		inc.Statuses = append(inc.Statuses, db.IncidentStatus{
@@ -532,12 +532,12 @@ func updateFields(income *PatchIncidentData, stored *db.Incident) {
 		stored.Text = income.Title
 	}
 
-	if income.Impact != nil {
-		stored.Impact = income.Impact
+	if income.Description != nil {
+		stored.Description = income.Description
 	}
 
-	if income.Type != "" {
-		stored.Type = income.Type
+	if income.Impact != nil {
+		stored.Impact = income.Impact
 	}
 
 	if income.Type != "" {

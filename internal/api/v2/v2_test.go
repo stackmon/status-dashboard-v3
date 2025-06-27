@@ -29,7 +29,7 @@ func TestGetIncidentsHandler(t *testing.T) {
 
 	prepareIncident(t, m, testTime)
 
-	var response = `{"data":[{"id":1,"title":"Incident title A","impact":0,"components":[150],"start_date":"%s","end_date":"%s","system":false,"type":"maintenance","updates":[{"status":"resolved","text":"Issue solved.","timestamp":"%s"}]},{"id":2,"title":"Incident title B","impact":3,"components":[151],"start_date":"%s","end_date":"%s","system":false,"type":"incident","updates":[{"status":"resolved","text":"Issue solved.","timestamp":"%s"}]}]}`
+	var response = `{"data":[{"id":1,"title":"Incident title A","description":"Description A","impact":0,"components":[150],"start_date":"%s","end_date":"%s","system":false,"type":"maintenance","updates":[{"status":"resolved","text":"Issue solved.","timestamp":"%s"}]},{"id":2,"title":"Incident title B","description":"Description B","impact":3,"components":[151],"start_date":"%s","end_date":"%s","system":false,"type":"incident","updates":[{"status":"resolved","text":"Issue solved.","timestamp":"%s"}]}]}`
 
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest(http.MethodGet, "/v2/incidents", nil)
@@ -57,13 +57,14 @@ func TestGetIncidentsHandlerFilters(t *testing.T) {
 
 	// Mock data setup
 	incidentA := db.Incident{
-		ID:        1,
-		Text:      &[]string{"Incident title A"}[0],
-		StartDate: &testTime,
-		EndDate:   &testEndTime,
-		Impact:    &impact0, // Maintenance
-		Type:      maintenanceType,
-		System:    systemFalse,
+		ID:          1,
+		Text:        &[]string{"Incident title A"}[0],
+		Description: &[]string{"Description A"}[0],
+		StartDate:   &testTime,
+		EndDate:     &testEndTime,
+		Impact:      &impact0, // Maintenance
+		Type:        maintenanceType,
+		System:      systemFalse,
 		Components: []db.Component{
 			{
 				ID:   150,
@@ -78,13 +79,14 @@ func TestGetIncidentsHandlerFilters(t *testing.T) {
 		Statuses: []db.IncidentStatus{{ID: 1, IncidentID: 1, Timestamp: testEndTime, Text: "Maintenance completed.", Status: "completed"}},
 	}
 	incidentB := db.Incident{
-		ID:        2,
-		Text:      &[]string{"Incident title B"}[0],
-		StartDate: &testTime,
-		EndDate:   nil,      // Opened
-		Impact:    &impact3, // Incident
-		Type:      incidentType,
-		System:    systemTrue,
+		ID:          2,
+		Text:        &[]string{"Incident title B"}[0],
+		Description: &[]string{"Description B"}[0],
+		StartDate:   &testTime,
+		EndDate:     nil,      // Opened
+		Impact:      &impact3, // Incident
+		Type:        incidentType,
+		System:      systemTrue,
 		Components: []db.Component{
 			{
 				ID:   151,
@@ -100,8 +102,8 @@ func TestGetIncidentsHandlerFilters(t *testing.T) {
 	}
 
 	// Expected JSON responses (simplified for brevity)
-	responseA := fmt.Sprintf(`{"data":[{"id":1,"title":"Incident title A","impact":0,"components":[150],"start_date":"%s","end_date":"%s","system":false,"type":"maintenance","updates":[{"status":"completed","text":"Maintenance completed.","timestamp":"%s"}]}]}`, startDate, endDate, endDate)
-	responseB := fmt.Sprintf(`{"data":[{"id":2,"title":"Incident title B","impact":3,"components":[151],"start_date":"%s","system":true,"type":"incident","updates":[{"status":"analysing","text":"Incident analysing.","timestamp":"%s"}]}]}`, startDate, startDate)
+	responseA := fmt.Sprintf(`{"data":[{"id":1,"title":"Incident title A","description":"Description A","impact":0,"components":[150],"start_date":"%s","end_date":"%s","system":false,"type":"maintenance","updates":[{"status":"completed","text":"Maintenance completed.","timestamp":"%s"}]}]}`, startDate, endDate, endDate)
+	responseB := fmt.Sprintf(`{"data":[{"id":2,"title":"Incident title B","description":"Description B","impact":3,"components":[151],"start_date":"%s","system":true,"type":"incident","updates":[{"status":"analysing","text":"Incident analysing.","timestamp":"%s"}]}]}`, startDate, startDate)
 	responseEmpty := `{"data":[]}`
 	isOpenedTrue := true
 	isOpenedFalse := false
@@ -332,9 +334,9 @@ func TestGetComponentsAvailabilityHandler(t *testing.T) {
 
 func TestCalculateAvailability(t *testing.T) {
 	type testCase struct {
-		description string
-		Component   *db.Component
-		Result      []*MonthlyAvailability
+		testDescription string
+		Component       *db.Component
+		Result          []*MonthlyAvailability
 	}
 
 	impact := 3
@@ -357,8 +359,8 @@ func TestCalculateAvailability(t *testing.T) {
 
 	testCases := []testCase{
 		{
-			description: "Test case: September (66.66667%)- October (94.08602%)",
-			Component:   &compForSept,
+			testDescription: "Test case: September (66.66667%)- October (94.08602%)",
+			Component:       &compForSept,
 			Result: func() []*MonthlyAvailability {
 				results := make([]*MonthlyAvailability, 12)
 
@@ -391,7 +393,7 @@ func TestCalculateAvailability(t *testing.T) {
 		result, err := calculateAvailability(tc.Component)
 		require.NoError(t, err)
 
-		t.Logf("Test '%s': Calculated availability: %+v", tc.description, result)
+		t.Logf("Test '%s': Calculated availability: %+v", tc.testDescription, result)
 
 		assert.Len(t, result, 12)
 		for i, r := range result {
@@ -448,9 +450,9 @@ func initRoutes(t *testing.T, c *gin.Engine, dbInst *db.DB, log *zap.Logger) {
 func prepareIncident(t *testing.T, mock sqlmock.Sqlmock, testTime time.Time) {
 	t.Helper()
 
-	rowsInc := sqlmock.NewRows([]string{"id", "text", "start_date", "end_date", "impact", "system", "type"}).
-		AddRow(1, "Incident title A", testTime, testTime.Add(time.Hour*72), 0, false, "maintenance").
-		AddRow(2, "Incident title B", testTime, testTime.Add(time.Hour*72), 3, false, "incident")
+	rowsInc := sqlmock.NewRows([]string{"id", "text", "description", "start_date", "end_date", "impact", "system", "type"}).
+		AddRow(1, "Incident title A", "Description A", testTime, testTime.Add(time.Hour*72), 0, false, "maintenance").
+		AddRow(2, "Incident title B", "Description B", testTime, testTime.Add(time.Hour*72), 3, false, "incident")
 	mock.ExpectQuery("^SELECT (.+) FROM \"incident\" ORDER BY incident.start_date DESC$").WillReturnRows(rowsInc)
 
 	rowsIncComp := sqlmock.NewRows([]string{"incident_id", "component_id"}).
@@ -486,14 +488,18 @@ func prepareIncident(t *testing.T, mock sqlmock.Sqlmock, testTime time.Time) {
 func prepareMockForIncidents(t *testing.T, mock sqlmock.Sqlmock, result []*db.Incident) {
 	t.Helper()
 
-	// Only expect a DB call if the status is OK
+	// Only expect a DB call if the status is OK and there are results
 	if len(result) > 0 {
 		incidentIDs := make([]driver.Value, len(result))
 		componentIDs := make([]driver.Value, 0)
-		rowsInc := sqlmock.NewRows([]string{"id", "text", "start_date", "end_date", "impact", "system", "type"})
+		rowsInc := sqlmock.NewRows([]string{"id", "text", "description", "start_date", "end_date", "impact", "system", "type"})
 		for i, inc := range result {
 			incidentIDs[i] = inc.ID
-			rowsInc.AddRow(inc.ID, *inc.Text, *inc.StartDate, inc.EndDate, *inc.Impact, inc.System, inc.Type)
+			var descriptionVal interface{} = nil
+			if inc.Description != nil {
+				descriptionVal = *inc.Description
+			}
+			rowsInc.AddRow(inc.ID, *inc.Text, descriptionVal, *inc.StartDate, inc.EndDate, *inc.Impact, inc.System, inc.Type)
 			for _, comp := range inc.Components {
 				componentIDs = append(componentIDs, comp.ID)
 			}
@@ -525,7 +531,7 @@ func prepareMockForIncidents(t *testing.T, mock sqlmock.Sqlmock, result []*db.In
 		mock.ExpectQuery(`^SELECT (.+) FROM "incident_status"`).WithArgs(incidentIDs...).WillReturnRows(rowsStatus)
 	} else {
 		// Expect query but return no rows
-		mock.ExpectQuery(`^SELECT (.+) FROM "incident"`).WillReturnRows(sqlmock.NewRows([]string{"id", "text", "start_date", "end_date", "impact", "system", "type"}))
+		mock.ExpectQuery(`^SELECT (.+) FROM "incident"`).WillReturnRows(sqlmock.NewRows([]string{"id", "text", "description", "start_date", "end_date", "impact", "system", "type"}))
 	}
 }
 
@@ -551,8 +557,8 @@ func prepareAvailability(t *testing.T, mock sqlmock.Sqlmock, testTime time.Time)
 	startOfMonth := time.Date(testTime.Year(), testTime.Month(), 1, 0, 0, 0, 0, time.UTC)
 	startOfNextMonth := startOfMonth.AddDate(0, 1, 0)
 
-	rowsInc := sqlmock.NewRows([]string{"id", "text", "start_date", "end_date", "impact", "system", "type"}).
-		AddRow(2, "Incident title B", startOfMonth, startOfNextMonth, 3, false, "incident")
+	rowsInc := sqlmock.NewRows([]string{"id", "text", "description", "start_date", "end_date", "impact", "system", "type"}).
+		AddRow(2, "Incident title B", "Description B for Availability", startOfMonth, startOfNextMonth, 3, false, "incident")
 	mock.ExpectQuery("^SELECT (.+) FROM \"incident\" WHERE \"incident\".\"id\" = \\$1$").WillReturnRows(rowsInc)
 
 	rowsStatus := sqlmock.NewRows([]string{"id", "incident_id", "timestamp", "text", "status"}).

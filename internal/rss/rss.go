@@ -204,6 +204,11 @@ func createIncidentFeedItems(incident *db.Incident, baseURL string) []*feeds.Ite
 		}
 	}
 
+	if incident.Description != nil && *incident.Description != "" {
+		// Append the main description if it exists.
+		description.WriteString(fmt.Sprintf(" %s", *incident.Description))
+	}
+
 	item := &feeds.Item{
 		Title:       title,
 		Link:        &feeds.Link{Href: fmt.Sprintf("%s/incidents/%d", baseURL, incident.ID)},
@@ -253,20 +258,16 @@ func createMaintenanceFeedItems(maintenance *db.Incident, baseURL string) []*fee
 	compShortNames := strings.Join(compTypes, ", ")
 	compLongNames := strings.Join(compNames, ", ")
 
-	// the next logic is used for the backward compatibility with the description status
+	// Get the main description for the maintenance event.
 	var genDesc string
-	var newGenDesc string
 	for _, s := range maintenance.Statuses {
-		if s.Status == "description" {
-			genDesc = s.Text
-		}
 		if s.Status == event.MaintenancePlanned {
-			newGenDesc = s.Text
+			genDesc = s.Text
+			break
 		}
 	}
-
-	if genDesc == "" {
-		genDesc = newGenDesc
+	if maintenance.Description != nil && *maintenance.Description != "" {
+		genDesc = *maintenance.Description
 	}
 
 	for _, s := range maintenance.Statuses {
