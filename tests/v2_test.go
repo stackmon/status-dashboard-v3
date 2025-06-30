@@ -327,7 +327,6 @@ func TestV2PostIncidentsHandler(t *testing.T) {
 		Type:        "incident",
 	}
 	result = v2CreateIncident(t, r, &incidentCreateData)
-	fmt.Printf("result: %+v\n", result)
 	assert.Equal(t, 9, result.Result[0].IncidentID)
 	assert.Equal(t, 3, result.Result[0].ComponentID)
 }

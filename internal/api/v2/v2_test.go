@@ -484,55 +484,63 @@ func prepareIncident(t *testing.T, mock sqlmock.Sqlmock, testTime time.Time) {
 	mock.NewRowsWithColumnDefinition()
 }
 
-// prepareMockForIncidents sets up sqlmock expectations for GetIncidents based on params.
+func prepareIncidentRows(result []*db.Incident) (*sqlmock.Rows, []driver.Value, []driver.Value) {
+	incidentIDs := make([]driver.Value, len(result))
+	componentIDs := make([]driver.Value, 0)
+	rowsInc := sqlmock.NewRows([]string{"id", "text", "description", "start_date", "end_date", "impact", "system", "type"})
+
+	for i, inc := range result {
+		incidentIDs[i] = inc.ID
+		var descriptionVal interface{}
+		if inc.Description != nil {
+			descriptionVal = *inc.Description
+		}
+		rowsInc.AddRow(inc.ID, *inc.Text, descriptionVal, *inc.StartDate, inc.EndDate, *inc.Impact, inc.System, inc.Type)
+		for _, comp := range inc.Components {
+			componentIDs = append(componentIDs, comp.ID)
+		}
+	}
+	return rowsInc, incidentIDs, componentIDs
+}
+
+func prepareRelatedRows(result []*db.Incident) (*sqlmock.Rows, *sqlmock.Rows, *sqlmock.Rows, *sqlmock.Rows) {
+	rowsIncComp := sqlmock.NewRows([]string{"incident_id", "component_id"})
+	rowsComp := sqlmock.NewRows([]string{"id", "name"})
+	rowsCompAttr := sqlmock.NewRows([]string{"id", "component_id", "name", "value"})
+	rowsStatus := sqlmock.NewRows([]string{"id", "incident_id", "timestamp", "text", "status"})
+
+	for _, inc := range result {
+		for _, comp := range inc.Components {
+			rowsIncComp.AddRow(inc.ID, comp.ID)
+			rowsComp.AddRow(comp.ID, comp.Name)
+			for _, attr := range comp.Attrs {
+				rowsCompAttr.AddRow(attr.ID, attr.ComponentID, attr.Name, attr.Value)
+			}
+		}
+		for _, status := range inc.Statuses {
+			rowsStatus.AddRow(status.ID, status.IncidentID, status.Timestamp, status.Text, status.Status)
+		}
+	}
+	return rowsIncComp, rowsComp, rowsCompAttr, rowsStatus
+}
+
 func prepareMockForIncidents(t *testing.T, mock sqlmock.Sqlmock, result []*db.Incident) {
 	t.Helper()
 
-	// Only expect a DB call if the status is OK and there are results
-	if len(result) > 0 {
-		incidentIDs := make([]driver.Value, len(result))
-		componentIDs := make([]driver.Value, 0)
-		rowsInc := sqlmock.NewRows([]string{"id", "text", "description", "start_date", "end_date", "impact", "system", "type"})
-		for i, inc := range result {
-			incidentIDs[i] = inc.ID
-			var descriptionVal interface{} = nil
-			if inc.Description != nil {
-				descriptionVal = *inc.Description
-			}
-			rowsInc.AddRow(inc.ID, *inc.Text, descriptionVal, *inc.StartDate, inc.EndDate, *inc.Impact, inc.System, inc.Type)
-			for _, comp := range inc.Components {
-				componentIDs = append(componentIDs, comp.ID)
-			}
-		}
-		mock.ExpectQuery(`^SELECT (.+) FROM "incident"`).WillReturnRows(rowsInc) // Simplified regex for flexibility
-
-		rowsIncComp := sqlmock.NewRows([]string{"incident_id", "component_id"})
-		rowsComp := sqlmock.NewRows([]string{"id", "name"})
-		rowsCompAttr := sqlmock.NewRows([]string{"id", "component_id", "name", "value"})
-		rowsStatus := sqlmock.NewRows([]string{"id", "incident_id", "timestamp", "text", "status"})
-		for _, inc := range result {
-			for _, comp := range inc.Components {
-				rowsIncComp.AddRow(inc.ID, comp.ID)
-				rowsComp.AddRow(comp.ID, comp.Name)
-				for _, attr := range comp.Attrs {
-					rowsCompAttr.AddRow(attr.ID, attr.ComponentID, attr.Name, attr.Value)
-				}
-			}
-			for _, status := range inc.Statuses {
-				rowsStatus.AddRow(status.ID, status.IncidentID, status.Timestamp, status.Text, status.Status)
-			}
-		}
-
-		mock.ExpectQuery(`^SELECT (.+) FROM "incident_component_relation"`).WithArgs(incidentIDs...).WillReturnRows(rowsIncComp)
-		mock.ExpectQuery(`^SELECT (.+) FROM "component"`).WithArgs(componentIDs...).WillReturnRows(rowsComp)
-
-		mock.ExpectQuery("^SELECT (.+) FROM \"component_attribute\"").WillReturnRows(rowsCompAttr)
-
-		mock.ExpectQuery(`^SELECT (.+) FROM "incident_status"`).WithArgs(incidentIDs...).WillReturnRows(rowsStatus)
-	} else {
-		// Expect query but return no rows
+	if len(result) == 0 {
 		mock.ExpectQuery(`^SELECT (.+) FROM "incident"`).WillReturnRows(sqlmock.NewRows([]string{"id", "text", "description", "start_date", "end_date", "impact", "system", "type"}))
+		return
 	}
+
+	rowsInc, incidentIDs, componentIDs := prepareIncidentRows(result)
+	mock.ExpectQuery(`^SELECT (.+) FROM "incident"`).WillReturnRows(rowsInc)
+
+	rowsIncComp, rowsComp, rowsCompAttr, rowsStatus := prepareRelatedRows(result)
+
+	mock.ExpectQuery(`^SELECT (.+) FROM "incident_component_relation"`).WithArgs(incidentIDs...).WillReturnRows(rowsIncComp)
+	mock.ExpectQuery(`^SELECT (.+) FROM "component"`).WithArgs(componentIDs...).WillReturnRows(rowsComp)
+	mock.ExpectQuery("^SELECT (.+) FROM \"component_attribute\"").WillReturnRows(rowsCompAttr)
+	mock.ExpectQuery(`^SELECT (.+) FROM "incident_status"`).WithArgs(incidentIDs...).WillReturnRows(rowsStatus)
 }
 
 func prepareAvailability(t *testing.T, mock sqlmock.Sqlmock, testTime time.Time) {
