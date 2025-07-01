@@ -167,15 +167,21 @@ func toAPIIncident(inc *db.Incident) *Incident {
 		components[i] = int(comp.ID)
 	}
 
+	var description string
+	if inc.Description != nil {
+		description = *inc.Description
+	}
+
 	incData := IncidentData{
-		Title:      *inc.Text,
-		Impact:     inc.Impact,
-		Components: components,
-		StartDate:  *inc.StartDate,
-		EndDate:    inc.EndDate,
-		System:     &inc.System,
-		Updates:    inc.Statuses,
-		Type:       inc.Type,
+		Title:       *inc.Text,
+		Description: description,
+		Impact:      inc.Impact,
+		Components:  components,
+		StartDate:   *inc.StartDate,
+		EndDate:     inc.EndDate,
+		System:      &inc.System,
+		Updates:     inc.Statuses,
+		Type:        inc.Type,
 	}
 
 	return &Incident{IncidentID{ID: int(inc.ID)}, incData}
@@ -214,13 +220,14 @@ func PostIncidentHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc { //
 		}
 
 		incIn := db.Incident{
-			Text:       &incData.Title,
-			StartDate:  &incData.StartDate,
-			EndDate:    incData.EndDate,
-			Impact:     incData.Impact,
-			System:     *incData.System,
-			Type:       incData.Type,
-			Components: components,
+			Text:        &incData.Title,
+			Description: &incData.Description,
+			StartDate:   &incData.StartDate,
+			EndDate:     incData.EndDate,
+			Impact:      incData.Impact,
+			System:      *incData.System,
+			Type:        incData.Type,
+			Components:  components,
 		}
 
 		log.Info("get opened incidents")
@@ -231,7 +238,7 @@ func PostIncidentHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc { //
 			return
 		}
 
-		if err = createIncident(dbInst, log, &incIn, incData.Description); err != nil {
+		if err = createIncident(dbInst, log, &incIn); err != nil {
 			apiErrors.RaiseInternalErr(c, err)
 			return
 		}
@@ -345,7 +352,7 @@ func validateEventCreationTimes(incData IncidentData) error {
 	return nil
 }
 
-func createIncident(dbInst *db.DB, log *zap.Logger, inc *db.Incident, description string) error {
+func createIncident(dbInst *db.DB, log *zap.Logger, inc *db.Incident) error {
 	log.Info("start to create an incident")
 	id, err := dbInst.SaveIncident(inc)
 	if err != nil {
@@ -356,18 +363,20 @@ func createIncident(dbInst *db.DB, log *zap.Logger, inc *db.Incident, descriptio
 
 	if *inc.Impact == 0 {
 		log.Info("the incident is maintenance or info, add planned status")
-
-		if description == "" {
-			description = event.MaintenancePlannedDescription(*inc.StartDate, *inc.EndDate)
+		var statusText string
+		switch inc.Type {
+		case event.TypeInformation:
+			statusText = event.InfoPlannedStatusText(*inc.StartDate, *inc.EndDate)
+		case event.TypeMaintenance:
+			statusText = event.MaintenancePlannedStatusText(*inc.StartDate, *inc.EndDate)
 		}
 
 		inc.Statuses = append(inc.Statuses, db.IncidentStatus{
 			IncidentID: inc.ID,
 			Status:     event.MaintenancePlanned,
-			Text:       description,
+			Text:       statusText,
 			Timestamp:  time.Now().UTC(),
 		})
-
 		err = dbInst.ModifyIncident(inc)
 		if err != nil {
 			return err
@@ -378,14 +387,15 @@ func createIncident(dbInst *db.DB, log *zap.Logger, inc *db.Incident, descriptio
 }
 
 type PatchIncidentData struct {
-	Title      *string      `json:"title,omitempty"`
-	Impact     *int         `json:"impact,omitempty"`
-	Message    string       `json:"message" binding:"required"`
-	Status     event.Status `json:"status" binding:"required"`
-	UpdateDate time.Time    `json:"update_date" binding:"required"`
-	StartDate  *time.Time   `json:"start_date,omitempty"`
-	EndDate    *time.Time   `json:"end_date,omitempty"`
-	Type       string       `json:"type,omitempty" binding:"omitempty,oneof=maintenance info incident"`
+	Title       *string      `json:"title,omitempty"`
+	Description *string      `json:"description,omitempty"`
+	Impact      *int         `json:"impact,omitempty"`
+	Message     string       `json:"message" binding:"required"`
+	Status      event.Status `json:"status" binding:"required"`
+	UpdateDate  time.Time    `json:"update_date" binding:"required"`
+	StartDate   *time.Time   `json:"start_date,omitempty"`
+	EndDate     *time.Time   `json:"end_date,omitempty"`
+	Type        string       `json:"type,omitempty" binding:"omitempty,oneof=maintenance info incident"`
 }
 
 func PatchIncidentHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc { //nolint:gocognit
@@ -540,12 +550,12 @@ func updateFields(income *PatchIncidentData, stored *db.Incident) {
 		stored.Text = income.Title
 	}
 
-	if income.Impact != nil {
-		stored.Impact = income.Impact
+	if income.Description != nil {
+		stored.Description = income.Description
 	}
 
-	if income.Type != "" {
-		stored.Type = income.Type
+	if income.Impact != nil {
+		stored.Impact = income.Impact
 	}
 
 	if income.Type != "" {
@@ -620,7 +630,8 @@ func PostIncidentExtractHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFu
 			movedComponents,
 			storedInc,
 			*storedInc.Impact,
-			*storedInc.Text)
+			*storedInc.Text,
+			storedInc.Description)
 		if err != nil {
 			apiErrors.RaiseInternalErr(c, err)
 			return

@@ -68,15 +68,16 @@ func (c *ComponentAttr) TableName() string {
 
 // Incident is a db table representation.
 type Incident struct {
-	ID         uint             `json:"id"`
-	Text       *string          `json:"text" gorm:"not null"`
-	StartDate  *time.Time       `json:"start_date" gorm:"not null"`
-	EndDate    *time.Time       `json:"end_date"`
-	Impact     *int             `json:"impact" gorm:"not null"`
-	Statuses   []IncidentStatus `json:"updates" gorm:"foreignKey:IncidentID"`
-	System     bool             `json:"system" gorm:"not null"`
-	Type       string           `json:"type" gorm:"not null"`
-	Components []Component      `json:"components" gorm:"many2many:incident_component_relation"`
+	ID          uint             `json:"id"`
+	Text        *string          `json:"text" gorm:"not null"`
+	Description *string          `json:"description" gorm:"type:varchar(500)"`
+	StartDate   *time.Time       `json:"start_date" gorm:"not null"`
+	EndDate     *time.Time       `json:"end_date"`
+	Impact      *int             `json:"impact" gorm:"not null"`
+	Statuses    []IncidentStatus `json:"updates" gorm:"foreignKey:IncidentID"`
+	System      bool             `json:"system" gorm:"not null"`
+	Type        string           `json:"type" gorm:"not null"`
+	Components  []Component      `json:"components" gorm:"many2many:incident_component_relation"`
 }
 
 func (in *Incident) TableName() string {
