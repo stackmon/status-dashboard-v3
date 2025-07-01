@@ -79,17 +79,13 @@ func parseIncidentParams(c *gin.Context) (*db.IncidentsParams, error) {
 		return nil, err
 	}
 
-	params := &db.IncidentsParams{}
-
-	// Type: Validated by "oneof" tag in APIGetIncidentsQuery.
-	if query.Type != nil {
-		params.Type = query.Type
-	}
-
-	// Opened: Type is now *bool.
-	// Gin handles parsing "true", "false", "1", "0".
-	if query.Opened != nil {
-		params.IsOpened = query.Opened
+	params := &db.IncidentsParams{
+		Type:      query.Type,
+		IsOpened:  query.Opened,
+		StartDate: query.StartDate,
+		EndDate:   query.EndDate,
+		Impact:    query.Impact,
+		IsSystem:  query.System,
 	}
 
 	// Status: Manual validation.
@@ -99,29 +95,12 @@ func parseIncidentParams(c *gin.Context) (*db.IncidentsParams, error) {
 		return nil, err
 	}
 
-	// Dates: Parsed by time_format tag.
-	// Range validated in bindAndValidateIncidentsQuery.
-	if query.StartDate != nil {
-		params.StartDate = query.StartDate
-	}
-	if query.EndDate != nil {
-		params.EndDate = query.EndDate
-	}
-
-	// Impact: Type *int, validated by gte/lte tags.
-	if query.Impact != nil {
-		params.Impact = query.Impact
-	}
-
-	if query.System != nil {
-		params.IsSystem = query.System
-	}
-
 	// parseAndSetComponents there is in validation.go (package v2)
 	err = parseAndSetComponents(query.Components, params)
 	if err != nil {
 		return nil, err
 	}
+
 	return params, nil
 }
 
@@ -203,12 +182,17 @@ func toAPIIncident(inc *db.Incident) *Incident {
 }
 
 // PostIncidentHandler creates an incident.
-func PostIncidentHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc { //nolint:gocognit
+func PostIncidentHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc { //nolint:gocognit,funlen
 	return func(c *gin.Context) {
 		var incData IncidentData
 		if err := c.ShouldBindBodyWithJSON(&incData); err != nil {
 			apiErrors.RaiseBadRequestErr(c, err)
 			return
+		}
+
+		incData.StartDate = incData.StartDate.UTC()
+		if incData.EndDate != nil {
+			*incData.EndDate = incData.EndDate.UTC()
 		}
 
 		if err := validateEventCreation(incData); err != nil {
@@ -316,21 +300,46 @@ type ProcessComponentResp struct {
 }
 
 func validateEventCreation(incData IncidentData) error {
-	if ((incData.Type == event.TypeMaintenance || incData.Type == event.TypeInformation) && *incData.Impact != 0) ||
-		(incData.Type == event.TypeIncident && *incData.Impact == 0) {
-		return apiErrors.ErrIncidentTypeImpactMismatch
+	if err := validateEventCreationImpact(incData); err != nil {
+		return err
 	}
 
-	if incData.Type == event.TypeIncident && incData.EndDate != nil {
-		return apiErrors.ErrIncidentEndDateShouldBeEmpty
-	}
-
-	if (incData.Type == event.TypeMaintenance || incData.Type == event.TypeInformation) && incData.EndDate == nil {
-		return apiErrors.ErrMaintenanceEndDateEmpty
+	if err := validateEventCreationTimes(incData); err != nil {
+		return err
 	}
 
 	if len(incData.Updates) != 0 {
 		return apiErrors.ErrIncidentUpdatesShouldBeEmpty
+	}
+
+	return nil
+}
+
+func validateEventCreationImpact(incData IncidentData) error {
+	if (incData.Type == event.TypeMaintenance || incData.Type == event.TypeInformation) && *incData.Impact != 0 {
+		return apiErrors.ErrIncidentTypeImpactMismatch
+	}
+
+	if incData.Type == event.TypeIncident && *incData.Impact == 0 {
+		return apiErrors.ErrIncidentTypeImpactMismatch
+	}
+
+	return nil
+}
+
+func validateEventCreationTimes(incData IncidentData) error {
+	// you can't create an incident with the end_date
+	if incData.Type == event.TypeIncident && incData.EndDate != nil {
+		return apiErrors.ErrIncidentEndDateShouldBeEmpty
+	}
+
+	// you can't create an incident in the future
+	if incData.Type == event.TypeIncident && incData.StartDate.After(time.Now().UTC()) {
+		return apiErrors.ErrIncidentStartDateInFuture
+	}
+
+	if (incData.Type == event.TypeMaintenance || incData.Type == event.TypeInformation) && incData.EndDate == nil {
+		return apiErrors.ErrMaintenanceEndDateEmpty
 	}
 
 	return nil
@@ -379,7 +388,7 @@ type PatchIncidentData struct {
 	Type       string       `json:"type,omitempty" binding:"omitempty,oneof=maintenance info incident"`
 }
 
-func PatchIncidentHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
+func PatchIncidentHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc { //nolint:gocognit
 	return func(c *gin.Context) {
 		logger.Debug("update incident")
 
@@ -393,6 +402,15 @@ func PatchIncidentHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 		if err := c.ShouldBindBodyWithJSON(&incData); err != nil {
 			apiErrors.RaiseBadRequestErr(c, err)
 			return
+		}
+
+		// Ensure the update date is in UTC
+		incData.UpdateDate = incData.UpdateDate.UTC()
+		if incData.StartDate != nil {
+			*incData.StartDate = incData.StartDate.UTC()
+		}
+		if incData.EndDate != nil {
+			*incData.EndDate = incData.EndDate.UTC()
 		}
 
 		storedIncident, err := dbInst.GetIncident(incID.ID)
@@ -865,7 +883,7 @@ func calculateAvailability(component *db.Component) ([]MonthlyAvailability, erro
 		return nil, nil
 	}
 
-	periodEndDate := time.Now()
+	periodEndDate := time.Now().UTC()
 	// Get the current date and starting point (12 months ago)
 	// a year ago, including current the month
 	periodStartDate := time.Date(periodEndDate.Year(), periodEndDate.Month(),
