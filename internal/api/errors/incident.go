@@ -4,6 +4,7 @@ import "errors"
 
 var ErrIncidentDSNotExist = errors.New("incident does not exist")
 var ErrIncidentEndDateShouldBeEmpty = errors.New("incident end_date should be empty")
+var ErrIncidentStartDateInFuture = errors.New("incident start_date should not be in the future")
 var ErrIncidentUpdatesShouldBeEmpty = errors.New("incident updates should be empty")
 var ErrIncidentTypeImpactMismatch = errors.New(
 	"impact must be 0 for type 'maintenance' or 'info' and gt 0 for 'incident'",
