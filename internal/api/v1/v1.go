@@ -245,7 +245,7 @@ func PostComponentStatusHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFu
 			return
 		}
 
-		log := logger.With(zap.Any("component", inComponent))
+		log := logger.With(zap.Any("component_incident_creation", inComponent))
 
 		log.Info("get component from name and attributes")
 		storedComponent, err := dbInst.GetComponentFromNameAttrs(inComponent.Name, attr)
@@ -259,8 +259,8 @@ func PostComponentStatusHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFu
 		}
 
 		log.Info("get opened incidents")
-		isOpenedTrue := true
-		openedIncidents, err := dbInst.GetIncidents(&db.IncidentsParams{IsOpened: &isOpenedTrue})
+		isActiveTrue := true
+		openedIncidents, err := dbInst.GetIncidents(&db.IncidentsParams{IsActive: &isActiveTrue})
 		if err != nil {
 			apiErrors.RaiseInternalErr(c, err)
 			return
@@ -393,6 +393,7 @@ func createIncident(
 	comps := []db.Component{*storedComponent}
 	inc := &db.Incident{
 		Text:       &inComponent.Text,
+		Type:       event.TypeIncident,
 		StartDate:  &startDate,
 		EndDate:    nil,
 		Impact:     &inComponent.Impact,

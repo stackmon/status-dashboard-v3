@@ -47,7 +47,7 @@ func (db *DB) Close() error {
 }
 
 type IncidentsParams struct {
-	Type         *string
+	Types        []string
 	Status       *event.Status
 	StartDate    *time.Time
 	EndDate      *time.Time
@@ -55,9 +55,12 @@ type IncidentsParams struct {
 	IsSystem     *bool
 	ComponentIDs []int
 	LastCount    int
-	IsOpened     *bool
+	IsActive     *bool
 }
 
+// GetIncidents retrieves incidents based on the provided parameters.
+// If no parameters are provided, it returns all incidents.
+// params is a slice because of the optional nature of parameters.
 func (db *DB) GetIncidents(params ...*IncidentsParams) ([]*Incident, error) {
 	var incidents []*Incident
 	var param IncidentsParams
@@ -70,21 +73,26 @@ func (db *DB) GetIncidents(params ...*IncidentsParams) ([]*Incident, error) {
 		Preload("Components", func(db *gorm.DB) *gorm.DB { return db.Select("ID, Name") }).
 		Preload("Components.Attrs")
 
-	if param.Type != nil {
-		switch *param.Type {
-		case "maintenance":
-			r = r.Where("impact = ?", 0)
-		case "incident":
-			r = r.Where("impact > ?", 0)
-		}
+	if param.Types != nil {
+		r = r.Where("incident.type IN (?)", param.Types)
 	}
 
-	if param.IsOpened != nil {
-		if *param.IsOpened {
-			r = r.Where("end_date is NULL")
-		} else {
-			r = r.Where("end_date is NOT NULL")
-		}
+	if param.Impact != nil {
+		r = r.Where("incident.impact = ?", *param.Impact)
+	}
+
+	if param.IsSystem != nil {
+		r = r.Where("incident.system = ?", *param.IsSystem)
+	}
+
+	if len(param.ComponentIDs) > 0 {
+		r = r.Joins("JOIN incident_component_relation icr ON icr.incident_id = incident.id").
+			Where("icr.component_id IN (?)", param.ComponentIDs).Group("incident.id")
+	}
+
+	// it's a special case for active events
+	if param.IsActive != nil {
+		return db.processActiveEvents(r, *param.IsActive)
 	}
 
 	if param.Status != nil {
@@ -106,19 +114,6 @@ func (db *DB) GetIncidents(params ...*IncidentsParams) ([]*Incident, error) {
 		r = r.Where("incident.end_date <= ?", *param.EndDate)
 	}
 
-	if param.Impact != nil {
-		r = r.Where("incident.impact = ?", *param.Impact)
-	}
-
-	if param.IsSystem != nil {
-		r = r.Where("incident.system = ?", *param.IsSystem)
-	}
-
-	if len(param.ComponentIDs) > 0 {
-		r = r.Joins("JOIN incident_component_relation icr ON icr.incident_id = incident.id").
-			Where("icr.component_id IN (?)", param.ComponentIDs).Group("incident.id")
-	}
-
 	r = r.Order("incident.start_date DESC")
 
 	if param.LastCount != 0 {
@@ -129,6 +124,63 @@ func (db *DB) GetIncidents(params ...*IncidentsParams) ([]*Incident, error) {
 		return nil, err
 	}
 	return incidents, nil
+}
+
+func (db *DB) processActiveEvents(r *gorm.DB, isActive bool) ([]*Incident, error) { //nolint:gocognit
+	var incidents []*Incident
+	if !isActive {
+		// We don't support not active events, because they are not useful.
+		return incidents, ErrDBIncidentFilterActiveFalse
+	}
+
+	currentTime := time.Now().UTC()
+	// For opened incidents:
+	// 1. Include all events with NULL end_date (only for incidents)
+	// 2. Include maintenance and info events where current time is between start_date and end_date
+	//TODO: this case doesn't include events in cancelled status, planned, etc. Just uses the time period.
+	// Fix it after introducing the field "current_status"
+	r = r.Where("(end_date is NULL) OR (start_date <= ? AND end_date >= ?)",
+		currentTime, currentTime)
+
+	if err := r.Find(&incidents).Error; err != nil {
+		return nil, err
+	}
+
+	// manual sorting
+	var openedEvents []*Incident
+	for _, ev := range incidents {
+		if ev.Type == event.TypeInformation {
+			var finished bool
+			for _, status := range ev.Statuses {
+				if status.Status == event.InfoCancelled || status.Status == event.InfoCompleted {
+					finished = true
+				}
+			}
+			if !finished {
+				openedEvents = append(openedEvents, ev)
+			}
+
+			continue
+		}
+
+		if ev.Type == event.TypeMaintenance {
+			var finished bool
+			for _, status := range ev.Statuses {
+				if status.Status == event.MaintenanceCancelled || status.Status == event.MaintenanceCompleted {
+					finished = true
+				}
+			}
+			if !finished {
+				openedEvents = append(openedEvents, ev)
+			}
+
+			continue
+		}
+
+		openedEvents = append(openedEvents, ev)
+	}
+
+	return openedEvents, nil
 }
 
 func (db *DB) GetIncident(id int) (*Incident, error) {
