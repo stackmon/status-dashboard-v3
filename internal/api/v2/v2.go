@@ -40,8 +40,9 @@ type IncidentData struct {
 	//    2. info
 	//    3. incident
 	// Type field is mandatory.
-	Type    string              `json:"type" binding:"required,oneof=maintenance info incident"`
-	Updates []db.IncidentStatus `json:"updates,omitempty"`
+	Type         string              `json:"type" binding:"required,oneof=maintenance info incident"`
+	Updates      []db.IncidentStatus `json:"updates,omitempty"`
+	ActualStatus *string             `json:"actual_status,omitempty"`
 }
 
 type Incident struct {
@@ -184,15 +185,16 @@ func toAPIIncident(inc *db.Incident) *Incident {
 	}
 
 	incData := IncidentData{
-		Title:       *inc.Text,
-		Description: description,
-		Impact:      inc.Impact,
-		Components:  components,
-		StartDate:   *inc.StartDate,
-		EndDate:     inc.EndDate,
-		System:      &inc.System,
-		Updates:     inc.Statuses,
-		Type:        inc.Type,
+		Title:        *inc.Text,
+		Description:  description,
+		Impact:       inc.Impact,
+		Components:   components,
+		StartDate:    *inc.StartDate,
+		EndDate:      inc.EndDate,
+		System:       &inc.System,
+		Updates:      inc.Statuses,
+		ActualStatus: inc.ActualStatus,
+		Type:         inc.Type,
 	}
 
 	return &Incident{IncidentID{ID: int(inc.ID)}, incData}
@@ -413,6 +415,8 @@ func createEvent(dbInst *db.DB, log *zap.Logger, inc *db.Incident) error {
 		Text:       statusText,
 		Timestamp:  timestamp,
 	})
+	statusStr := string(status)
+	inc.ActualStatus = &statusStr
 
 	err = dbInst.ModifyIncident(inc)
 	if err != nil {
@@ -613,6 +617,9 @@ func updateFields(income *PatchIncidentData, stored *db.Incident) {
 	if income.Type != "" {
 		stored.Type = income.Type
 	}
+
+	statusStr := string(income.Status)
+	stored.ActualStatus = &statusStr
 
 	if income.Status == event.IncidentReopened {
 		stored.EndDate = nil
