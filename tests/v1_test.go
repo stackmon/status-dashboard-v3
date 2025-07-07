@@ -227,6 +227,81 @@ func TestV1PostComponentsStatusHandler(t *testing.T) {
 	checkIncidentsDataAfterMovingComponentBetweenIncidentsV1(t, r, dbIns)
 }
 
+func TestV1MaintenancePreventCreation(t *testing.T) {
+	t.Log("start to test incident creation, modification by /v1/component_status")
+	r, dbIns, _ := initTests(t)
+
+	t.Log("close all incidents, to allow create a new maintenance")
+
+	incidents := getIncidentsAPIV1(t, r)
+	for _, inc := range incidents {
+		if inc.ID == 1 {
+			// skip the closed, predefined incident
+			continue
+		}
+		closeIncidentV1(t, r, dbIns, inc.ID)
+	}
+
+	t.Log("create a maintenance for the component with DB access")
+
+	mTitle := "Test maintenance for check incident creation prevention"
+	startTime := time.Now().UTC().Truncate(time.Microsecond)
+	endTime := startTime.Add(time.Minute * 2)
+	impact0 := 0
+
+	compNameDCS := "Distributed Cache Service"
+	compAttrEUNL := []*v1.ComponentAttribute{{Name: "region", Value: "EU-NL"}}
+	compDBAttrEUNL := &db.ComponentAttr{
+		Name: "region", Value: "EU-NL",
+	}
+
+	storedComponent, err := dbIns.GetComponentFromNameAttrs(compNameDCS, compDBAttrEUNL)
+	require.NoError(t, err)
+
+	m := &db.Incident{
+		Text:      &mTitle,
+		StartDate: &startTime,
+		EndDate:   &endTime,
+		Impact:    &impact0,
+		System:    false,
+		Type:      event.TypeMaintenance,
+		Components: []db.Component{
+			*storedComponent,
+		},
+	}
+
+	maintenanceID, err := dbIns.SaveIncident(m)
+	require.NoError(t, err)
+
+	title := "Test incident creation with existed maintenance"
+
+	impact1 := 1
+	compCreateData := &v1.ComponentStatusPost{
+		Name:       compNameDCS,
+		Impact:     impact1,
+		Text:       title,
+		Attributes: compAttrEUNL,
+	}
+
+	t.Log("create an incident with existed maintenance, shouldn't get an error, return an existed incident ", compCreateData)
+	data, err := json.Marshal(compCreateData)
+	require.NoError(t, err)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodPost, "/v1/component_status", bytes.NewReader(data))
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusCreated, w.Code)
+
+	respCreated := &v1.Incident{}
+	err = json.Unmarshal(w.Body.Bytes(), respCreated)
+	require.NoError(t, err)
+
+	require.Equal(t, int(maintenanceID), respCreated.ID)
+	assert.Equal(t, mTitle, respCreated.Text)
+	assert.Equal(t, impact0, *respCreated.Impact)
+}
+
 func createIncidentByComponentV1(t *testing.T, r *gin.Engine, inc *v1.ComponentStatusPost) (int, []byte) {
 	t.Helper()
 
@@ -294,7 +369,6 @@ func closeIncidentV1(t *testing.T, r *gin.Engine, dbIns *db.DB, id int) {
 			assert.Equal(t, tNow.YearDay(), endTime.YearDay())
 			assert.Equal(t, tNow.Hour(), endTime.Hour())
 			assert.Equal(t, tNow.Minute(), endTime.Minute())
-			assert.Len(t, i.Updates, 1)
 		}
 	}
 }

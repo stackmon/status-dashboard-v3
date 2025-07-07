@@ -333,7 +333,7 @@ func TestV2PostIncidentsHandler(t *testing.T) {
 		Type:        event.TypeIncident,
 	}
 	result = v2CreateIncident(t, r, &incidentCreateData)
-	assert.Equal(t, 9, result.Result[0].IncidentID)
+	assert.Equal(t, 10, result.Result[0].IncidentID)
 	assert.Equal(t, 3, result.Result[0].ComponentID)
 }
 
@@ -903,49 +903,49 @@ func TestV2GetIncidentsFilteredHandler(t *testing.T) {
 		{
 			name:          "No filters",
 			queryParams:   nil,
-			expectedIDs:   []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15},
-			expectedCount: 15,
+			expectedIDs:   []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16},
+			expectedCount: 16,
 		},
 		{
 			name:        "Filter by start_date",
 			queryParams: map[string]string{"start_date": time.Date(2025, 2, 1, 0, 0, 0, 0, time.UTC).Format(time.RFC3339)},
 			// Incidents starting on or after 2025-02-01 (2,3,4,5,6,7,8,9,10,11,12,13)
-			expectedIDs:   []int{2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13},
-			expectedCount: 12,
+			expectedIDs:   []int{2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14},
+			expectedCount: 13,
 		},
 		{
 			name:        "Filter by end_date",
 			queryParams: map[string]string{"end_date": time.Date(2025, 2, 1, 0, 0, 0, 0, time.UTC).Format(time.RFC3339)},
 			// Incidents starting on or before 2025-02-01 (1, 12, 13)
-			expectedIDs:   []int{1, 14, 15},
+			expectedIDs:   []int{1, 15, 16},
 			expectedCount: 3,
 		},
 		{
 			name:        "Filter by impact minor (1)",
 			queryParams: map[string]string{"impact": "1"},
 			// Actual incident id's: 1, 6, 7, 9, 10, 12, 13
-			expectedIDs:   []int{1, 6, 7, 9, 10, 12, 13},
+			expectedIDs:   []int{1, 7, 8, 10, 11, 13, 14},
 			expectedCount: 7,
 		},
 		{
 			name:        "Filter by impact major (2)",
 			queryParams: map[string]string{"impact": "2"},
 			// Actual incident id's: 2, 4, 11
-			expectedIDs:   []int{2, 4, 11},
+			expectedIDs:   []int{2, 4, 12},
 			expectedCount: 3,
 		},
 		{
 			name:        "Filter by impact maintenance (0)",
 			queryParams: map[string]string{"impact": "0"},
 			// Actual incident id's: 8
-			expectedIDs:   []int{8},
-			expectedCount: 1,
+			expectedIDs:   []int{6, 9},
+			expectedCount: 2,
 		},
 		{
 			name:        "Filter by component_id 1",
 			queryParams: map[string]string{"components": "1"},
 			// Actual incident id's: 1, 5, 8, 10, 11
-			expectedIDs:   []int{1, 5, 8, 10, 11, 12},
+			expectedIDs:   []int{1, 5, 9, 11, 12, 13},
 			expectedCount: 6,
 		},
 		{
@@ -958,21 +958,21 @@ func TestV2GetIncidentsFilteredHandler(t *testing.T) {
 			name:        "Filter by system true",
 			queryParams: map[string]string{"system": "true"},
 			// Actual incident id's: 14, 15
-			expectedIDs:   []int{14, 15},
+			expectedIDs:   []int{15, 16},
 			expectedCount: 2,
 		},
 		{
 			name:        "Filter by system false",
 			queryParams: map[string]string{"system": "false"},
 			// Actual incident id's: 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11
-			expectedIDs:   []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13},
-			expectedCount: 13,
+			expectedIDs:   []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14},
+			expectedCount: 14,
 		},
 		{
 			name:        "Filter by active true",
 			queryParams: map[string]string{"active": "true"},
 			// IsActive (End Date = <nil>) Actual incident id's: 7, 9
-			expectedIDs:   []int{12, 13},
+			expectedIDs:   []int{13, 14},
 			expectedCount: 2,
 		},
 		{
@@ -981,7 +981,7 @@ func TestV2GetIncidentsFilteredHandler(t *testing.T) {
 			// IsActive: [12, 13]
 			// Impact 1: [1, 6, 7, 9, 10, 12, 13]
 			// Intersection: [12, 13]
-			expectedIDs:   []int{12, 13},
+			expectedIDs:   []int{13, 14},
 			expectedCount: 2,
 		},
 		{
@@ -998,14 +998,14 @@ func TestV2GetIncidentsFilteredHandler(t *testing.T) {
 			queryParams: map[string]string{"start_date": time.Date(2024, 12, 01, 0, 0, 0, 0, time.UTC).Format(time.RFC3339), "end_date": time.Date(2024, 12, 17, 0, 0, 0, 0, time.UTC).Format(time.RFC3339)},
 			// Incidents starting between 2024-12-01 and 2024-12-17 (inclusive for start_date)
 			// No pre-existing incidents in this range.
-			expectedIDs:   []int{14},
+			expectedIDs:   []int{15},
 			expectedCount: 1,
 		},
 		{
 			name:        "Filter by impact 3 (outage)",
 			queryParams: map[string]string{"impact": "3"},
 			// Actual incident id's: 3, 5, 14, 15
-			expectedIDs:   []int{3, 5, 14, 15},
+			expectedIDs:   []int{3, 5, 16, 15},
 			expectedCount: 4,
 		},
 	}
