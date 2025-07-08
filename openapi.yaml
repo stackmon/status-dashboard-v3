@@ -238,14 +238,14 @@ paths:
       parameters:
         - name: type
           in: query
-          description: Filter by incident type ('incident' for impact > 0, 'maintenance | info' for impact = 0).
+          description: Filter by incident type ('incident', 'maintenance' or 'info'). Can be a comma-separated list of types.
           required: false
           schema:
             type: string
-            enum: [incident, maintenance, info]
-        - name: opened
+            example: "incident,maintenance"
+        - name: active
           in: query
-          description: Filter by open status ('true' for open incidents, 'false' for closed incidents).
+          description: Filter by active status for events. For incidents, this means the incident is currently ongoing. For maintenance, it means the maintenance is currently in progress. And for info, it means the info event is currently active. Supporting only 'true' value.
           required: false
           schema:
             type: boolean

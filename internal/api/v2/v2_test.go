@@ -16,6 +16,7 @@ import (
 
 	"github.com/stackmon/otc-status-dashboard/internal/api/errors"
 	"github.com/stackmon/otc-status-dashboard/internal/db"
+	"github.com/stackmon/otc-status-dashboard/internal/event"
 )
 
 func TestGetIncidentsHandler(t *testing.T) {
@@ -48,8 +49,6 @@ func TestGetIncidentsHandlerFilters(t *testing.T) {
 	testEndTime, err := time.Parse(time.RFC3339, endDate)
 	require.NoError(t, err)
 
-	incidentType := "incident"
-	maintenanceType := "maintenance"
 	impact0 := 0
 	impact3 := 3
 	systemFalse := false
@@ -63,7 +62,7 @@ func TestGetIncidentsHandlerFilters(t *testing.T) {
 		StartDate:   &testTime,
 		EndDate:     &testEndTime,
 		Impact:      &impact0, // Maintenance
-		Type:        maintenanceType,
+		Type:        event.TypeMaintenance,
 		System:      systemFalse,
 		Components: []db.Component{
 			{
@@ -83,9 +82,9 @@ func TestGetIncidentsHandlerFilters(t *testing.T) {
 		Text:        &[]string{"Incident title B"}[0],
 		Description: &[]string{"Description B"}[0],
 		StartDate:   &testTime,
-		EndDate:     nil,      // Opened
+		EndDate:     nil,      // IsActive
 		Impact:      &impact3, // Incident
-		Type:        incidentType,
+		Type:        event.TypeIncident,
 		System:      systemTrue,
 		Components: []db.Component{
 			{
@@ -105,8 +104,7 @@ func TestGetIncidentsHandlerFilters(t *testing.T) {
 	responseA := fmt.Sprintf(`{"data":[{"id":1,"title":"Incident title A","description":"Description A","impact":0,"components":[150],"start_date":"%s","end_date":"%s","system":false,"type":"maintenance","updates":[{"status":"completed","text":"Maintenance completed.","timestamp":"%s"}]}]}`, startDate, endDate, endDate)
 	responseB := fmt.Sprintf(`{"data":[{"id":2,"title":"Incident title B","description":"Description B","impact":3,"components":[151],"start_date":"%s","system":true,"type":"incident","updates":[{"status":"analysing","text":"Incident analysing.","timestamp":"%s"}]}]}`, startDate, startDate)
 	responseEmpty := `{"data":[]}`
-	isOpenedTrue := true
-	isOpenedFalse := false
+	isActiveTrue := true
 
 	testCases := []struct {
 		name           string
@@ -119,7 +117,7 @@ func TestGetIncidentsHandlerFilters(t *testing.T) {
 			name: "Filter by type=maintenance",
 			url:  "/v2/incidents?type=maintenance",
 			mockSetup: func(m sqlmock.Sqlmock, params *db.IncidentsParams) {
-				params.Type = &maintenanceType
+				params.Types = []string{event.TypeMaintenance}
 				prepareMockForIncidents(t, m, []*db.Incident{&incidentA})
 			},
 			expectedStatus: http.StatusOK,
@@ -129,7 +127,7 @@ func TestGetIncidentsHandlerFilters(t *testing.T) {
 			name: "Filter by type=incident",
 			url:  "/v2/incidents?type=incident",
 			mockSetup: func(m sqlmock.Sqlmock, params *db.IncidentsParams) {
-				params.Type = &incidentType
+				params.Types = []string{event.TypeIncident}
 				prepareMockForIncidents(t, m, []*db.Incident{&incidentB})
 			},
 			expectedStatus: http.StatusOK,
@@ -139,21 +137,18 @@ func TestGetIncidentsHandlerFilters(t *testing.T) {
 			name: "Filter by opened=true",
 			url:  "/v2/incidents?opened=true",
 			mockSetup: func(m sqlmock.Sqlmock, params *db.IncidentsParams) {
-				params.IsOpened = &isOpenedTrue
+				params.IsActive = &isActiveTrue
 				prepareMockForIncidents(t, m, []*db.Incident{&incidentB})
 			},
 			expectedStatus: http.StatusOK,
 			expectedBody:   responseB,
 		},
 		{
-			name: "Filter by opened=false",
-			url:  "/v2/incidents?opened=false",
-			mockSetup: func(m sqlmock.Sqlmock, params *db.IncidentsParams) {
-				params.IsOpened = &isOpenedFalse
-				prepareMockForIncidents(t, m, []*db.Incident{&incidentA})
-			},
-			expectedStatus: http.StatusOK,
-			expectedBody:   responseA,
+			name:           "Filter by active=false",
+			url:            "/v2/incidents?active=false",
+			mockSetup:      func(_ sqlmock.Sqlmock, _ *db.IncidentsParams) {}, // No DB call expected
+			expectedStatus: http.StatusBadRequest,
+			expectedBody:   fmt.Sprintf(`{"errMsg":"%s"}`, errors.ErrIncidentFQueryInvalidFormat),
 		},
 		{
 			name: "Filter by impact=3",
@@ -186,11 +181,11 @@ func TestGetIncidentsHandlerFilters(t *testing.T) {
 			expectedBody:   responseB,
 		},
 		{
-			name: "Filter combination: type=incident&opened=true",
-			url:  "/v2/incidents?type=incident&opened=true",
+			name: "Filter combination: type=incident&active=true",
+			url:  "/v2/incidents?type=incident&active=true",
 			mockSetup: func(m sqlmock.Sqlmock, params *db.IncidentsParams) {
-				params.Type = &incidentType
-				params.IsOpened = &isOpenedTrue
+				params.Types = []string{event.TypeIncident}
+				params.IsActive = &isActiveTrue
 				prepareMockForIncidents(t, m, []*db.Incident{&incidentB})
 			},
 			expectedStatus: http.StatusOK,
@@ -215,8 +210,15 @@ func TestGetIncidentsHandlerFilters(t *testing.T) {
 			expectedBody:   fmt.Sprintf(`{"errMsg":"%s"}`, errors.ErrIncidentFQueryInvalidFormat),
 		},
 		{
-			name:           "Invalid filter: opened=maybe",
-			url:            "/v2/incidents?opened=maybe",
+			name:           "Invalid filter: active=maybe",
+			url:            "/v2/incidents?active=maybe",
+			mockSetup:      func(_ sqlmock.Sqlmock, _ *db.IncidentsParams) {},
+			expectedStatus: http.StatusBadRequest,
+			expectedBody:   fmt.Sprintf(`{"errMsg":"%s"}`, errors.ErrIncidentFQueryInvalidFormat),
+		},
+		{
+			name:           "Invalid filter: active=false",
+			url:            "/v2/incidents?active=false",
 			mockSetup:      func(_ sqlmock.Sqlmock, _ *db.IncidentsParams) {},
 			expectedStatus: http.StatusBadRequest,
 			expectedBody:   fmt.Sprintf(`{"errMsg":"%s"}`, errors.ErrIncidentFQueryInvalidFormat),

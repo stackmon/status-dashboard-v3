@@ -245,7 +245,7 @@ func PostComponentStatusHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFu
 			return
 		}
 
-		log := logger.With(zap.Any("component", inComponent))
+		log := logger.With(zap.Any("componentIncidentCreation", inComponent))
 
 		log.Info("get component from name and attributes")
 		storedComponent, err := dbInst.GetComponentFromNameAttrs(inComponent.Name, attr)
@@ -259,8 +259,8 @@ func PostComponentStatusHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFu
 		}
 
 		log.Info("get opened incidents")
-		isOpenedTrue := true
-		openedIncidents, err := dbInst.GetIncidents(&db.IncidentsParams{IsOpened: &isOpenedTrue})
+		isActiveTrue := true
+		openedIncidents, err := dbInst.GetIncidents(&db.IncidentsParams{IsActive: &isActiveTrue})
 		if err != nil {
 			apiErrors.RaiseInternalErr(c, err)
 			return
@@ -280,6 +280,7 @@ func PostComponentStatusHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFu
 		log.Info("find opened incident with the component")
 		// the strange logic, because we will get the first incident with component, but we can have another one
 		incident := common.GetIncidentWithComponent(storedComponent.ID, openedIncidents)
+		log.Info("found opened incident", zap.Any("openedIncident", incident))
 		if incident == nil {
 			log.Info("there are no incidents with given component, find an incident with incoming impact")
 			incByImpact := common.FindIncidentByImpact(inComponent.Impact, openedIncidents)
@@ -393,6 +394,7 @@ func createIncident(
 	comps := []db.Component{*storedComponent}
 	inc := &db.Incident{
 		Text:       &inComponent.Text,
+		Type:       event.TypeIncident,
 		StartDate:  &startDate,
 		EndDate:    nil,
 		Impact:     &inComponent.Impact,

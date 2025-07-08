@@ -1,7 +1,6 @@
 package v2
 
 import (
-	"math"
 	"strconv"
 	"strings"
 
@@ -9,6 +8,8 @@ import (
 	"github.com/stackmon/otc-status-dashboard/internal/db"
 	"github.com/stackmon/otc-status-dashboard/internal/event"
 )
+
+const maxComponentID = 2048
 
 // IsValidIncidentFilterStatus checks if the status is valid for maintenance or incidents.
 func IsValidIncidentFilterStatus(status event.Status) bool {
@@ -21,6 +22,7 @@ func IsValidIncidentFilterStatus(status event.Status) bool {
 	if event.IsIncidentClosedStatus(status) {
 		return true
 	}
+
 	return false
 }
 
@@ -37,21 +39,44 @@ func validateAndSetStatus(queryStatus *event.Status, params *db.IncidentsParams)
 
 // parseAndSetComponents parses component IDs from a comma-separated string and sets them on db.IncidentsParams.
 func parseAndSetComponents(queryComponents *string, params *db.IncidentsParams) error {
-	if queryComponents != nil && *queryComponents != "" {
-		compIDStrings := strings.Split(*queryComponents, ",")
-		parsedComponentIDs := make([]int, 0, len(compIDStrings))
-
-		for _, idStr := range compIDStrings {
-			trimmedIDStr := strings.TrimSpace(idStr)
-			idUint64, err := strconv.ParseUint(trimmedIDStr, 10, 64)
-			if err != nil || idUint64 <= 0 || idUint64 > math.MaxInt32 {
-				return apiErrors.ErrIncidentFQueryInvalidFormat
-			}
-			parsedComponentIDs = append(parsedComponentIDs, int(idUint64))
-		}
-		if len(parsedComponentIDs) > 0 {
-			params.ComponentIDs = parsedComponentIDs
-		}
+	if queryComponents == nil {
+		return nil
 	}
+
+	compsStr := strings.Split(*queryComponents, ",")
+	comps := make([]int, 0, len(compsStr))
+
+	for _, comp := range compsStr {
+		uid, err := strconv.Atoi(comp)
+		if err != nil || uid <= 0 || uid > maxComponentID {
+			return apiErrors.ErrIncidentFQueryInvalidFormat
+		}
+		comps = append(comps, uid)
+	}
+
+	params.ComponentIDs = comps
+
+	return nil
+}
+
+// parseAndSetComponents parses component IDs from a comma-separated string and sets them on db.IncidentsParams.
+func parseAndSetTypes(queryTypes *string, params *db.IncidentsParams) error {
+	if queryTypes == nil {
+		return nil
+	}
+
+	typesStr := strings.Split(*queryTypes, ",")
+	types := make([]string, 0, len(typesStr))
+
+	for _, t := range typesStr {
+		if t != event.TypeMaintenance && t != event.TypeInformation && t != event.TypeIncident {
+			return apiErrors.ErrIncidentFQueryInvalidFormat
+		}
+
+		types = append(types, t)
+	}
+
+	params.Types = types
+
 	return nil
 }

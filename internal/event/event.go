@@ -7,9 +7,9 @@ import (
 )
 
 const (
-	TypeMaintenance = "maintenance"
-	TypeIncident    = "incident"
 	TypeInformation = "info"
+	TypeIncident    = "incident"
+	TypeMaintenance = "maintenance"
 )
 
 type Status string
@@ -24,11 +24,28 @@ const (
 	MaintenanceCompleted Status = "completed"
 	MaintenanceCancelled Status = "cancelled"
 )
+const (
+	// InfoPlanned is the status for planned information events.
+	InfoPlanned   Status = "planned"
+	InfoActive    Status = "active"
+	InfoCompleted Status = "completed"
+	InfoCancelled Status = "cancelled"
+)
 
 func IsMaintenanceStatus(status Status) bool {
 	switch status {
 	case MaintenancePlanned, MaintenanceInProgress, MaintenanceModified,
 		MaintenanceCompleted, MaintenanceCancelled:
+		return true
+	}
+
+	return false
+}
+
+// IsInformationStatus checks if a status is related to information events.
+func IsInformationStatus(status Status) bool {
+	switch status {
+	case InfoPlanned, InfoActive, InfoCompleted, InfoCancelled:
 		return true
 	}
 

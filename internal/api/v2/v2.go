@@ -50,14 +50,14 @@ type Incident struct {
 }
 
 type APIGetIncidentsQuery struct {
-	Type       *string       `form:"type" binding:"omitempty,oneof=maintenance info incident"`
-	Opened     *bool         `form:"opened" binding:"omitempty"`
-	Status     *event.Status `form:"status"` // Custom validation in validateAndSetStatus
+	Types      *string       `form:"type" binding:"omitempty"` // custom validation in parseAndSetTypes
+	IsActive   *bool         `form:"active" binding:"omitempty"`
+	Status     *event.Status `form:"status"` // custom validation in validateAndSetStatus
 	StartDate  *time.Time    `form:"start_date" binding:"omitempty"`
 	EndDate    *time.Time    `form:"end_date" binding:"omitempty"`
 	Impact     *int          `form:"impact" binding:"omitempty,gte=0,lte=3"`
 	System     *bool         `form:"system" binding:"omitempty"`
-	Components *string       `form:"components"` // Custom validation in parseAndSetComponents
+	Components *string       `form:"components"` // custom validation in parseAndSetComponents
 }
 
 func bindIncidentsQuery(c *gin.Context) (*APIGetIncidentsQuery, error) {
@@ -80,12 +80,17 @@ func parseIncidentParams(c *gin.Context) (*db.IncidentsParams, error) {
 	}
 
 	params := &db.IncidentsParams{
-		Type:      query.Type,
-		IsOpened:  query.Opened,
 		StartDate: query.StartDate,
 		EndDate:   query.EndDate,
 		Impact:    query.Impact,
 		IsSystem:  query.System,
+	}
+
+	if query.IsActive != nil {
+		if !*query.IsActive {
+			return nil, apiErrors.ErrIncidentFQueryInvalidFormat
+		}
+		params.IsActive = query.IsActive
 	}
 
 	// Status: Manual validation.
@@ -95,8 +100,14 @@ func parseIncidentParams(c *gin.Context) (*db.IncidentsParams, error) {
 		return nil, err
 	}
 
-	// parseAndSetComponents there is in validation.go (package v2)
+	// parseAndSetComponents check components and set them to db params
 	err = parseAndSetComponents(query.Components, params)
+	if err != nil {
+		return nil, err
+	}
+
+	// parseAndSetTypes check event types and set them to db params
+	err = parseAndSetTypes(query.Types, params)
 	if err != nil {
 		return nil, err
 	}
@@ -107,7 +118,7 @@ func parseIncidentParams(c *gin.Context) (*db.IncidentsParams, error) {
 // GetIncidentsHandler retrieves incidents based on query parameters.
 func GetIncidentsHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		logger.Debug("parsing incidents params")
+		logger.Debug("retrieve and parse incidents params from query")
 
 		params, err := parseIncidentParams(c)
 		if err != nil {
@@ -115,7 +126,7 @@ func GetIncidentsHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 			return
 		}
 
-		logger.Debug("retrieve incidents with filters", zap.Any("params", params))
+		logger.Debug("retrieve incidents with params", zap.Any("params", params))
 		r, err := dbInst.GetIncidents(params)
 		if err != nil {
 			logger.Error("failed to retrieve incidents", zap.Error(err))
@@ -206,7 +217,7 @@ func PostIncidentHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc { //
 			return
 		}
 
-		log := logger.With(zap.Any("incident", incData))
+		log := logger.With(zap.Any("incidentData", incData))
 		log.Info("start to prepare for an incident creation")
 
 		components := make([]db.Component, len(incData.Components))
@@ -230,20 +241,22 @@ func PostIncidentHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc { //
 			Components:  components,
 		}
 
-		log.Info("get opened incidents")
-		isOpenedTrue := true
-		openedIncidents, err := dbInst.GetIncidents(&db.IncidentsParams{IsOpened: &isOpenedTrue})
+		log.Info("get active events from the database")
+		isActive := true
+		openedIncidents, err := dbInst.GetIncidents(&db.IncidentsParams{IsActive: &isActive})
 		if err != nil {
 			apiErrors.RaiseInternalErr(c, err)
 			return
 		}
+
+		log.Info("opened incidents and maintenances retrieved", zap.Any("openedIncidents", openedIncidents))
 
 		if err = createIncident(dbInst, log, &incIn); err != nil {
 			apiErrors.RaiseInternalErr(c, err)
 			return
 		}
 
-		if len(openedIncidents) == 0 || *incData.Impact == 0 || incData.Type == "info" {
+		if len(openedIncidents) == 0 || *incData.Impact == 0 || incData.Type == event.TypeInformation {
 			if *incData.Impact == 0 {
 				log.Info("the event is maintenance or info, finish the incident creation")
 			} else {
@@ -269,6 +282,13 @@ func PostIncidentHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc { //
 				ComponentID: int(comp.ID),
 			}
 			for _, inc := range openedIncidents {
+				if inc.Type == event.TypeInformation || inc.Type == event.TypeMaintenance {
+					log.Info(
+						"skip the component movement for maintenance or info incident",
+						zap.Any("componentID", comp.ID), zap.Any("incident_opened", inc),
+					)
+					continue
+				}
 				for _, incComp := range inc.Components {
 					if comp.ID == incComp.ID {
 						log.Info("found the component in the opened incident", zap.Any("component", comp), zap.Any("incident", inc))
@@ -469,10 +489,10 @@ func PatchIncidentHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc { /
 }
 
 func validateEffectiveTypeAndImpact(effectiveType string, effectiveImpact int) error {
-	if (effectiveType == "maintenance" || effectiveType == "info") && effectiveImpact != 0 {
+	if (effectiveType == event.TypeMaintenance || effectiveType == event.TypeInformation) && effectiveImpact != 0 {
 		return apiErrors.ErrIncidentTypeImpactMismatch
 	}
-	if effectiveType == "incident" && effectiveImpact == 0 {
+	if effectiveType == event.TypeIncident && effectiveImpact == 0 {
 		return apiErrors.ErrIncidentTypeImpactMismatch
 	}
 	return nil
