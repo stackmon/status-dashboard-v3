@@ -386,9 +386,9 @@ func createIncident(dbInst *db.DB, log *zap.Logger, inc *db.Incident) error {
 		var statusText string
 		switch inc.Type {
 		case event.TypeInformation:
-			statusText = event.InfoPlannedStatusText(*inc.StartDate, *inc.EndDate)
+			statusText = event.InfoPlannedStatusText()
 		case event.TypeMaintenance:
-			statusText = event.MaintenancePlannedStatusText(*inc.StartDate, *inc.EndDate)
+			statusText = event.MaintenancePlannedStatusText()
 		}
 
 		inc.Statuses = append(inc.Statuses, db.IncidentStatus{

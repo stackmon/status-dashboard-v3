@@ -138,7 +138,7 @@ func (ch *Checker) fixPlannedStatus(sHistory *StatusHistory, mn *db.Incident) {
 	mn.Statuses = append(mn.Statuses, db.IncidentStatus{
 		IncidentID: mn.ID,
 		Status:     event.MaintenancePlanned,
-		Text:       event.MaintenancePlannedStatusText(*mn.StartDate, *mn.EndDate),
+		Text:       event.MaintenancePlannedStatusText(),
 		Timestamp:  *mn.StartDate,
 	})
 
