@@ -89,7 +89,10 @@ func IsIncidentClosedStatus(status Status) bool {
 }
 
 func MaintenancePlannedStatusText(start, end time.Time) string {
-	return fmt.Sprintf("Maintenance is planned from %s UTC to %s UTC.", start.Format(time.DateTime), end.Format(time.DateTime))
+	return fmt.Sprintf("Maintenance is planned from %s UTC to %s UTC.",
+		start.Format(time.DateTime),
+		end.Format(time.DateTime),
+	)
 }
 
 func InfoPlannedStatusText(start, end time.Time) string {
