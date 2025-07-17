@@ -6,14 +6,14 @@ import (
 	"github.com/stackmon/otc-status-dashboard/internal/event"
 )
 
-func (db *DB) GetMaintenances(after uint) ([]*Incident, error) {
+func (db *DB) GetInfoEvents(after uint) ([]*Incident, error) {
 	var incidents []*Incident
 
 	r := db.g.Model(&Incident{}).
 		Preload("Statuses").
 		Preload("Components", func(db *gorm.DB) *gorm.DB { return db.Select("ID") })
 
-	r.Where("incident.type = ?", event.TypeMaintenance)
+	r.Where("incident.type = ?", event.TypeInformation)
 
 	if after > 0 {
 		r.Where("incident.id >= ?", after)

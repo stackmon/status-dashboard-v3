@@ -84,14 +84,34 @@ func IsIncidentClosedStatus(status Status) bool {
 }
 
 const (
-	maintenancePlannedText = "Maintenance is planned."
-	infoPlannedText        = "This informational notification is planned."
+	maintenancePlannedText    = "Maintenance is planned."
+	maintenanceInProgressText = "Maintenance is in progress."
+	maintenanceCompletedText  = "Maintenance is completed."
+	infoPlannedText           = "The informational notification is planned."
+	infoActiveText            = "The informational notification is active."
+	infoCompletedText         = "The informational notification is completed."
 )
 
 func MaintenancePlannedStatusText() string {
 	return maintenancePlannedText
 }
 
+func MaintenanceInProgressStatusText() string {
+	return maintenanceInProgressText
+}
+
+func MaintenanceCompletedStatusText() string {
+	return maintenanceCompletedText
+}
+
 func InfoPlannedStatusText() string {
 	return infoPlannedText
+}
+
+func InfoActiveStatusText() string {
+	return infoActiveText
+}
+
+func InfoCompletedStatusText() string {
+	return infoCompletedText
 }
