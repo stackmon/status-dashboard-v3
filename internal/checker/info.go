@@ -61,9 +61,6 @@ func (ch *Checker) CheckInfoEvents() error {
 		sHistory := calculateInfoStatusHistory(info)
 		actualStatus := calculateCurrentInfoStatus(sHistory, info)
 
-		// collect statuses for correction
-		missedStatuses := make([]db.IncidentStatus, 0)
-
 		switch actualStatus { //nolint:exhaustive
 		case event.InfoPlanned:
 			ch.fixInfoMissedStatuses(event.InfoPlanned, sHistory, info)
@@ -77,7 +74,6 @@ func (ch *Checker) CheckInfoEvents() error {
 			ch.fixInfoMissedStatuses(event.InfoCancelled, sHistory, info)
 		}
 
-		info.Statuses = append(info.Statuses, missedStatuses...)
 		err = ch.db.ModifyIncident(info)
 		if err != nil {
 			return err

@@ -61,9 +61,6 @@ func (ch *Checker) CheckMaintenance() error {
 		sHistory := calculateMntStatusHistory(mn)
 		actualStatus := calculateCurrentMntStatus(sHistory, mn)
 
-		// collect statuses for correction
-		missedStatuses := make([]db.IncidentStatus, 0)
-
 		switch actualStatus { //nolint:exhaustive
 		case event.MaintenancePlanned:
 			ch.fixMntMissedStatuses(event.MaintenancePlanned, sHistory, mn)
@@ -77,7 +74,6 @@ func (ch *Checker) CheckMaintenance() error {
 			ch.fixMntMissedStatuses(event.MaintenanceCancelled, sHistory, mn)
 		}
 
-		mn.Statuses = append(mn.Statuses, missedStatuses...)
 		err = ch.db.ModifyIncident(mn)
 		if err != nil {
 			return err
