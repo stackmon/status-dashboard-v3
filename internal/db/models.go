@@ -24,7 +24,7 @@ func (c *Component) PrintAttrs() string {
 		switch a.Name {
 		case "category":
 			category = a.Value
-		case "region": //nolint:goconst
+		case regionAttrName:
 			region = a.Value
 		case "type":
 			compType = a.Value
@@ -36,7 +36,7 @@ func (c *Component) PrintAttrs() string {
 func (c *Component) Region() string {
 	var region string
 	for _, a := range c.Attrs {
-		if a.Name == "region" {
+		if a.Name == regionAttrName {
 			region = a.Value
 		}
 	}
@@ -54,6 +54,8 @@ func (c *Component) Type() string {
 
 	return cType
 }
+
+const regionAttrName = "region"
 
 type ComponentAttr struct {
 	ID          uint   `json:"-"`
