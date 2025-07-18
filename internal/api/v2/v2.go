@@ -381,26 +381,31 @@ func createEvent(dbInst *db.DB, log *zap.Logger, inc *db.Incident) error {
 
 	inc.ID = id
 
-	if *inc.Impact == 0 {
-		log.Info("the incident is maintenance or info, add planned status")
-		var statusText string
-		switch inc.Type {
-		case event.TypeInformation:
-			statusText = event.InfoPlannedStatusText()
-		case event.TypeMaintenance:
-			statusText = event.MaintenancePlannedStatusText()
-		}
+	log.Info("add initial status to the event", zap.Uint("eventID", inc.ID))
+	var statusText string
+	var status event.Status
+	switch inc.Type {
+	case event.TypeInformation:
+		statusText = event.InfoPlannedStatusText()
+		status = event.InfoPlanned
+	case event.TypeMaintenance:
+		statusText = event.MaintenancePlannedStatusText()
+		status = event.MaintenancePlanned
+	case event.TypeIncident:
+		statusText = event.IncidentDetectedStatusText()
+		status = event.IncidentDetected
+	}
 
-		inc.Statuses = append(inc.Statuses, db.IncidentStatus{
-			IncidentID: inc.ID,
-			Status:     event.MaintenancePlanned,
-			Text:       statusText,
-			Timestamp:  time.Now().UTC(),
-		})
-		err = dbInst.ModifyIncident(inc)
-		if err != nil {
-			return err
-		}
+	inc.Statuses = append(inc.Statuses, db.IncidentStatus{
+		IncidentID: inc.ID,
+		Status:     status,
+		Text:       statusText,
+		Timestamp:  time.Now().UTC(),
+	})
+
+	err = dbInst.ModifyIncident(inc)
+	if err != nil {
+		return err
 	}
 
 	return nil
