@@ -251,7 +251,7 @@ func PostIncidentHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc { //
 
 		log.Info("opened incidents and maintenances retrieved", zap.Any("openedIncidents", openedIncidents))
 
-		if err = createIncident(dbInst, log, &incIn); err != nil {
+		if err = createEvent(dbInst, log, &incIn); err != nil {
 			apiErrors.RaiseInternalErr(c, err)
 			return
 		}
@@ -365,15 +365,15 @@ func validateEventCreationTimes(incData IncidentData) error {
 		return apiErrors.ErrIncidentStartDateInFuture
 	}
 
-	if (incData.Type == event.TypeMaintenance || incData.Type == event.TypeInformation) && incData.EndDate == nil {
+	if incData.Type == event.TypeMaintenance && incData.EndDate == nil {
 		return apiErrors.ErrMaintenanceEndDateEmpty
 	}
 
 	return nil
 }
 
-func createIncident(dbInst *db.DB, log *zap.Logger, inc *db.Incident) error {
-	log.Info("start to create an incident")
+func createEvent(dbInst *db.DB, log *zap.Logger, inc *db.Incident) error {
+	log.Info("start to save an event to the database")
 	id, err := dbInst.SaveIncident(inc)
 	if err != nil {
 		return err
