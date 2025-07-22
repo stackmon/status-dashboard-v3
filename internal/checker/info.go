@@ -130,12 +130,12 @@ func calculateCurrentInfoStatus(sHistory *InfoStatusHistory, info *db.Incident) 
 
 	now := time.Now().UTC()
 
-	// calculate the mn current status
+	// calculate the info current status
 	if info.StartDate.After(now) {
 		return event.InfoPlanned
 	}
 
-	if info.StartDate.Before(now) && info.EndDate.After(now) {
+	if info.StartDate.Before(now) && (info.EndDate == nil || info.EndDate.After(now)) {
 		return event.InfoActive
 	}
 
