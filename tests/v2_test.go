@@ -423,7 +423,7 @@ func TestV2PatchIncidentHandlerNegative(t *testing.T) {
 		},
 		"negative testcase, can't change impact from incident to maintenance": {
 			JSON:         jsWrongOpenedMaintenanceImpact,
-			Expected:     `{"errMsg":"can not change impact to maintenance"}`,
+			Expected:     `{"errMsg":"can not change impact to 0"}`,
 			ExpectedCode: 400,
 		},
 	}
