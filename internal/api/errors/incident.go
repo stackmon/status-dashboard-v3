@@ -21,11 +21,12 @@ var ErrIncidentFQueryInvalidFormat = errors.New("incident filter query parameter
 
 var ErrIncidentPatchMaintenanceImpactForbidden = errors.New("can not change impact for maintenance")
 var ErrIncidentPatchMaintenanceStatus = errors.New("wrong status for maintenance")
-var ErrIncidentPatchStatus = errors.New("wrong status for incident")
+var ErrIncidentPatchInfoStatus = errors.New("wrong status for info event")
+var ErrIncidentPatchIncidentStatus = errors.New("wrong status for incident")
 var ErrIncidentPatchClosedStatus = errors.New("wrong status for closed incident")
 var ErrIncidentPatchOpenedStartDate = errors.New("can not change start date for open incident")
 var ErrIncidentPatchOpenedEndDateMissing = errors.New("wrong end date with resolved status")
 var ErrIncidentPatchImpactStatusWrong = errors.New("wrong status for changing impact")
-var ErrIncidentPatchImpactToMaintenanceForbidden = errors.New("can not change impact to maintenance")
+var ErrIncidentPatchImpactToZeroForbidden = errors.New("can not change impact to 0")
 
 var ErrMaintenanceEndDateEmpty = errors.New("maintenance end_date is empty")

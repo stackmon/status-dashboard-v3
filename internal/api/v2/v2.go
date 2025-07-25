@@ -503,10 +503,22 @@ func validateEffectiveTypeAndImpact(effectiveType string, effectiveImpact int) e
 	return nil
 }
 
-func validateMaintenancePatch(incoming *PatchIncidentData) error {
-	if !event.IsMaintenanceStatus(incoming.Status) {
+// validateEffectiveTypeAndImpact checks if the incoming type and status are related to each other.
+func validateStatusesPatch(incoming *PatchIncidentData, stored *db.Incident) error {
+	if stored.Type == event.TypeInformation && !event.IsInformationStatus(incoming.Status) {
+		return apiErrors.ErrIncidentPatchInfoStatus
+	}
+
+	if stored.Type == event.TypeMaintenance && !event.IsMaintenanceStatus(incoming.Status) {
 		return apiErrors.ErrIncidentPatchMaintenanceStatus
 	}
+
+	if stored.Type == event.TypeIncident &&
+		!event.IsIncidentOpenStatus(incoming.Status) &&
+		!event.IsIncidentClosedStatus(incoming.Status) {
+		return apiErrors.ErrIncidentPatchIncidentStatus
+	}
+
 	return nil
 }
 
@@ -524,10 +536,18 @@ func checkPatchData(incoming *PatchIncidentData, stored *db.Incident) error {
 		return err
 	}
 
-	if *stored.Impact == 0 {
-		return validateMaintenancePatch(incoming)
+	if err := validateStatusesPatch(incoming, stored); err != nil {
+		return err
 	}
 
+	if stored.Type == event.TypeIncident {
+		return checkPatchDataForIncident(incoming, stored)
+	}
+
+	return nil
+}
+
+func checkPatchDataForIncident(incoming *PatchIncidentData, stored *db.Incident) error {
 	if stored.EndDate != nil {
 		if !event.IsIncidentClosedStatus(incoming.Status) {
 			return apiErrors.ErrIncidentPatchClosedStatus
@@ -546,11 +566,7 @@ func checkPatchData(incoming *PatchIncidentData, stored *db.Incident) error {
 	}
 
 	if incoming.Impact != nil && *incoming.Impact != *stored.Impact && *incoming.Impact == 0 {
-		return apiErrors.ErrIncidentPatchImpactToMaintenanceForbidden
-	}
-
-	if !event.IsIncidentOpenStatus(incoming.Status) {
-		return apiErrors.ErrIncidentPatchStatus
+		return apiErrors.ErrIncidentPatchImpactToZeroForbidden
 	}
 
 	if incoming.StartDate != nil {
