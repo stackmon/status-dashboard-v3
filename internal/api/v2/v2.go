@@ -389,7 +389,8 @@ func createEvent(dbInst *db.DB, log *zap.Logger, inc *db.Incident) error {
 	// Example: the incident was created now, but we add an update with a detected status since 1-2 seconds.
 	// And on the FE it looks like the incident was created in the past.
 	// it doesn't affect planned events, like maintenance or info, because they have a start date in the future.
-	// However, if someone creates an incident with a start date in the past, we should set up the right timestamp for the status update.
+	// However, if someone creates an incident with a start date in the past,
+	// we should set up the right timestamp for the status update.
 	if inc.StartDate.Before(timestamp) {
 		timestamp = *inc.StartDate
 	}
