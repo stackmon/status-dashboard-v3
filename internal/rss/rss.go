@@ -220,6 +220,11 @@ func createIncidentFeedItems(incident *db.Incident, baseURL string) []*feeds.Ite
 
 	// add updates
 	for _, s := range incident.Statuses {
+		// Skip the initial detected status, as it is already included in the main item.
+		if s.Status == event.IncidentDetected {
+			continue
+		}
+
 		d := fmt.Sprintf("An update was provided at %s UTC for ", s.Timestamp.Format(time.DateTime))
 		if len(incident.Components) > 1 {
 			for _, c := range incident.Components {
