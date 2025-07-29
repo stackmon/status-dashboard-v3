@@ -384,6 +384,17 @@ func createEvent(dbInst *db.DB, log *zap.Logger, inc *db.Incident) error {
 	log.Info("add initial status to the event", zap.Uint("eventID", inc.ID))
 	var statusText string
 	var status event.Status
+	timestamp := time.Now().UTC()
+	// Sometimes we have a gap between the start date and the current time.
+	// Example: the incident was created now, but we add an update with a detected status since 1-2 seconds.
+	// And on the FE it looks like the incident was created in the past.
+	// it doesn't affect planned events, like maintenance or info, because they have a start date in the future.
+	// However, if someone creates an incident with a start date in the past,
+	// we should set up the right timestamp for the status update.
+	if inc.StartDate.Before(timestamp) {
+		timestamp = *inc.StartDate
+	}
+
 	switch inc.Type {
 	case event.TypeInformation:
 		statusText = event.InfoPlannedStatusText()
@@ -400,7 +411,7 @@ func createEvent(dbInst *db.DB, log *zap.Logger, inc *db.Incident) error {
 		IncidentID: inc.ID,
 		Status:     status,
 		Text:       statusText,
-		Timestamp:  time.Now().UTC(),
+		Timestamp:  timestamp,
 	})
 
 	err = dbInst.ModifyIncident(inc)
