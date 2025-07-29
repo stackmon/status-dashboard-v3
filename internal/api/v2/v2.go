@@ -954,7 +954,7 @@ func calculateAvailability(component *db.Component) ([]MonthlyAvailability, erro
 	monthlyDowntime := make([]float64, monthsInYear) // 12 months
 
 	for _, inc := range component.Incidents {
-		if inc.EndDate == nil || *inc.Impact != 3 {
+		if inc.EndDate == nil || (*inc.Impact != 3 && *inc.Impact != 2) {
 			continue
 		}
 

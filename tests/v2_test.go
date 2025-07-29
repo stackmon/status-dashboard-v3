@@ -833,7 +833,7 @@ func TestV2GetComponentsAvailability(t *testing.T) {
 
 	title = "Test incident for dns N2"
 	startDate = time.Date(2024, 10, 16, 12, 0, 0, 0, time.UTC)
-	endDate = time.Date(2024, 11, 16, 00, 00, 00, 0, time.UTC)
+	endDate = time.Date(2024, 11, 16, 0, 0, 0, 0, time.UTC)
 
 	incidentCreateDataN2 := v2.IncidentData{
 		Title:      title,
@@ -857,6 +857,33 @@ func TestV2GetComponentsAvailability(t *testing.T) {
 
 	t.Logf("Incident patched: %+v", incidentN2)
 
+	// Incident N3
+
+	title = "Test incident for dns N3"
+	startDate = time.Date(2025, 3, 1, 0, 0, 0, 0, time.UTC)
+	endDate = time.Date(2025, 3, 16, 12, 0, 0, 0, time.UTC)
+	impact = 3 // Different impact for N3
+
+	incidentCreateDataN3 := v2.IncidentData{
+		Title:      title,
+		Impact:     &impact,
+		Components: components,
+		StartDate:  startDate,
+		EndDate:    nil,
+		System:     &system,
+	}
+	resultN3 := v2CreateIncident(t, r, &incidentCreateDataN3)
+	assert.Len(t, resultN3.Result, len(incidentCreateDataN3.Components))
+
+	// Incident closing
+
+	incidentN3 := v2GetIncident(t, r, resultN3.Result[0].IncidentID)
+
+	incidentN3.EndDate = &endDate
+	v2PatchIncident(t, r, incidentN3)
+
+	t.Logf("Incident patched: %+v", incidentN3)
+
 	// Test case 1: Successful availability listing
 	t.Log("Test case 1: List availability successfully")
 	w := httptest.NewRecorder()
@@ -874,7 +901,7 @@ func TestV2GetComponentsAvailability(t *testing.T) {
 	assert.NotEmpty(t, availability)
 
 	// Test case 2: Check if the availability data is correct
-	targetMonths := map[int]bool{10: true, 11: true, 12: true}
+	targetMonths := map[int]bool{3: true, 10: true, 11: true, 12: true}
 
 	for _, compAvail := range availability.Data {
 		if compAvail.ID == 7 {
