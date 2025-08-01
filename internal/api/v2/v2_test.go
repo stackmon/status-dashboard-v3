@@ -181,6 +181,26 @@ func TestGetIncidentsHandlerFilters(t *testing.T) {
 			expectedBody:   responseB,
 		},
 		{
+			name: "Filter by status=analysing",
+			url:  "/v2/incidents?status=analysing",
+			mockSetup: func(m sqlmock.Sqlmock, params *db.IncidentsParams) {
+				params.Status = &incidentB.Statuses[0].Status
+				prepareMockForIncidents(t, m, []*db.Incident{&incidentB})
+			},
+			expectedStatus: http.StatusOK,
+			expectedBody:   responseB,
+		},
+		{
+			name: "Filter by actual_status=analysing",
+			url:  "/v2/incidents?actual_status=analysing",
+			mockSetup: func(m sqlmock.Sqlmock, params *db.IncidentsParams) {
+				params.ActualStatus = &incidentB.Statuses[0].Status
+				prepareMockForIncidents(t, m, []*db.Incident{&incidentB})
+			},
+			expectedStatus: http.StatusOK,
+			expectedBody:   responseB,
+		},
+		{
 			name: "Filter combination: type=incident&active=true",
 			url:  "/v2/incidents?type=incident&active=true",
 			mockSetup: func(m sqlmock.Sqlmock, params *db.IncidentsParams) {
@@ -190,6 +210,29 @@ func TestGetIncidentsHandlerFilters(t *testing.T) {
 			},
 			expectedStatus: http.StatusOK,
 			expectedBody:   responseB,
+		},
+		{
+			name: "Filter combination: status=analysing&actual_status=analysing",
+			url:  "/v2/incidents?status=analysing&actual_status=analysing",
+			mockSetup: func(m sqlmock.Sqlmock, params *db.IncidentsParams) {
+				params.Status = &incidentB.Statuses[0].Status
+				params.ActualStatus = &incidentB.Statuses[0].Status
+				prepareMockForIncidents(t, m, []*db.Incident{&incidentB})
+			},
+			expectedStatus: http.StatusOK,
+			expectedBody:   responseB,
+		},
+		{
+			name: "Filter wrong combination: actual_status=resurrected",
+			url:  "/v2/incidents?actual_status=resurrected",
+			mockSetup: func(m sqlmock.Sqlmock, params *db.IncidentsParams) {
+				params.Status = &incidentB.Statuses[0].Status
+				// This will not match any incident, as no incident has both statuses
+				params.ActualStatus = &incidentA.Statuses[0].Status
+				prepareMockForIncidents(t, m, []*db.Incident{})
+			},
+			expectedStatus: http.StatusBadRequest,
+			expectedBody:   fmt.Sprintf(`{"errMsg":"%s"}`, errors.ErrIncidentFQueryInvalidFormat),
 		},
 		{
 			name: "Filter combination: no results",

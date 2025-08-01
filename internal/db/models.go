@@ -77,7 +77,7 @@ type Incident struct {
 	EndDate      *time.Time       `json:"end_date"`
 	Impact       *int             `json:"impact" gorm:"not null"`
 	Statuses     []IncidentStatus `json:"updates" gorm:"foreignKey:IncidentID"`
-	ActualStatus *string          `json:"actual_status" gorm:"type:varchar(50)"`
+	ActualStatus event.Status     `json:"actual_status" gorm:"type:varchar(50)"`
 	System       bool             `json:"system" gorm:"not null"`
 	Type         string           `json:"type" gorm:"not null"`
 	Components   []Component      `json:"components" gorm:"many2many:incident_component_relation"`

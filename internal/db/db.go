@@ -49,6 +49,7 @@ func (db *DB) Close() error {
 type IncidentsParams struct {
 	Types        []string
 	Status       *event.Status
+	ActualStatus *event.Status
 	StartDate    *time.Time
 	EndDate      *time.Time
 	Impact       *int
@@ -93,6 +94,10 @@ func (db *DB) GetIncidents(params ...*IncidentsParams) ([]*Incident, error) {
 	// it's a special case for active events
 	if param.IsActive != nil {
 		return db.processActiveEvents(r, *param.IsActive)
+	}
+
+	if param.Status != nil {
+		r = r.Where("incident.actual_status = ?", param.ActualStatus)
 	}
 
 	if param.Status != nil {

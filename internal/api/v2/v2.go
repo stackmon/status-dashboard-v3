@@ -42,7 +42,7 @@ type IncidentData struct {
 	// Type field is mandatory.
 	Type         string              `json:"type" binding:"required,oneof=maintenance info incident"`
 	Updates      []db.IncidentStatus `json:"updates,omitempty"`
-	ActualStatus *string             `json:"actual_status,omitempty"`
+	ActualStatus event.Status        `json:"actual_status,omitempty"`
 }
 
 type Incident struct {
@@ -51,14 +51,15 @@ type Incident struct {
 }
 
 type APIGetIncidentsQuery struct {
-	Types      *string       `form:"type" binding:"omitempty"` // custom validation in parseAndSetTypes
-	IsActive   *bool         `form:"active" binding:"omitempty"`
-	Status     *event.Status `form:"status"` // custom validation in validateAndSetStatus
-	StartDate  *time.Time    `form:"start_date" binding:"omitempty"`
-	EndDate    *time.Time    `form:"end_date" binding:"omitempty"`
-	Impact     *int          `form:"impact" binding:"omitempty,gte=0,lte=3"`
-	System     *bool         `form:"system" binding:"omitempty"`
-	Components *string       `form:"components"` // custom validation in parseAndSetComponents
+	Types        *string       `form:"type" binding:"omitempty"` // custom validation in parseAndSetTypes
+	IsActive     *bool         `form:"active" binding:"omitempty"`
+	ActualStatus *event.Status `form:"actual_status"` // custom validation in validateAndSetStatus
+	Status       *event.Status `form:"status"`        // custom validation in validateAndSetStatus
+	StartDate    *time.Time    `form:"start_date" binding:"omitempty"`
+	EndDate      *time.Time    `form:"end_date" binding:"omitempty"`
+	Impact       *int          `form:"impact" binding:"omitempty,gte=0,lte=3"`
+	System       *bool         `form:"system" binding:"omitempty"`
+	Components   *string       `form:"components"` // custom validation in parseAndSetComponents
 }
 
 func bindIncidentsQuery(c *gin.Context) (*APIGetIncidentsQuery, error) {
@@ -97,6 +98,11 @@ func parseIncidentParams(c *gin.Context) (*db.IncidentsParams, error) {
 	// Status: Manual validation.
 	// validateAndSetStatus there is in validation.go (package v2)
 	err = validateAndSetStatus(query.Status, params)
+	if err != nil {
+		return nil, err
+	}
+
+	err = validateAndSetStatus(query.ActualStatus, params)
 	if err != nil {
 		return nil, err
 	}
@@ -415,8 +421,7 @@ func createEvent(dbInst *db.DB, log *zap.Logger, inc *db.Incident) error {
 		Text:       statusText,
 		Timestamp:  timestamp,
 	})
-	statusStr := string(status)
-	inc.ActualStatus = &statusStr
+	inc.ActualStatus = status
 
 	err = dbInst.ModifyIncident(inc)
 	if err != nil {
@@ -482,7 +487,9 @@ func PatchIncidentHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc { /
 			Text:       incData.Message,
 			Timestamp:  incData.UpdateDate,
 		}
+
 		storedIncident.Statuses = append(storedIncident.Statuses, status)
+		storedIncident.ActualStatus = incData.Status
 
 		err = dbInst.ModifyIncident(storedIncident)
 		if err != nil {
@@ -618,8 +625,7 @@ func updateFields(income *PatchIncidentData, stored *db.Incident) {
 		stored.Type = income.Type
 	}
 
-	statusStr := string(income.Status)
-	stored.ActualStatus = &statusStr
+	stored.ActualStatus = income.Status
 
 	if income.Status == event.IncidentReopened {
 		stored.EndDate = nil
