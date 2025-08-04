@@ -40,9 +40,10 @@ type IncidentData struct {
 	//    2. info
 	//    3. incident
 	// Type field is mandatory.
-	Type         string              `json:"type" binding:"required,oneof=maintenance info incident"`
-	Updates      []db.IncidentStatus `json:"updates,omitempty"`
-	ActualStatus event.Status        `json:"actual_status,omitempty"`
+	Type    string              `json:"type" binding:"required,oneof=maintenance info incident"`
+	Updates []db.IncidentStatus `json:"updates,omitempty"`
+	// ActualStatus does not take into account OutDatedSystem status.
+	ActualStatus event.Status `json:"actual_status,omitempty"`
 }
 
 type Incident struct {

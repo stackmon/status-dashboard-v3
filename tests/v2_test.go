@@ -30,10 +30,10 @@ type V2IncidentsListResponse struct {
 }
 
 func TestV2GetIncidentsHandler(t *testing.T) {
-	t.Log("start to test GET /v2/incidents")
+	t.Logf("start to test GET %s", v2Incidents)
 	r, _, _ := initTests(t)
 
-	incidentStr := `{"id":1,"title":"Closed incident without any update","impact":1,"components":[1],"start_date":"2024-10-24T10:12:42Z","end_date":"2024-10-24T11:12:42Z","system":false,"type":"incident","updates":[{"status":"resolved","text":"close incident","timestamp":"2024-10-24T11:12:42.559346Z"}]}`
+	incidentStr := `{"id":1,"title":"Closed incident without any update","impact":1,"components":[1],"start_date":"2024-10-24T10:12:42Z","end_date":"2024-10-24T11:12:42Z","system":false,"type":"incident","updates":[{"status":"resolved","text":"close incident","timestamp":"2024-10-24T11:12:42.559346Z"}],"actual_status":"resolved"}`
 
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest(http.MethodGet, v2Incidents, nil)
@@ -41,10 +41,6 @@ func TestV2GetIncidentsHandler(t *testing.T) {
 	r.ServeHTTP(w, req)
 
 	incidents := map[string][]*v2.Incident{}
-
-	t.Logf("Response status: %d", w.Code)
-	t.Logf("Response headers: %v", w.Header())
-	t.Logf("Response body: %s", w.Body.String())
 
 	assert.Equal(t, 200, w.Code)
 
@@ -187,11 +183,6 @@ func TestV2PostIncidentsHandlerNegative(t *testing.T) {
 		w := httptest.NewRecorder()
 		req, _ := http.NewRequest(http.MethodPost, v2Incidents, strings.NewReader(c.JSON))
 		r.ServeHTTP(w, req)
-
-		t.Logf("Response Status Code: %d", w.Code)
-		t.Logf("Response Body: %s", w.Body.String())
-		t.Logf("Expected Status Code: %d", c.ExpectedCode)
-		t.Logf("Expected Response: %s", c.Expected)
 
 		assert.Equal(t, c.ExpectedCode, w.Code)
 		assert.Equal(t, c.Expected, w.Body.String())
@@ -527,6 +518,7 @@ func TestV2PatchIncidentHandler(t *testing.T) {
 
 	inc = internalPatch(incID, &pData)
 	assert.Equal(t, startDate.Truncate(time.Microsecond), inc.StartDate)
+	assert.Equal(t, event.IncidentChanged, inc.ActualStatus)
 	require.NotNil(t, inc.EndDate)
 	assert.Equal(t, endDate.Truncate(time.Microsecond), inc.EndDate.Truncate(time.Microsecond))
 
@@ -542,6 +534,7 @@ func TestV2PatchIncidentHandler(t *testing.T) {
 
 	pData.Status = event.IncidentResolved
 	inc = internalPatch(incID, &pData)
+	assert.Equal(t, event.IncidentResolved, inc.ActualStatus)
 	assert.NotNil(t, inc.EndDate)
 }
 
@@ -744,8 +737,6 @@ func TestV2CreateComponentAndList(t *testing.T) {
 	data, _ := json.Marshal(newComponent)
 	req, _ := http.NewRequest(http.MethodPost, "/v2/components", bytes.NewReader(data))
 	r.ServeHTTP(w, req)
-
-	t.Logf("Create component response: status=%d, body=%s", w.Code, w.Body.String())
 	assert.Equal(t, http.StatusCreated, w.Code)
 
 	var createdComponent v2.Component
@@ -760,7 +751,6 @@ func TestV2CreateComponentAndList(t *testing.T) {
 	req, _ = http.NewRequest(http.MethodPost, "/v2/components", bytes.NewReader(data))
 	r.ServeHTTP(w, req)
 
-	t.Logf("Duplicate component response: status=%d, body=%s", w.Code, w.Body.String())
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 	assert.Contains(t, w.Body.String(), "component exists")
 
@@ -780,7 +770,6 @@ func TestV2CreateComponentAndList(t *testing.T) {
 	req, _ = http.NewRequest(http.MethodPost, "/v2/components", bytes.NewReader(data))
 	r.ServeHTTP(w, req)
 
-	t.Logf("Invalid component response: status=%d, body=%s", w.Code, w.Body.String())
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 	assert.Contains(t, w.Body.String(), "component attribute has invalid format")
 
@@ -794,7 +783,7 @@ func TestV2CreateComponentAndList(t *testing.T) {
 }
 
 func TestV2GetComponentsAvailability(t *testing.T) {
-	t.Log("start to test GET /v2/availability")
+	t.Logf("start to test GET %s", v2Availability)
 	r, _, _ := initTests(t)
 
 	// Incident preparation
@@ -860,10 +849,9 @@ func TestV2GetComponentsAvailability(t *testing.T) {
 	// Test case 1: Successful availability listing
 	t.Log("Test case 1: List availability successfully")
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest(http.MethodGet, "/v2/availability", nil)
+	req, _ := http.NewRequest(http.MethodGet, v2Availability, nil)
 	r.ServeHTTP(w, req)
 
-	t.Logf("Availability response: status=%d, body=%s", w.Code, w.Body.String())
 	assert.Equal(t, http.StatusOK, w.Code)
 
 	var availability struct {
@@ -1030,7 +1018,6 @@ func TestV2GetIncidentsFilteredHandler(t *testing.T) {
 			req.URL.RawQuery = q.Encode()
 
 			r.ServeHTTP(w, req)
-			t.Logf("Test case: %s, Query: %s, Response Body: %s", tc.name, req.URL.RawQuery, w.Body.String())
 
 			assert.Equal(t, http.StatusOK, w.Code, "Unexpected status code for: "+tc.name)
 
@@ -1217,11 +1204,4 @@ func TestV2PostInfoWithExistingEventsHandler(t *testing.T) {
 	assert.True(t, maintenanceEndDate.Truncate(time.Second).Equal(fetchedMaintenanceIncident.EndDate.Truncate(time.Second)), "Maintenance end date mismatch")
 	assert.Contains(t, fetchedMaintenanceIncident.Components, incidentComponentID, "Maintenance event should still have its component")
 	assert.Len(t, fetchedMaintenanceIncident.Components, 1, "Maintenance event should only have its original component")
-
-	// 6. Debug: Log all incidents as JSON.
-	t.Log("Step 6: Log all incidents for debugging")
-	allIncidents := v2GetIncidents(t, r)
-	allIncidentsJSON, err := json.MarshalIndent(allIncidents, "", "  ")
-	require.NoError(t, err, "Failed to marshal all incidents to JSON")
-	t.Logf("All incidents at the end of the test:\n%s", string(allIncidentsJSON))
 }
