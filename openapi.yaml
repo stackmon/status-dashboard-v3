@@ -255,6 +255,12 @@ paths:
           required: false
           schema:
             type: string
+        - name: actual_status
+          in: query
+          description: Filter by the event actual_status (e.g., 'resolved', 'fixing', 'completed'). See backend implementation for all valid statuses.
+          required: false
+          schema:
+            type: string
         - name: start_date
           in: query
           description: Filter incidents active on or after this date (RFC3339 format).
@@ -599,11 +605,29 @@ components:
           enum:
             - "incident"
             - "maintenance"
+            - "info"
           example: "incident"
         updates:
           type: array
           items:
             $ref: '#/components/schemas/IncidentStatus'
+        actual_status:
+          type: string
+          enum:
+            - "analysing"
+            - "fixing"
+            - "impact changed"
+            - "observing"
+            - "resolved"
+            - "reopened"
+            - "changed"
+            - "in progress"
+            - "modified"
+            - "completed"
+            - "planned"
+            - "active"
+            - "cancelled"
+          example: "in progress"
     IncidentPost:
       type: object
       required:
