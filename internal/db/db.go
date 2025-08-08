@@ -96,13 +96,7 @@ func (db *DB) GetIncidents(params ...*IncidentsParams) ([]*Incident, error) {
 	}
 
 	if param.Status != nil {
-		latestStatus := db.g.Model(&IncidentStatus{}).
-			Select("MAX(timestamp)").
-			Where("incident_status.incident_id = incident.id")
-
-		r = r.Joins("JOIN incident_status latest_is ON latest_is.incident_id = incident.id").
-			Where("latest_is.status = ? AND latest_is.timestamp = (?)", *param.Status, latestStatus)
-		r = r.Group("incident.id")
+		r = r.Where("incident.status = ?", param.Status)
 	}
 
 	switch {
