@@ -1,9 +1,9 @@
--- Add new actual_status column to the incident table
-ALTER TABLE incident ADD COLUMN IF NOT EXISTS actual_status VARCHAR(50);
+-- Add new status column to the incident table
+ALTER TABLE incident ADD COLUMN IF NOT EXISTS status VARCHAR(50);
 
--- Populate the new actual_status column with latest non-SYSTEM and non-description status
+-- Populate the new status column with latest non-SYSTEM and non-description status
 UPDATE incident
-SET actual_status = latest_status.status
+SET status = latest_status.status
 FROM (
     SELECT DISTINCT ON (incident_id) 
         incident_id,

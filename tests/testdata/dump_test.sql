@@ -115,7 +115,7 @@ CREATE TABLE public.incident (
     start_date timestamp without time zone NOT NULL,
     end_date timestamp without time zone,
     impact smallint NOT NULL,
-    actual_status text,
+    status text,
     type character varying NOT NULL,
     system boolean DEFAULT false NOT NULL
 );
@@ -266,7 +266,7 @@ COPY public.component_attribute (id, component_id, name, value) FROM stdin;
 -- Data for Name: incident; Type: TABLE DATA; Schema: public; Owner: pg
 --
 
-COPY public.incident (id, text, start_date, end_date, impact, type, system, actual_status) FROM stdin;
+COPY public.incident (id, text, start_date, end_date, impact, type, system, status) FROM stdin;
 1	Closed incident without any update	2024-10-24 10:12:42	2024-10-24 11:12:42	1	incident	f	resolved
 \.
 

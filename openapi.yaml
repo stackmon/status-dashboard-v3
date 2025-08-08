@@ -255,9 +255,9 @@ paths:
           required: false
           schema:
             type: string
-        - name: actual_status
+        - name: status
           in: query
-          description: Filter by the event actual_status (e.g., 'resolved', 'fixing', 'completed'). See backend implementation for all valid statuses.
+          description: Filter by the event status (e.g., 'resolved', 'fixing', 'completed'). See backend implementation for all valid statuses.
           required: false
           schema:
             type: string
@@ -611,7 +611,7 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/IncidentStatus'
-        actual_status:
+        status:
           type: string
           enum:
             - "analysing"

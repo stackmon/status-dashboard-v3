@@ -33,7 +33,7 @@ func TestV2GetIncidentsHandler(t *testing.T) {
 	t.Logf("start to test GET %s", v2Incidents)
 	r, _, _ := initTests(t)
 
-	incidentStr := `{"id":1,"title":"Closed incident without any update","impact":1,"components":[1],"start_date":"2024-10-24T10:12:42Z","end_date":"2024-10-24T11:12:42Z","system":false,"type":"incident","updates":[{"status":"resolved","text":"close incident","timestamp":"2024-10-24T11:12:42.559346Z"}],"actual_status":"resolved"}`
+	incidentStr := `{"id":1,"title":"Closed incident without any update","impact":1,"components":[1],"start_date":"2024-10-24T10:12:42Z","end_date":"2024-10-24T11:12:42Z","system":false,"type":"incident","updates":[{"status":"resolved","text":"close incident","timestamp":"2024-10-24T11:12:42.559346Z"}],"status":"resolved"}`
 
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest(http.MethodGet, v2Incidents, nil)
@@ -518,7 +518,7 @@ func TestV2PatchIncidentHandler(t *testing.T) {
 
 	inc = internalPatch(incID, &pData)
 	assert.Equal(t, startDate.Truncate(time.Microsecond), inc.StartDate)
-	assert.Equal(t, event.IncidentChanged, inc.ActualStatus)
+	assert.Equal(t, event.IncidentChanged, inc.Status)
 	require.NotNil(t, inc.EndDate)
 	assert.Equal(t, endDate.Truncate(time.Microsecond), inc.EndDate.Truncate(time.Microsecond))
 
@@ -534,7 +534,7 @@ func TestV2PatchIncidentHandler(t *testing.T) {
 
 	pData.Status = event.IncidentResolved
 	inc = internalPatch(incID, &pData)
-	assert.Equal(t, event.IncidentResolved, inc.ActualStatus)
+	assert.Equal(t, event.IncidentResolved, inc.Status)
 	assert.NotNil(t, inc.EndDate)
 }
 
