@@ -42,6 +42,8 @@ type IncidentData struct {
 	// Type field is mandatory.
 	Type    string              `json:"type" binding:"required,oneof=maintenance info incident"`
 	Updates []db.IncidentStatus `json:"updates,omitempty"`
+	// Status does not take into account OutDatedSystem status.
+	Status event.Status `json:"status,omitempty"`
 }
 
 type Incident struct {
@@ -192,6 +194,7 @@ func toAPIIncident(inc *db.Incident) *Incident {
 		EndDate:     inc.EndDate,
 		System:      &inc.System,
 		Updates:     inc.Statuses,
+		Status:      inc.Status,
 		Type:        inc.Type,
 	}
 
@@ -413,6 +416,7 @@ func createEvent(dbInst *db.DB, log *zap.Logger, inc *db.Incident) error {
 		Text:       statusText,
 		Timestamp:  timestamp,
 	})
+	inc.Status = status
 
 	err = dbInst.ModifyIncident(inc)
 	if err != nil {
@@ -478,7 +482,9 @@ func PatchIncidentHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc { /
 			Text:       incData.Message,
 			Timestamp:  incData.UpdateDate,
 		}
+
 		storedIncident.Statuses = append(storedIncident.Statuses, status)
+		storedIncident.Status = incData.Status
 
 		err = dbInst.ModifyIncident(storedIncident)
 		if err != nil {
@@ -613,6 +619,8 @@ func updateFields(income *PatchIncidentData, stored *db.Incident) {
 	if income.Type != "" {
 		stored.Type = income.Type
 	}
+
+	stored.Status = income.Status
 
 	if income.Status == event.IncidentReopened {
 		stored.EndDate = nil
