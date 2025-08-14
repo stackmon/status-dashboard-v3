@@ -77,7 +77,7 @@ type PatchIncidentData struct {
 }
 
 type EventStatusView struct {
-	ID        uint         `json:"id"`
+	ID        int          `json:"id"`
 	Status    event.Status `json:"status"`
 	Text      string       `json:"text"`
 	Timestamp time.Time    `json:"time"`

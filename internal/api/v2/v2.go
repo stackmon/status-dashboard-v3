@@ -136,7 +136,7 @@ func toAPIIncident(inc *db.Incident) *Incident {
 	updates := make([]EventStatusView, len(inc.Statuses))
 	for i, s := range inc.Statuses {
 		updates[i] = EventStatusView{
-			ID:        s.ID,
+			ID:        int(s.ID),
 			Status:    s.Status,
 			Text:      s.Text,
 			Timestamp: s.Timestamp,
@@ -942,4 +942,38 @@ func hoursInMonth(year int, month int) float64 {
 	nextMonth := firstDay.AddDate(0, 1, 0)
 
 	return float64(nextMonth.Sub(firstDay).Hours())
+}
+
+func GetEventUpdatesHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		logger.Debug("retrieve event updates")
+
+		var incID IncidentID
+		if err := c.ShouldBindUri(&incID); err != nil {
+			apiErrors.RaiseBadRequestErr(c, err)
+			return
+		}
+
+		r, err := dbInst.GetEventUpdates(uint(incID.ID))
+		if err != nil {
+			if errors.Is(err, db.ErrDBIncidentDSNotExist) {
+				apiErrors.RaiseStatusNotFoundErr(c, apiErrors.ErrIncidentDSNotExist)
+				return
+			}
+			apiErrors.RaiseInternalErr(c, err)
+			return
+		}
+
+		updates := make([]EventStatusView, len(r))
+		for i, status := range r {
+			updates[i] = EventStatusView{
+				ID:        int(status.ID),
+				Status:    status.Status,
+				Text:      status.Text,
+				Timestamp: status.Timestamp,
+			}
+		}
+
+		c.JSON(http.StatusOK, updates)
+	}
 }

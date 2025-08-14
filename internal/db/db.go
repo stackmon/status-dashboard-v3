@@ -582,3 +582,16 @@ func (db *DB) GetUniqueAttributeValues(attrName string) ([]string, error) {
 
 	return values, nil
 }
+
+func (db *DB) GetEventUpdates(incidentID uint) ([]IncidentStatus, error) {
+	var updates []IncidentStatus
+	r := db.g.Model(&IncidentStatus{}).
+		Where("incident_id = ?", incidentID).
+		Order("timestamp DESC").
+		Find(&updates)
+
+	if r.Error != nil {
+		return nil, r.Error
+	}
+	return updates, nil
+}
