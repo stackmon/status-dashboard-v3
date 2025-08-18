@@ -136,7 +136,7 @@ func toAPIIncident(inc *db.Incident) *Incident {
 	updates := make([]EventStatusView, len(inc.Statuses))
 	for i, s := range inc.Statuses {
 		updates[i] = EventStatusView{
-			ID:        int(s.ID),
+			Index:     1 + i,
 			Status:    s.Status,
 			Text:      s.Text,
 			Timestamp: s.Timestamp,
@@ -967,7 +967,7 @@ func GetEventUpdatesHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 		updates := make([]EventStatusView, len(r))
 		for i, status := range r {
 			updates[i] = EventStatusView{
-				ID:        int(status.ID),
+				Index:     i + 1,
 				Status:    status.Status,
 				Text:      status.Text,
 				Timestamp: status.Timestamp,

@@ -182,7 +182,9 @@ func (db *DB) GetIncident(id int) (*Incident, error) {
 
 	r := db.g.Model(&Incident{}).
 		Where(inc).
-		Preload("Statuses").
+		Preload("Statuses", func(db *gorm.DB) *gorm.DB {
+			return db.Order("id DESC") // Order by ID to get the latest status first
+		}).
 		Preload("Components", func(db *gorm.DB) *gorm.DB {
 			return db.Select("ID, Name")
 		}).
@@ -587,7 +589,7 @@ func (db *DB) GetEventUpdates(incidentID uint) ([]IncidentStatus, error) {
 	var updates []IncidentStatus
 	r := db.g.Model(&IncidentStatus{}).
 		Where("incident_id = ?", incidentID).
-		Order("timestamp DESC").
+		Order("id ASC").
 		Find(&updates)
 
 	if r.Error != nil {
