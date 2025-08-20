@@ -33,7 +33,7 @@ type IncidentData struct {
 	//    3. incident
 	// Type field is mandatory.
 	Type    string            `json:"type" binding:"required,oneof=maintenance info incident"`
-	Updates []EventStatusView `json:"updates,omitempty"`
+	Updates []EventUpdateData `json:"updates,omitempty"`
 	// Status does not take into account OutDatedSystem status.
 	Status event.Status `json:"status,omitempty"`
 }
@@ -74,13 +74,6 @@ type PatchIncidentData struct {
 	StartDate   *time.Time   `json:"start_date,omitempty"`
 	EndDate     *time.Time   `json:"end_date,omitempty"`
 	Type        string       `json:"type,omitempty" binding:"omitempty,oneof=maintenance info incident"`
-}
-
-type EventStatusView struct {
-	Index     int          `json:"index"`
-	Status    event.Status `json:"status"`
-	Text      string       `json:"text"`
-	Timestamp time.Time    `json:"time"`
 }
 
 type PostIncidentSeparateData struct {
@@ -130,4 +123,17 @@ type MonthlyAvailability struct {
 type PostComponentData struct {
 	Attributes []ComponentAttribute `json:"attrs" binding:"required"`
 	Name       string               `json:"name" binding:"required"`
+}
+
+type EventUpdateData struct {
+	Index     int          `json:"index"`
+	ID        int          `json:"id,omitempty"`
+	Status    event.Status `json:"status"`
+	Text      string       `json:"text"`
+	Timestamp time.Time    `json:"time"`
+}
+type PatchEventUpdateData struct {
+	IncidentID  int     `uri:"id" binding:"required,gte=0"`
+	UpdateIndex int     `uri:"update_id" binding:"required,gte=0"`
+	Text        *string `json:"text,omitempty"`
 }

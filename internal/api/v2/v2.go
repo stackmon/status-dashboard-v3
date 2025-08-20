@@ -133,15 +133,16 @@ func toAPIIncident(inc *db.Incident) *Incident {
 		components[i] = int(comp.ID)
 	}
 
-	updates := make([]EventStatusView, len(inc.Statuses))
-	for i, s := range inc.Statuses {
-		updates[i] = EventStatusView{
-			Index:     1 + i,
-			Status:    s.Status,
-			Text:      s.Text,
-			Timestamp: s.Timestamp,
-		}
-	}
+	// updates := make([]EventUpdateData, len(inc.Statuses))
+	// for i, s := range inc.Statuses {
+	// updates[i] = EventUpdateData{
+	// Index:     1 + i,
+	// Status:    s.Status,
+	// Text:      s.Text,
+	// Timestamp: s.Timestamp,
+	// }
+	// }
+	updates := mapEventUpdates(inc.Statuses, false)
 
 	var description string
 	if inc.Description != nil {
@@ -956,6 +957,49 @@ func GetEventUpdatesHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 
 		r, err := dbInst.GetEventUpdates(uint(incID.ID))
 		if err != nil {
+			if errors.Is(err, db.ErrDBUpdateDSNotExist) {
+				apiErrors.RaiseStatusNotFoundErr(c, apiErrors.ErrUpdateDSNotExist)
+				return
+			}
+			apiErrors.RaiseInternalErr(c, err)
+			return
+		}
+
+		// updates := make([]EventUpdateData, len(r))
+		// for i, status := range r {
+		// updates[i] = EventUpdateData{
+		// Index:     i + 1,
+		// Status:    status.Status,
+		// Text:      status.Text,
+		// Timestamp: status.Timestamp,
+		// }
+		// }
+		updates := mapEventUpdates(r, false)
+
+		c.JSON(http.StatusOK, updates)
+	}
+}
+
+func PatchEventUpdateTextHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		logger.Debug("Patch event.update.text")
+
+		var patch PatchEventUpdateData
+		if err := c.ShouldBindUri(&patch); err != nil {
+			apiErrors.RaiseBadRequestErr(c, err)
+			return
+		}
+		if err := c.ShouldBindJSON(&patch); err != nil {
+			apiErrors.RaiseBadRequestErr(c, err)
+			return
+		}
+		if patch.Text == nil || *patch.Text == "" {
+			apiErrors.RaiseBadRequestErr(c, apiErrors.ErrUpdateTextEmpty)
+			return
+		}
+
+		r, err := dbInst.GetEventUpdates(uint(patch.IncidentID))
+		if err != nil {
 			if errors.Is(err, db.ErrDBIncidentDSNotExist) {
 				apiErrors.RaiseStatusNotFoundErr(c, apiErrors.ErrIncidentDSNotExist)
 				return
@@ -963,17 +1007,57 @@ func GetEventUpdatesHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 			apiErrors.RaiseInternalErr(c, err)
 			return
 		}
+		updates := mapEventUpdates(r, true)
 
-		updates := make([]EventStatusView, len(r))
-		for i, status := range r {
-			updates[i] = EventStatusView{
-				Index:     i + 1,
-				Status:    status.Status,
-				Text:      status.Text,
-				Timestamp: status.Timestamp,
+		var targetUpdate *EventUpdateData
+		for i := range updates {
+			if updates[i].Index == patch.UpdateIndex {
+				targetUpdate = &updates[i]
+				break
 			}
 		}
 
-		c.JSON(http.StatusOK, updates)
+		if targetUpdate == nil {
+			apiErrors.RaiseStatusNotFoundErr(c, db.ErrDBUpdateDSNotExist)
+			return
+		}
+
+		err = dbInst.ModifyEventUpdate(
+			uint(patch.IncidentID),
+			uint(targetUpdate.ID),
+			*patch.Text,
+		)
+
+		if err != nil {
+			if errors.Is(err, db.ErrDBUpdateDSNotExist) {
+				apiErrors.RaiseStatusNotFoundErr(c, apiErrors.ErrUpdateDSNotExist)
+				return
+			}
+			apiErrors.RaiseInternalErr(c, err)
+			return
+		}
+
+		resp := *targetUpdate
+		resp.ID = 0
+		c.JSON(http.StatusOK, resp)
 	}
+}
+
+func mapEventUpdates(statuses []db.IncidentStatus, withID bool) []EventUpdateData {
+	updates := make([]EventUpdateData, len(statuses))
+	for i, s := range statuses {
+		id := 0
+		if withID {
+			id = int(s.ID)
+		}
+
+		updates[i] = EventUpdateData{
+			Index:     i + 1,
+			ID:        id,
+			Status:    s.Status,
+			Text:      s.Text,
+			Timestamp: s.Timestamp,
+		}
+	}
+	return updates
 }

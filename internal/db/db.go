@@ -597,3 +597,19 @@ func (db *DB) GetEventUpdates(incidentID uint) ([]IncidentStatus, error) {
 	}
 	return updates, nil
 }
+
+func (db *DB) ModifyEventUpdate(incidentID, updateID uint, text string) error {
+	r := db.g.Model(&IncidentStatus{}).
+		Where("id = ? AND incident_id = ?", updateID, incidentID).
+		Update("text", text)
+
+	if r.Error != nil {
+		return r.Error
+	}
+
+	if r.RowsAffected == 0 {
+		return ErrDBIncidentDSNotExist
+	}
+
+	return nil
+}
