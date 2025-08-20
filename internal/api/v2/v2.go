@@ -980,21 +980,28 @@ func GetEventUpdatesHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 	}
 }
 
+func bindAndValidatePatchEventUpdate(c *gin.Context) (*PatchEventUpdateData, error) {
+	var patch PatchEventUpdateData
+	if err := c.ShouldBindUri(&patch); err != nil {
+		return nil, err
+	}
+	if err := c.ShouldBindJSON(&patch); err != nil {
+		return nil, err
+	}
+	if patch.Text == nil || *patch.Text == "" {
+		apiErrors.RaiseBadRequestErr(c, apiErrors.ErrUpdateTextEmpty)
+		return nil, apiErrors.ErrUpdateTextEmpty
+	}
+	return &patch, nil
+}
+
 func PatchEventUpdateTextHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		logger.Debug("Patch event.update.text")
 
-		var patch PatchEventUpdateData
-		if err := c.ShouldBindUri(&patch); err != nil {
+		patch, err := bindAndValidatePatchEventUpdate(c)
+		if err != nil {
 			apiErrors.RaiseBadRequestErr(c, err)
-			return
-		}
-		if err := c.ShouldBindJSON(&patch); err != nil {
-			apiErrors.RaiseBadRequestErr(c, err)
-			return
-		}
-		if patch.Text == nil || *patch.Text == "" {
-			apiErrors.RaiseBadRequestErr(c, apiErrors.ErrUpdateTextEmpty)
 			return
 		}
 
