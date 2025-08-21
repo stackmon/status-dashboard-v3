@@ -33,7 +33,7 @@ func TestV2GetIncidentsHandler(t *testing.T) {
 	t.Logf("start to test GET %s", v2Incidents)
 	r, _, _ := initTests(t)
 
-	incidentStr := `{"id":1,"title":"Closed incident without any update","impact":1,"components":[1],"start_date":"2024-10-24T10:12:42Z","end_date":"2024-10-24T11:12:42Z","system":false,"type":"incident","updates":[{"status":"resolved","text":"close incident","timestamp":"2024-10-24T11:12:42.559346Z"}],"status":"resolved"}`
+	incidentStr := `{"id":1,"title":"Closed incident without any update","impact":1,"components":[1],"start_date":"2024-10-24T10:12:42Z","end_date":"2024-10-24T11:12:42Z","system":false,"type":"incident","updates":[{"index":1,"status":"resolved","text":"close incident","timestamp":"2024-10-24T11:12:42.559346Z"}],"status":"resolved"}`
 
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest(http.MethodGet, v2Incidents, nil)
@@ -257,6 +257,7 @@ func TestV2PostIncidentsHandler(t *testing.T) {
 	assert.Len(t, oldIncident.Components, 1)
 	assert.NotNil(t, oldIncident.Updates)
 	assert.Len(t, oldIncident.Updates, 3)
+	t.Logf("STATUS updates: %v", oldIncident.Updates)
 	assert.Equal(t, event.IncidentDetected, oldIncident.Updates[0].Status)
 	assert.Equal(t, event.OutDatedSystem, oldIncident.Updates[1].Status)
 	assert.Equal(t, event.OutDatedSystem, oldIncident.Updates[2].Status)
@@ -774,12 +775,12 @@ func TestV2CreateComponentAndList(t *testing.T) {
 	assert.Contains(t, w.Body.String(), "component attribute has invalid format")
 
 	// List all components to verify
-	components := v2GetComponents(t, r)
-	t.Log("Final components list:")
-	for _, comp := range components {
-		t.Logf("Component ID=%d, Name=%s, Attributes=%+v",
-			comp.ID, comp.Name, comp.Attributes)
-	}
+	// components := v2GetComponents(t, r)
+	// t.Log("Final components list:")
+	// for _, comp := range components {
+	// t.Logf("Component ID=%d, Name=%s, Attributes=%+v",
+	// comp.ID, comp.Name, comp.Attributes)
+	// }
 }
 
 func TestV2GetComponentsAvailability(t *testing.T) {
@@ -876,7 +877,7 @@ func checkComponentAvailability(t *testing.T, compAvail v2.ComponentAvailability
 		if _, ok := targetMonths[avail.Month]; ok {
 			assert.InEpsilon(t, 50.00000, avail.Percentage, 0.00001,
 				"Availability percentage should be 50% for the target months")
-			t.Logf("Availability for %v: %d-%d: %.2f%%", compAvail.Name, avail.Year, avail.Month, avail.Percentage)
+			// t.Logf("Availability for %v: %d-%d: %.2f%%", compAvail.Name, avail.Year, avail.Month, avail.Percentage)
 		} else {
 			assert.InEpsilon(t, 100.00000, avail.Percentage, 0.00001,
 				"Availability percentage should be 100% for all months except the target months")

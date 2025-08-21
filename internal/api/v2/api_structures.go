@@ -130,7 +130,7 @@ type EventUpdateData struct {
 	ID        int          `json:"id,omitempty"`
 	Status    event.Status `json:"status"`
 	Text      string       `json:"text"`
-	Timestamp time.Time    `json:"time"`
+	Timestamp time.Time    `json:"timestamp"`
 }
 type PatchEventUpdateData struct {
 	IncidentID  int     `uri:"id" binding:"required,gte=0"`

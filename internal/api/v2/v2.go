@@ -133,15 +133,6 @@ func toAPIIncident(inc *db.Incident) *Incident {
 		components[i] = int(comp.ID)
 	}
 
-	// updates := make([]EventUpdateData, len(inc.Statuses))
-	// for i, s := range inc.Statuses {
-	// updates[i] = EventUpdateData{
-	// Index:     1 + i,
-	// Status:    s.Status,
-	// Text:      s.Text,
-	// Timestamp: s.Timestamp,
-	// }
-	// }
 	updates := mapEventUpdates(inc.Statuses, false)
 
 	var description string
@@ -964,16 +955,6 @@ func GetEventUpdatesHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 			apiErrors.RaiseInternalErr(c, err)
 			return
 		}
-
-		// updates := make([]EventUpdateData, len(r))
-		// for i, status := range r {
-		// updates[i] = EventUpdateData{
-		// Index:     i + 1,
-		// Status:    status.Status,
-		// Text:      status.Text,
-		// Timestamp: status.Timestamp,
-		// }
-		// }
 		updates := mapEventUpdates(r, false)
 
 		c.JSON(http.StatusOK, updates)
@@ -1016,13 +997,7 @@ func PatchEventUpdateTextHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerF
 		}
 		updates := mapEventUpdates(r, true)
 
-		var targetUpdate *EventUpdateData
-		for i := range updates {
-			if updates[i].Index == patch.UpdateIndex {
-				targetUpdate = &updates[i]
-				break
-			}
-		}
+		targetUpdate := findEventUpdateByIndex(updates, patch.UpdateIndex)
 
 		if targetUpdate == nil {
 			apiErrors.RaiseStatusNotFoundErr(c, db.ErrDBUpdateDSNotExist)
@@ -1044,10 +1019,23 @@ func PatchEventUpdateTextHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerF
 			return
 		}
 
-		resp := *targetUpdate
-		resp.ID = 0
-		c.JSON(http.StatusOK, resp)
+		upds, errDB := dbInst.GetEventUpdates(uint(patch.IncidentID))
+		if errDB != nil {
+			apiErrors.RaiseInternalErr(c, errDB)
+			return
+		}
+
+		c.JSON(http.StatusOK, mapEventUpdates(upds, false))
 	}
+}
+
+func findEventUpdateByIndex(updates []EventUpdateData, index int) *EventUpdateData {
+	for i := range updates {
+		if updates[i].Index == index {
+			return &updates[i]
+		}
+	}
+	return nil
 }
 
 func mapEventUpdates(statuses []db.IncidentStatus, withID bool) []EventUpdateData {
