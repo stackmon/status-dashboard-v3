@@ -936,41 +936,32 @@ func hoursInMonth(year int, month int) float64 {
 	return float64(nextMonth.Sub(firstDay).Hours())
 }
 
-func GetEventUpdatesHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		logger.Debug("retrieve event updates")
-
-		var incID IncidentID
-		if err := c.ShouldBindUri(&incID); err != nil {
-			apiErrors.RaiseBadRequestErr(c, err)
-			return
-		}
-
-		r, err := dbInst.GetEventUpdates(uint(incID.ID))
-		if err != nil {
-			if errors.Is(err, db.ErrDBUpdateDSNotExist) {
-				apiErrors.RaiseStatusNotFoundErr(c, apiErrors.ErrUpdateDSNotExist)
-				return
-			}
-			apiErrors.RaiseInternalErr(c, err)
-			return
-		}
-		updates := mapEventUpdates(r, false)
-
-		c.JSON(http.StatusOK, updates)
-	}
-}
-
 func bindAndValidatePatchEventUpdate(c *gin.Context) (*PatchEventUpdateData, error) {
 	var patch PatchEventUpdateData
-	if err := c.ShouldBindUri(&patch); err != nil {
-		return nil, err
+
+	// Incident ID validation.
+	idParam := c.Param("id")
+	var incidentID int
+	_, errID := fmt.Sscanf(idParam, "%d", &incidentID)
+	if errID != nil || incidentID <= 0 {
+		return nil, apiErrors.ErrIncidentDSNotExist
 	}
+
+	// Update index validation.
+	updateParam := c.Param("update_id")
+	var updateIndex int
+	_, errUpd := fmt.Sscanf(updateParam, "%d", &updateIndex)
+	if errUpd != nil || updateIndex <= 0 {
+		return nil, apiErrors.ErrInvalidUpdateIndex
+	}
+
+	patch.IncidentID = incidentID
+	patch.UpdateIndex = updateIndex
+
 	if err := c.ShouldBindJSON(&patch); err != nil {
 		return nil, err
 	}
 	if patch.Text == nil || *patch.Text == "" {
-		apiErrors.RaiseBadRequestErr(c, apiErrors.ErrUpdateTextEmpty)
 		return nil, apiErrors.ErrUpdateTextEmpty
 	}
 	return &patch, nil
@@ -986,12 +977,20 @@ func PatchEventUpdateTextHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerF
 			return
 		}
 
-		r, err := dbInst.GetEventUpdates(uint(patch.IncidentID))
+		// Incident existence check.
+		_, err = dbInst.GetIncident(patch.IncidentID)
 		if err != nil {
 			if errors.Is(err, db.ErrDBIncidentDSNotExist) {
 				apiErrors.RaiseStatusNotFoundErr(c, apiErrors.ErrIncidentDSNotExist)
 				return
 			}
+			apiErrors.RaiseInternalErr(c, err)
+			return
+		}
+
+		// Update existence check.
+		r, err := dbInst.GetEventUpdates(uint(patch.IncidentID))
+		if err != nil {
 			apiErrors.RaiseInternalErr(c, err)
 			return
 		}

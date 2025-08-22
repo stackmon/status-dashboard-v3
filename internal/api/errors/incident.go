@@ -33,3 +33,4 @@ var ErrMaintenanceEndDateEmpty = errors.New("maintenance end_date is empty")
 
 var ErrUpdateTextEmpty = errors.New("text field is required")
 var ErrUpdateDSNotExist = errors.New("update does not exist")
+var ErrInvalidUpdateIndex = errors.New("invalid update index")

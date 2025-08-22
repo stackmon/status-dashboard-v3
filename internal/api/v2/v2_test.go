@@ -1,18 +1,16 @@
 package v2
 
 import (
-	"database/sql/driver"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
-	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"go.uber.org/zap"
 
 	"github.com/stackmon/otc-status-dashboard/internal/api/errors"
 	"github.com/stackmon/otc-status-dashboard/internal/db"
@@ -339,17 +337,8 @@ func TestGetComponentsAvailabilityHandler(t *testing.T) {
 	firstDayOfLastMonth := time.Date(year, month-1, 1, 0, 0, 0, 0, time.UTC)
 	testTime := firstDayOfLastMonth
 	prepareAvailability(t, m, testTime)
-
-	getYearAndMonth := func(year, month, offset int) (int, int) {
-		newMonth := month - offset
-		for newMonth <= 0 {
-			year--
-			newMonth += 12
-		}
-		return year, newMonth
-	}
-
 	expectedAvailability := ""
+
 	for i := range [12]int{} {
 		availYear, availMonth := getYearAndMonth(year, int(month), i)
 		percentage := 100
@@ -359,19 +348,17 @@ func TestGetComponentsAvailabilityHandler(t *testing.T) {
 		}
 		expectedAvailability += fmt.Sprintf(`{"year":%d,"month":%d,"percentage":%d},`, availYear, availMonth, percentage)
 	}
+
 	// Remove trailing comma
 	expectedAvailability = expectedAvailability[:len(expectedAvailability)-1]
 
 	response := fmt.Sprintf(`{"data":[{"id":151,"name":"Component B","availability":[%s],"region":"B"}]}`, expectedAvailability)
 
-	// Sending GET request to get availability of components
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest(http.MethodGet, "/v2/availability", nil)
 	r.ServeHTTP(w, req)
-	// Checking status code of response and format
 	assert.Equal(t, 200, w.Code)
 	assert.Equal(t, response, w.Body.String())
-	// unmarshal data to golang struct
 }
 
 func TestCalculateAvailability(t *testing.T) {
@@ -689,176 +676,113 @@ func TestValidateStatusesPatches(t *testing.T) {
 	}
 }
 
-func getYearAndMonth(year, month, offset int) (int, int) {
-	newMonth := month - offset
-	for newMonth <= 0 {
-		year--
-		newMonth += 12
-	}
-	return year, newMonth
-}
-
-func initTests(t *testing.T) (*gin.Engine, sqlmock.Sqlmock) {
-	t.Helper()
-
-	t.Log("start initialisation")
-	d, m, err := db.NewWithMock()
+func TestPatchEventUpdateHandler(t *testing.T) {
+	startDate := "2025-08-01T11:45:26.371Z"
+	endDate := "2025-08-04T11:45:26.371Z"
+	testTime, err := time.Parse(time.RFC3339, startDate)
+	require.NoError(t, err)
+	testEndTime, err := time.Parse(time.RFC3339, endDate)
 	require.NoError(t, err)
 
-	gin.SetMode(gin.TestMode)
-	r := gin.Default()
-	r.NoRoute(errors.Return404)
+	eventID := 1
+	impact2 := 2 // Incident
+	systemTrue := true
+	updateID1 := 1
+	updateID2 := 2
 
-	log, _ := zap.NewDevelopment()
-	initRoutes(t, r, d, log)
-
-	return r, m
-}
-
-func initRoutes(t *testing.T, c *gin.Engine, dbInst *db.DB, log *zap.Logger) {
-	t.Helper()
-
-	v2Api := c.Group("v2")
-	{
-		v2Api.GET("components", GetComponentsHandler(dbInst, log))
-		v2Api.GET("components/:id", GetComponentHandler(dbInst, log))
-		v2Api.GET("component_status", GetComponentsHandler(dbInst, log))
-		v2Api.POST("component_status", PostComponentHandler(dbInst, log))
-
-		v2Api.GET("incidents", GetIncidentsHandler(dbInst, log))
-		v2Api.POST("incidents", PostIncidentHandler(dbInst, log))
-		v2Api.GET("incidents/:id", GetIncidentHandler(dbInst, log))
-		v2Api.PATCH("incidents/:id", PatchIncidentHandler(dbInst, log))
-
-		v2Api.GET("availability", GetComponentsAvailabilityHandler(dbInst, log))
-	}
-}
-
-func prepareIncident(t *testing.T, mock sqlmock.Sqlmock, testTime time.Time) {
-	t.Helper()
-
-	rowsInc := sqlmock.NewRows([]string{"id", "text", "description", "start_date", "end_date", "impact", "system", "type"}).
-		AddRow(1, "Incident title A", "Description A", testTime, testTime.Add(time.Hour*72), 0, false, "maintenance").
-		AddRow(2, "Incident title B", "Description B", testTime, testTime.Add(time.Hour*72), 3, false, "incident")
-	mock.ExpectQuery("^SELECT (.+) FROM \"incident\" ORDER BY incident.start_date DESC$").WillReturnRows(rowsInc)
-
-	rowsIncComp := sqlmock.NewRows([]string{"incident_id", "component_id"}).
-		AddRow(1, 150).
-		AddRow(2, 151)
-	mock.ExpectQuery("^SELECT (.+) FROM \"incident_component_relation\"(.+)").WillReturnRows(rowsIncComp)
-
-	rowsComp := sqlmock.NewRows([]string{"id", "name"}).
-		AddRow(150, "Component A").
-		AddRow(151, "Component B")
-	mock.ExpectQuery("^SELECT (.+) FROM \"component\"(.+)").WillReturnRows(rowsComp)
-
-	rowsCompAttr := sqlmock.NewRows([]string{"id", "component_id", "name", "value"}).
-		AddRows([][]driver.Value{
-			{859, 150, "category", "A"},
-			{860, 150, "region", "A"},
-			{861, 150, "type", "b"},
-			{862, 151, "category", "B"},
-			{863, 151, "region", "B"},
-			{864, 151, "type", "a"},
-		}...)
-	mock.ExpectQuery("^SELECT (.+) FROM \"component_attribute\"").WillReturnRows(rowsCompAttr)
-
-	rowsStatus := sqlmock.NewRows([]string{"id", "incident_id", "timestamp", "text", "status"}).
-		AddRow(1, 1, testTime.Add(time.Hour*72), "Issue solved.", "resolved").
-		AddRow(2, 2, testTime.Add(time.Hour*72), "Issue solved.", "resolved")
-	mock.ExpectQuery("^SELECT (.+) FROM \"incident_status\"").WillReturnRows(rowsStatus)
-
-	mock.NewRowsWithColumnDefinition()
-}
-
-func prepareIncidentRows(result []*db.Incident) (*sqlmock.Rows, []driver.Value, []driver.Value) {
-	incidentIDs := make([]driver.Value, len(result))
-	componentIDs := make([]driver.Value, 0)
-	rowsInc := sqlmock.NewRows([]string{"id", "text", "description", "start_date", "end_date", "impact", "system", "type"})
-
-	for i, inc := range result {
-		incidentIDs[i] = inc.ID
-		var descriptionVal interface{}
-		if inc.Description != nil {
-			descriptionVal = *inc.Description
-		}
-		rowsInc.AddRow(inc.ID, *inc.Text, descriptionVal, *inc.StartDate, inc.EndDate, *inc.Impact, inc.System, inc.Type)
-		for _, comp := range inc.Components {
-			componentIDs = append(componentIDs, comp.ID)
-		}
-	}
-	return rowsInc, incidentIDs, componentIDs
-}
-
-func prepareRelatedRows(result []*db.Incident) (*sqlmock.Rows, *sqlmock.Rows, *sqlmock.Rows, *sqlmock.Rows) {
-	rowsIncComp := sqlmock.NewRows([]string{"incident_id", "component_id"})
-	rowsComp := sqlmock.NewRows([]string{"id", "name"})
-	rowsCompAttr := sqlmock.NewRows([]string{"id", "component_id", "name", "value"})
-	rowsStatus := sqlmock.NewRows([]string{"id", "incident_id", "timestamp", "text", "status"})
-
-	for _, inc := range result {
-		for _, comp := range inc.Components {
-			rowsIncComp.AddRow(inc.ID, comp.ID)
-			rowsComp.AddRow(comp.ID, comp.Name)
-			for _, attr := range comp.Attrs {
-				rowsCompAttr.AddRow(attr.ID, attr.ComponentID, attr.Name, attr.Value)
-			}
-		}
-		for _, status := range inc.Statuses {
-			rowsStatus.AddRow(status.ID, status.IncidentID, status.Timestamp, status.Text, status.Status)
-		}
-	}
-	return rowsIncComp, rowsComp, rowsCompAttr, rowsStatus
-}
-
-func prepareMockForIncidents(t *testing.T, mock sqlmock.Sqlmock, result []*db.Incident) {
-	t.Helper()
-
-	if len(result) == 0 {
-		mock.ExpectQuery(`^SELECT (.+) FROM "incident"`).WillReturnRows(sqlmock.NewRows([]string{"id", "text", "description", "start_date", "end_date", "impact", "system", "type"}))
-		return
+	// Mock data setup
+	incidentA := db.Incident{
+		ID:          uint(eventID),
+		Text:        &[]string{"Incident title A"}[0],
+		Description: &[]string{"Description A"}[0],
+		StartDate:   &testTime,
+		EndDate:     &testEndTime,
+		Impact:      &impact2,
+		Type:        event.TypeIncident,
+		System:      systemTrue,
+		Components: []db.Component{
+			{
+				ID:   151,
+				Name: "Component A",
+				Attrs: []db.ComponentAttr{
+					{ID: 462, ComponentID: 151, Name: "category", Value: "A"},
+					{ID: 463, ComponentID: 151, Name: "region", Value: "A"},
+					{ID: 464, ComponentID: 151, Name: "type", Value: "a"},
+				},
+			},
+		},
+		Statuses: []db.IncidentStatus{
+			{ID: 1, IncidentID: 1, Timestamp: testTime, Text: "Incident analysing.", Status: "analysing"},
+			{ID: 2, IncidentID: 1, Timestamp: testEndTime, Text: "Incident resolved.", Status: "resolved"},
+		},
 	}
 
-	rowsInc, incidentIDs, componentIDs := prepareIncidentRows(result)
-	mock.ExpectQuery(`^SELECT (.+) FROM "incident"`).WillReturnRows(rowsInc)
+	responseAfterFirst := fmt.Sprintf(
+		`[{"index":1,"status":"analysing","text":"Updated: analysing","timestamp":"%s"},
+		  {"index":2,"status":"resolved","text":"Incident resolved.","timestamp":"%s"}]`,
+		startDate, endDate,
+	)
+	responseAfterSecond := fmt.Sprintf(
+		`[{"index":1,"status":"analysing","text":"Incident analysing.","timestamp":"%s"},
+		  {"index":2,"status":"resolved","text":"Updated: resolved","timestamp":"%s"}]`,
+		startDate, endDate,
+	)
 
-	rowsIncComp, rowsComp, rowsCompAttr, rowsStatus := prepareRelatedRows(result)
+	testCases := []struct {
+		name           string
+		url            string
+		body           string
+		mockSetup      func(m sqlmock.Sqlmock)
+		expectedStatus int
+		expectedBody   string
+	}{
+		{
+			name: "Update incident update index=1",
+			url:  "incidents/1/updates/1",
+			body: `{"text":"Updated: analysing"}`,
+			mockSetup: func(m sqlmock.Sqlmock) {
+				prepareMockForPatchEventUpdate(
+					t, m, &incidentA,
+					uint(updateID1),
+					"Updated: analysing",
+				)
+			},
+			expectedStatus: http.StatusOK,
+			expectedBody:   responseAfterFirst,
+		},
+		{
+			name: "Update incident update index=2",
+			url:  "incidents/1/updates/2",
+			body: `{"text":"Updated: resolved"}`,
+			mockSetup: func(m sqlmock.Sqlmock) {
+				prepareMockForPatchEventUpdate(
+					t, m, &incidentA,
+					uint(updateID2),
+					"Updated: resolved",
+				)
+			},
+			expectedStatus: http.StatusOK,
+			expectedBody:   responseAfterSecond,
+		},
+	}
 
-	mock.ExpectQuery(`^SELECT (.+) FROM "incident_component_relation"`).WithArgs(incidentIDs...).WillReturnRows(rowsIncComp)
-	mock.ExpectQuery(`^SELECT (.+) FROM "component"`).WithArgs(componentIDs...).WillReturnRows(rowsComp)
-	mock.ExpectQuery("^SELECT (.+) FROM \"component_attribute\"").WillReturnRows(rowsCompAttr)
-	mock.ExpectQuery(`^SELECT (.+) FROM "incident_status"`).WithArgs(incidentIDs...).WillReturnRows(rowsStatus)
-}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			r, m := initTests(t)
+			tc.mockSetup(m)
 
-func prepareAvailability(t *testing.T, mock sqlmock.Sqlmock, testTime time.Time) {
-	t.Helper()
+			w := httptest.NewRecorder()
+			req, _ := http.NewRequest(http.MethodPatch, fmt.Sprintf("/v2/%s", tc.url), strings.NewReader(tc.body))
+			req.Header.Set("Content-Type", "application/json")
 
-	rowsComp := sqlmock.NewRows([]string{"id", "name"}).
-		AddRow(151, "Component B")
-	mock.ExpectQuery("^SELECT (.+) FROM \"component\"$").WillReturnRows(rowsComp)
+			r.ServeHTTP(w, req)
 
-	rowsCompAttr := sqlmock.NewRows([]string{"id", "component_id", "name", "value"}).
-		AddRows([][]driver.Value{
-			{862, 151, "category", "B"},
-			{863, 151, "region", "B"},
-			{864, 151, "type", "a"},
-		}...)
-	mock.ExpectQuery("^SELECT (.+) FROM \"component_attribute\"").WillReturnRows(rowsCompAttr)
+			t.Logf("Test Case: %s - Expected Response: %s", tc.name, tc.expectedBody)
+			t.Logf("Test Case: %s - Actual Response: %s", tc.name, w.Body.String())
 
-	rowsIncComp := sqlmock.NewRows([]string{"incident_id", "component_id"}).
-		AddRow(2, 151)
-	mock.ExpectQuery("^SELECT (.+) FROM \"incident_component_relation\"(.+)").WillReturnRows(rowsIncComp)
-
-	startOfMonth := time.Date(testTime.Year(), testTime.Month(), 1, 0, 0, 0, 0, time.UTC)
-	startOfNextMonth := startOfMonth.AddDate(0, 1, 0)
-
-	rowsInc := sqlmock.NewRows([]string{"id", "text", "description", "start_date", "end_date", "impact", "system", "type"}).
-		AddRow(2, "Incident title B", "Description B for Availability", startOfMonth, startOfNextMonth, 3, false, "incident")
-	mock.ExpectQuery("^SELECT (.+) FROM \"incident\" WHERE \"incident\".\"id\" = \\$1$").WillReturnRows(rowsInc)
-
-	rowsStatus := sqlmock.NewRows([]string{"id", "incident_id", "timestamp", "text", "status"}).
-		AddRow(2, 2, testTime.Add(time.Hour*72), "Issue solved.", "resolved")
-	mock.ExpectQuery("^SELECT (.+) FROM \"incident_status\"").WillReturnRows(rowsStatus)
-
-	mock.NewRowsWithColumnDefinition()
+			assert.Equal(t, tc.expectedStatus, w.Code)
+			assert.JSONEq(t, tc.expectedBody, w.Body.String())
+			assert.NoError(t, m.ExpectationsWereMet())
+		})
+	}
 }

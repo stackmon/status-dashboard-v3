@@ -700,7 +700,7 @@ func v2PatchIncident(t *testing.T, r *gin.Engine, inc *v2.Incident, status ...ev
 	assert.Equal(t, 200, w.Code)
 }
 
-func v2GetComponents(t *testing.T, r *gin.Engine) []v2.Component {
+func Testv2GetComponents(t *testing.T, r *gin.Engine) []v2.Component {
 	t.Helper()
 
 	url := "/v2/components"
