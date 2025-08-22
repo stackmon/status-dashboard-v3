@@ -406,7 +406,46 @@ paths:
           description: Invalid ID supplied
         '404':
           description: Incident not found.
-
+  /v2/incidents/{incident_id}/updates/{update_id}:
+    patch:
+      summary: Update the text of an incident update.
+      tags:
+        - incidents
+      parameters:
+        - name: incident_id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+        - name: update_id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                text:
+                  type: string
+                  example: "Updated status text"
+      responses:
+        '200':
+          description: Update successful.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/EventUpdateData'
+        '400':
+          description: Invalid input.
+        '404':
+          description: Not found.
   /v1/component_status:
     get:
       summary: Get all components.
@@ -870,3 +909,17 @@ components:
         errMsg:
           type: string
           example: "any error message"
+    EventUpdateData:
+      type: object
+      properties:
+        index:
+          type: integer
+        id:
+          type: integer
+        status:
+          type: string
+        text:
+          type: string
+        timestamp:
+          type: string
+          format: date-time

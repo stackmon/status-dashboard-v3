@@ -53,7 +53,8 @@ func (a *API) InitRoutes() {
 			AuthenticationMW(a.oa2Prov, a.log),
 			ValidateComponentsMW(a.db, a.log),
 			v2.PostIncidentExtractHandler(a.db, a.log))
-
+		v2API.PATCH("incidents/:id/updates/:update_id",
+			AuthenticationMW(a.oa2Prov, a.log), v2.PatchEventUpdateTextHandler(a.db, a.log))
 		v2API.GET("availability", v2.GetComponentsAvailabilityHandler(a.db, a.log))
 
 		// For testing purposes only

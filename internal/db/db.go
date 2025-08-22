@@ -182,7 +182,9 @@ func (db *DB) GetIncident(id int) (*Incident, error) {
 
 	r := db.g.Model(&Incident{}).
 		Where(inc).
-		Preload("Statuses").
+		Preload("Statuses", func(db *gorm.DB) *gorm.DB {
+			return db.Order("id ASC") // Order by ID to get the latest status first
+		}).
 		Preload("Components", func(db *gorm.DB) *gorm.DB {
 			return db.Select("ID, Name")
 		}).
@@ -581,4 +583,33 @@ func (db *DB) GetUniqueAttributeValues(attrName string) ([]string, error) {
 	}
 
 	return values, nil
+}
+
+func (db *DB) GetEventUpdates(incidentID uint) ([]IncidentStatus, error) {
+	var updates []IncidentStatus
+	r := db.g.Model(&IncidentStatus{}).
+		Where("incident_id = ?", incidentID).
+		Order("id ASC").
+		Find(&updates)
+
+	if r.Error != nil {
+		return nil, r.Error
+	}
+
+	return updates, nil
+}
+
+func (db *DB) ModifyEventUpdate(incidentID, updateID uint, text string) error {
+	r := db.g.Model(&IncidentStatus{}).
+		Where("id = ? AND incident_id = ?", updateID, incidentID).
+		Update("text", text)
+
+	if r.Error != nil {
+		return r.Error
+	}
+	if r.RowsAffected == 0 {
+		return ErrDBUpdateDSNotExist
+	}
+
+	return nil
 }

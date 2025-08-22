@@ -15,53 +15,6 @@ import (
 	"github.com/stackmon/otc-status-dashboard/internal/event"
 )
 
-type IncidentID struct {
-	ID int `json:"id" uri:"id" binding:"required,gte=0"`
-}
-
-type IncidentData struct {
-	Title string `json:"title" binding:"required"`
-	//TODO: this field only valid for incident creation (legacy), but it should be an additional field in DB.
-	Description string `json:"description,omitempty"`
-	//    INCIDENT_IMPACTS = {
-	//        0: Impact(0, "maintenance", "Scheduled maintenance", "info"),
-	//        1: Impact(1, "minor", "Minor incident (i.e. performance impact)"),
-	//        2: Impact(2, "major", "Major incident"),
-	//        3: Impact(3, "outage", "Service outage"),
-	//    }
-	Impact     *int  `json:"impact" binding:"required,gte=0,lte=3"`
-	Components []int `json:"components" binding:"required"`
-	// Datetime format is standard: "2006-01-01T12:00:00Z"
-	StartDate time.Time  `json:"start_date" binding:"required"`
-	EndDate   *time.Time `json:"end_date,omitempty"`
-	System    *bool      `json:"system,omitempty"`
-	//    Types of incidents:
-	//    1. maintenance
-	//    2. info
-	//    3. incident
-	// Type field is mandatory.
-	Type    string              `json:"type" binding:"required,oneof=maintenance info incident"`
-	Updates []db.IncidentStatus `json:"updates,omitempty"`
-	// Status does not take into account OutDatedSystem status.
-	Status event.Status `json:"status,omitempty"`
-}
-
-type Incident struct {
-	IncidentID
-	IncidentData
-}
-
-type APIGetIncidentsQuery struct {
-	Types      *string       `form:"type" binding:"omitempty"` // custom validation in parseAndSetTypes
-	IsActive   *bool         `form:"active" binding:"omitempty"`
-	Status     *event.Status `form:"status"` // custom validation in validateAndSetStatus
-	StartDate  *time.Time    `form:"start_date" binding:"omitempty"`
-	EndDate    *time.Time    `form:"end_date" binding:"omitempty"`
-	Impact     *int          `form:"impact" binding:"omitempty,gte=0,lte=3"`
-	System     *bool         `form:"system" binding:"omitempty"`
-	Components *string       `form:"components"` // custom validation in parseAndSetComponents
-}
-
 func bindIncidentsQuery(c *gin.Context) (*APIGetIncidentsQuery, error) {
 	var query APIGetIncidentsQuery
 
@@ -180,6 +133,8 @@ func toAPIIncident(inc *db.Incident) *Incident {
 		components[i] = int(comp.ID)
 	}
 
+	updates := mapEventUpdates(inc.Statuses, false)
+
 	var description string
 	if inc.Description != nil {
 		description = *inc.Description
@@ -193,7 +148,7 @@ func toAPIIncident(inc *db.Incident) *Incident {
 		StartDate:   *inc.StartDate,
 		EndDate:     inc.EndDate,
 		System:      &inc.System,
-		Updates:     inc.Statuses,
+		Updates:     updates,
 		Status:      inc.Status,
 		Type:        inc.Type,
 	}
@@ -319,16 +274,6 @@ func PostIncidentHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc { //
 	}
 }
 
-type PostIncidentResp struct {
-	Result []*ProcessComponentResp `json:"result"`
-}
-
-type ProcessComponentResp struct {
-	ComponentID int    `json:"component_id"`
-	IncidentID  int    `json:"incident_id,omitempty"`
-	Error       string `json:"error,omitempty"`
-}
-
 func validateEventCreation(incData IncidentData) error {
 	if err := validateEventCreationImpact(incData); err != nil {
 		return err
@@ -424,18 +369,6 @@ func createEvent(dbInst *db.DB, log *zap.Logger, inc *db.Incident) error {
 	}
 
 	return nil
-}
-
-type PatchIncidentData struct {
-	Title       *string      `json:"title,omitempty"`
-	Description *string      `json:"description,omitempty"`
-	Impact      *int         `json:"impact,omitempty"`
-	Message     string       `json:"message" binding:"required"`
-	Status      event.Status `json:"status" binding:"required"`
-	UpdateDate  time.Time    `json:"update_date" binding:"required"`
-	StartDate   *time.Time   `json:"start_date,omitempty"`
-	EndDate     *time.Time   `json:"end_date,omitempty"`
-	Type        string       `json:"type,omitempty" binding:"omitempty,oneof=maintenance info incident"`
 }
 
 func PatchIncidentHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc { //nolint:gocognit
@@ -631,10 +564,6 @@ func updateFields(income *PatchIncidentData, stored *db.Incident) {
 	}
 }
 
-type PostIncidentSeparateData struct {
-	Components []int `json:"components" binding:"required,min=1"`
-}
-
 func PostIncidentExtractHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc { //nolint:gocognit
 	return func(c *gin.Context) {
 		logger.Debug("start to extract components to the new incident")
@@ -701,46 +630,6 @@ func PostIncidentExtractHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFu
 	}
 }
 
-type Component struct {
-	ComponentID
-	Attributes []ComponentAttribute `json:"attributes"`
-	Name       string               `json:"name"`
-}
-
-type ComponentAvailability struct {
-	ComponentID
-	Name         string                `json:"name"`
-	Availability []MonthlyAvailability `json:"availability"`
-	Region       string                `json:"region"`
-}
-
-type ComponentID struct {
-	ID int `json:"id" uri:"id" binding:"required,gte=0"`
-}
-
-// ComponentAttribute provides additional attributes for component.
-// Available list of possible attributes are:
-// 1. type
-// 2. region
-// 3. category
-// All of them are required for creation.
-type ComponentAttribute struct {
-	Name  string `json:"name"`
-	Value string `json:"value"`
-}
-
-var availableAttrs = map[string]struct{}{ //nolint:gochecknoglobals
-	"type":     {},
-	"region":   {},
-	"category": {},
-}
-
-type MonthlyAvailability struct {
-	Year       int     `json:"year"`
-	Month      int     `json:"month"`      // Number of the month (1 - 12)
-	Percentage float64 `json:"percentage"` // Percent (0 - 100 / example: 95.23478)
-}
-
 func GetComponentsHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		logger.Debug("retrieve components")
@@ -777,11 +666,6 @@ func GetComponentHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 
 		c.JSON(http.StatusOK, r)
 	}
-}
-
-type PostComponentData struct {
-	Attributes []ComponentAttribute `json:"attrs" binding:"required"`
-	Name       string               `json:"name" binding:"required"`
 }
 
 // PostComponentHandler creates a new component.
@@ -1017,6 +901,7 @@ func calculateAvailability(component *db.Component) ([]MonthlyAvailability, erro
 	return monthlyAvailability, nil
 }
 
+// Helper functions for calculateAvailability.
 func adjustIncidentPeriod(incidentStart, incidentEnd, periodStart, periodEnd time.Time) (time.Time, time.Time, bool) {
 	if incidentEnd.Before(periodStart) || incidentStart.After(periodEnd) {
 		return time.Time{}, time.Time{}, false
@@ -1049,4 +934,124 @@ func hoursInMonth(year int, month int) float64 {
 	nextMonth := firstDay.AddDate(0, 1, 0)
 
 	return float64(nextMonth.Sub(firstDay).Hours())
+}
+
+func bindAndValidatePatchEventUpdate(c *gin.Context) (*PatchEventUpdateData, error) {
+	var patch PatchEventUpdateData
+
+	// Incident ID validation.
+	idParam := c.Param("id")
+	var incidentID int
+	_, errID := fmt.Sscanf(idParam, "%d", &incidentID)
+	if errID != nil || incidentID <= 0 {
+		return nil, apiErrors.ErrIncidentDSNotExist
+	}
+
+	// Update index validation.
+	updateParam := c.Param("update_id")
+	var updateIndex int
+	_, errUpd := fmt.Sscanf(updateParam, "%d", &updateIndex)
+	if errUpd != nil || updateIndex <= 0 {
+		return nil, apiErrors.ErrInvalidUpdateIndex
+	}
+
+	patch.IncidentID = incidentID
+	patch.UpdateIndex = updateIndex
+
+	if err := c.ShouldBindJSON(&patch); err != nil {
+		return nil, err
+	}
+	if patch.Text == nil || *patch.Text == "" {
+		return nil, apiErrors.ErrUpdateTextEmpty
+	}
+	return &patch, nil
+}
+
+func PatchEventUpdateTextHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		logger.Debug("Patch event.update.text")
+
+		patch, err := bindAndValidatePatchEventUpdate(c)
+		if err != nil {
+			apiErrors.RaiseBadRequestErr(c, err)
+			return
+		}
+
+		// Incident existence check.
+		_, err = dbInst.GetIncident(patch.IncidentID)
+		if err != nil {
+			if errors.Is(err, db.ErrDBIncidentDSNotExist) {
+				apiErrors.RaiseStatusNotFoundErr(c, apiErrors.ErrIncidentDSNotExist)
+				return
+			}
+			apiErrors.RaiseInternalErr(c, err)
+			return
+		}
+
+		// Update existence check.
+		r, err := dbInst.GetEventUpdates(uint(patch.IncidentID))
+		if err != nil {
+			apiErrors.RaiseInternalErr(c, err)
+			return
+		}
+		updates := mapEventUpdates(r, true)
+
+		targetUpdate := findEventUpdateByIndex(updates, patch.UpdateIndex)
+
+		if targetUpdate == nil {
+			apiErrors.RaiseStatusNotFoundErr(c, db.ErrDBUpdateDSNotExist)
+			return
+		}
+
+		err = dbInst.ModifyEventUpdate(
+			uint(patch.IncidentID),
+			uint(targetUpdate.ID),
+			*patch.Text,
+		)
+
+		if err != nil {
+			if errors.Is(err, db.ErrDBUpdateDSNotExist) {
+				apiErrors.RaiseStatusNotFoundErr(c, apiErrors.ErrUpdateDSNotExist)
+				return
+			}
+			apiErrors.RaiseInternalErr(c, err)
+			return
+		}
+
+		upds, errDB := dbInst.GetEventUpdates(uint(patch.IncidentID))
+		if errDB != nil {
+			apiErrors.RaiseInternalErr(c, errDB)
+			return
+		}
+
+		c.JSON(http.StatusOK, mapEventUpdates(upds, false))
+	}
+}
+
+func findEventUpdateByIndex(updates []EventUpdateData, index int) *EventUpdateData {
+	for i := range updates {
+		if updates[i].Index == index {
+			return &updates[i]
+		}
+	}
+	return nil
+}
+
+func mapEventUpdates(statuses []db.IncidentStatus, withID bool) []EventUpdateData {
+	updates := make([]EventUpdateData, len(statuses))
+	for i, s := range statuses {
+		id := 0
+		if withID {
+			id = int(s.ID)
+		}
+
+		updates[i] = EventUpdateData{
+			Index:     i + 1,
+			ID:        id,
+			Status:    s.Status,
+			Text:      s.Text,
+			Timestamp: s.Timestamp,
+		}
+	}
+	return updates
 }
