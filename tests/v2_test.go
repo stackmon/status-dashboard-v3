@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	apiErrors "github.com/stackmon/otc-status-dashboard/internal/api/errors"
 	v2 "github.com/stackmon/otc-status-dashboard/internal/api/v2"
 	"github.com/stackmon/otc-status-dashboard/internal/event"
 )
@@ -1205,4 +1206,131 @@ func TestV2PostInfoWithExistingEventsHandler(t *testing.T) {
 	assert.True(t, maintenanceEndDate.Truncate(time.Second).Equal(fetchedMaintenanceIncident.EndDate.Truncate(time.Second)), "Maintenance end date mismatch")
 	assert.Contains(t, fetchedMaintenanceIncident.Components, incidentComponentID, "Maintenance event should still have its component")
 	assert.Len(t, fetchedMaintenanceIncident.Components, 1, "Maintenance event should only have its original component")
+}
+
+func TestV2PatchEventUpdateHandler(t *testing.T) {
+	t.Log("start to test PATCH /v2/incidents/:id/updates/:update_id")
+	r, dbInst, _ := initTests(t)
+
+	// Clean up database before test to ensure a clean state for this test case.
+	truncateIncidents(t, dbInst)
+
+	components := []int{1}
+	impact := 1
+	title := "Incident for testing update patch"
+	startDate := time.Now().UTC()
+	system := false
+	incidentCreateData := v2.IncidentData{
+		Title:      title,
+		Impact:     &impact,
+		Components: components,
+		StartDate:  startDate,
+		System:     &system,
+		Type:       event.TypeIncident,
+	}
+
+	createResp := v2CreateIncident(t, r, &incidentCreateData)
+	require.NotNil(t, createResp, "Failed to create incident for test")
+	require.Len(t, createResp.Result, 1)
+	incidentID := createResp.Result[0].IncidentID
+
+	// The created incident has one update with index 1
+	initialIncident := v2GetIncident(t, r, incidentID)
+	require.Len(t, initialIncident.Updates, 1)
+
+	testCases := []struct {
+		name           string
+		incidentID     int
+		updateIndex    int
+		body           string
+		expectedStatus int
+		expectedBody   string
+		checkResponse  func(t *testing.T, body []byte)
+	}{
+		{
+			name:           "Successful update",
+			incidentID:     incidentID,
+			updateIndex:    1,
+			body:           `{"text": "The text of this update has been successfully changed."}`,
+			expectedStatus: http.StatusOK,
+			checkResponse: func(t *testing.T, body []byte) {
+				var updates []v2.EventUpdateData
+				err := json.Unmarshal(body, &updates)
+				require.NoError(t, err)
+				require.Len(t, updates, 1)
+				assert.Equal(t, 1, updates[0].Index)
+				assert.Equal(t, "The text of this update has been successfully changed.", updates[0].Text)
+				assert.Equal(t, event.IncidentDetected, updates[0].Status)
+			},
+		},
+		{
+			name:           "Incident not found",
+			incidentID:     99999,
+			updateIndex:    1,
+			body:           `{"text": "This should fail."}`,
+			expectedStatus: http.StatusNotFound,
+			expectedBody:   fmt.Sprintf(`{"errMsg":"%s"}`, apiErrors.ErrIncidentDSNotExist),
+		},
+		{
+			name:           "Update index not found",
+			incidentID:     incidentID,
+			updateIndex:    99,
+			body:           `{"text": "This should also fail."}`,
+			expectedStatus: http.StatusNotFound,
+			expectedBody:   fmt.Sprintf(`{"errMsg":"%s"}`, apiErrors.ErrUpdateDSNotExist),
+		},
+		{
+			name:           "Invalid update index (zero)",
+			incidentID:     incidentID,
+			updateIndex:    0,
+			body:           `{"text": "This should also fail."}`,
+			expectedStatus: http.StatusBadRequest,
+			expectedBody:   fmt.Sprintf(`{"errMsg":"%s"}`, apiErrors.ErrInvalidUpdateIndex),
+		},
+		{
+			name:           "Empty text in body",
+			incidentID:     incidentID,
+			updateIndex:    1,
+			body:           `{"text": ""}`,
+			expectedStatus: http.StatusBadRequest,
+			expectedBody:   fmt.Sprintf(`{"errMsg":"%s"}`, apiErrors.ErrUpdateTextEmpty),
+		},
+		{
+			name:           "Missing text field in body",
+			incidentID:     incidentID,
+			updateIndex:    1,
+			body:           `{}`,
+			expectedStatus: http.StatusBadRequest,
+			expectedBody:   fmt.Sprintf(`{"errMsg":"%s"}`, apiErrors.ErrUpdateTextEmpty),
+		},
+		{
+			name:           "Invalid JSON body",
+			incidentID:     incidentID,
+			updateIndex:    1,
+			body:           `{"text": "invalid json`,
+			expectedStatus: http.StatusBadRequest,
+			expectedBody:   `{"errMsg":"unexpected EOF"}`,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			url := fmt.Sprintf("/v2/incidents/%d/updates/%d", tc.incidentID, tc.updateIndex)
+			req, _ := http.NewRequest(http.MethodPatch, url, strings.NewReader(tc.body))
+			req.Header.Set("Content-Type", "application/json")
+
+			w := httptest.NewRecorder()
+			r.ServeHTTP(w, req)
+
+			assert.Equal(t, tc.expectedStatus, w.Code)
+
+			if tc.checkResponse != nil {
+				tc.checkResponse(t, w.Body.Bytes())
+			}
+
+			if tc.expectedBody != "" {
+				assert.JSONEq(t, tc.expectedBody, w.Body.String())
+			}
+		})
+	}
 }

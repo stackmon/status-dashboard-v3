@@ -137,6 +137,14 @@ func initRoutesV2(t *testing.T, c *gin.Engine, dbInst *db.DB, logger *zap.Logger
 	v2Api.GET("incidents/:id", v2.GetIncidentHandler(dbInst, logger))
 	v2Api.PATCH("incidents/:id", v2.PatchIncidentHandler(dbInst, logger))
 	v2Api.POST("incidents/:id/extract", v2.PostIncidentExtractHandler(dbInst, logger))
+	v2Api.PATCH("incidents/:id/updates/:update_id", v2.PatchEventUpdateTextHandler(dbInst, logger))
 
 	v2Api.GET("availability", v2.GetComponentsAvailabilityHandler(dbInst, logger))
+}
+
+func truncateIncidents(t *testing.T, dbInst *db.DB) {
+	t.Helper()
+	t.Log("cleaning up incident-related tables before test")
+	result := dbInst.GormDB().Exec("TRUNCATE TABLE incident, incident_status, incident_component_relation RESTART IDENTITY")
+	require.NoError(t, result.Error, "failed to truncate incident tables")
 }
