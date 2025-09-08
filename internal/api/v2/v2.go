@@ -997,7 +997,7 @@ func PatchEventUpdateTextHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerF
 		targetUpdate := findEventUpdateByIndex(updates, patch.UpdateIndex)
 
 		if targetUpdate == nil {
-			apiErrors.RaiseStatusNotFoundErr(c, db.ErrDBUpdateDSNotExist)
+			apiErrors.RaiseStatusNotFoundErr(c, db.ErrDBEventUpdateDSNotExist)
 			return
 		}
 
@@ -1008,7 +1008,7 @@ func PatchEventUpdateTextHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerF
 		)
 
 		if err != nil {
-			if errors.Is(err, db.ErrDBUpdateDSNotExist) {
+			if errors.Is(err, db.ErrDBEventUpdateDSNotExist) {
 				apiErrors.RaiseStatusNotFoundErr(c, apiErrors.ErrUpdateDSNotExist)
 				return
 			}

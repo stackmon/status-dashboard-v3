@@ -608,7 +608,7 @@ func (db *DB) ModifyEventUpdate(incidentID, updateID uint, text string) error {
 		return r.Error
 	}
 	if r.RowsAffected == 0 {
-		return ErrDBUpdateDSNotExist
+		return ErrDBEventUpdateDSNotExist
 	}
 
 	return nil
