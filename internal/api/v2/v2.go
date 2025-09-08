@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/go-playground/validator/v10"
 	"go.uber.org/zap"
 
 	apiErrors "github.com/stackmon/otc-status-dashboard/internal/api/errors"
@@ -939,26 +940,23 @@ func hoursInMonth(year int, month int) float64 {
 func bindAndValidatePatchEventUpdate(c *gin.Context) (*PatchEventUpdateData, error) {
 	var patch PatchEventUpdateData
 
-	// Incident ID validation.
-	idParam := c.Param("id")
-	var incidentID int
-	_, errID := fmt.Sscanf(idParam, "%d", &incidentID)
-	if errID != nil || incidentID <= 0 {
-		return nil, apiErrors.ErrIncidentDSNotExist
+	err := c.ShouldBindUri(&patch)
+	if err != nil {
+		var ve validator.ValidationErrors
+		if !errors.As(err, &ve) {
+			return nil, apiErrors.ErrIncidentFQueryInvalidFormat
+		}
+		for _, fe := range ve {
+			switch fe.Field() {
+			case "IncidentID":
+				return nil, apiErrors.ErrIncidentDSNotExist
+			case "UpdateIndex":
+				return nil, apiErrors.ErrInvalidUpdateIndex
+			}
+		}
 	}
 
-	// Update index validation.
-	updateParam := c.Param("update_id")
-	var updateIndex int
-	_, errUpd := fmt.Sscanf(updateParam, "%d", &updateIndex)
-	if errUpd != nil || updateIndex <= 0 {
-		return nil, apiErrors.ErrInvalidUpdateIndex
-	}
-
-	patch.IncidentID = incidentID
-	patch.UpdateIndex = updateIndex
-
-	if err := c.ShouldBindJSON(&patch); err != nil {
+	if err = c.ShouldBindJSON(&patch); err != nil {
 		return nil, err
 	}
 	if patch.Text == nil || *patch.Text == "" {

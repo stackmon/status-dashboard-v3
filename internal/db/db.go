@@ -38,11 +38,6 @@ func New(c *conf.Config) (*DB, error) {
 	return &DB{g: g}, nil
 }
 
-// Returns the underlying gorm.DB instance. This is intended for testing purposes only.
-func (db *DB) GormDB() *gorm.DB {
-	return db.g
-}
-
 func (db *DB) Close() error {
 	sqlDB, err := db.g.DB()
 	if err != nil {
@@ -188,7 +183,7 @@ func (db *DB) GetIncident(id int) (*Incident, error) {
 	r := db.g.Model(&Incident{}).
 		Where(inc).
 		Preload("Statuses", func(db *gorm.DB) *gorm.DB {
-			return db.Order("id ASC") // Order by ID to get the latest status first
+			return db.Order("id ASC") // Order by ID to get the latest status last
 		}).
 		Preload("Components", func(db *gorm.DB) *gorm.DB {
 			return db.Select("ID, Name")

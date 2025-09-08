@@ -15,6 +15,8 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
+	gormpostgres "gorm.io/driver/postgres"
+	"gorm.io/gorm"
 
 	"github.com/stackmon/otc-status-dashboard/internal/api"
 	"github.com/stackmon/otc-status-dashboard/internal/api/auth"
@@ -142,9 +144,20 @@ func initRoutesV2(t *testing.T, c *gin.Engine, dbInst *db.DB, logger *zap.Logger
 	v2Api.GET("availability", v2.GetComponentsAvailabilityHandler(dbInst, logger))
 }
 
-func truncateIncidents(t *testing.T, dbInst *db.DB) {
+func truncateIncidents(t *testing.T) {
 	t.Helper()
 	t.Log("cleaning up incident-related tables before test")
-	result := dbInst.GormDB().Exec("TRUNCATE TABLE incident, incident_status, incident_component_relation RESTART IDENTITY")
+
+	// Create a new GORM DB connection just for truncation.
+	// This avoids modifying the db package to expose the underlying *gorm.DB.
+	gormDB, err := gorm.Open(gormpostgres.Open(databaseURL), &gorm.Config{})
+	require.NoError(t, err, "failed to open gorm connection for truncation")
+
+	result := gormDB.Exec("TRUNCATE TABLE incident, incident_status, incident_component_relation RESTART IDENTITY")
 	require.NoError(t, result.Error, "failed to truncate incident tables")
+
+	sqlDB, err := gormDB.DB()
+	require.NoError(t, err, "failed to get sql.DB from gorm for closing")
+	err = sqlDB.Close()
+	require.NoError(t, err, "failed to close gorm connection for truncation")
 }

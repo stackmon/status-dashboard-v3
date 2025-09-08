@@ -1210,10 +1210,10 @@ func TestV2PostInfoWithExistingEventsHandler(t *testing.T) {
 
 func TestV2PatchEventUpdateHandler(t *testing.T) {
 	t.Log("start to test PATCH /v2/incidents/:id/updates/:update_id")
-	r, dbInst, _ := initTests(t)
+	r, _, _ := initTests(t)
 
 	// Clean up database before test to ensure a clean state for this test case.
-	truncateIncidents(t, dbInst)
+	truncateIncidents(t)
 
 	components := []int{1}
 	impact := 1
