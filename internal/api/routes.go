@@ -41,7 +41,7 @@ func (a *API) InitRoutes() {
 		v2API.POST("components", AuthenticationMW(a.oa2Prov, a.log), v2.PostComponentHandler(a.db, a.log))
 		v2API.GET("components/:id", v2.GetComponentHandler(a.db, a.log))
 
-		v2API.GET("incidents", v2.GetIncidentsHandler(a.db, a.log))
+		v2API.GET("incidents", v2.GetEventsHandler(a.db, a.log, false))
 		v2API.POST("incidents",
 			AuthenticationMW(a.oa2Prov, a.log),
 			ValidateComponentsMW(a.db, a.log),
@@ -53,7 +53,7 @@ func (a *API) InitRoutes() {
 			AuthenticationMW(a.oa2Prov, a.log),
 			ValidateComponentsMW(a.db, a.log),
 			v2.PostIncidentExtractHandler(a.db, a.log))
-
+		v2API.GET("events/", v2.GetEventsHandler(a.db, a.log, true))
 		v2API.GET("availability", v2.GetComponentsAvailabilityHandler(a.db, a.log))
 
 		// For testing purposes only

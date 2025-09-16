@@ -15,6 +15,11 @@ import (
 	"github.com/stackmon/otc-status-dashboard/internal/event"
 )
 
+const (
+	defaultIncidentLimit = 50
+	maxIncidentLimit     = 100
+)
+
 type IncidentID struct {
 	ID int `json:"id" uri:"id" binding:"required,gte=0"`
 }
@@ -60,6 +65,8 @@ type APIGetIncidentsQuery struct {
 	Impact     *int          `form:"impact" binding:"omitempty,gte=0,lte=3"`
 	System     *bool         `form:"system" binding:"omitempty"`
 	Components *string       `form:"components"` // custom validation in parseAndSetComponents
+	Limit      *int          `form:"limit" binding:"omitempty,gte=0"`
+	Offset     *int          `form:"offset" binding:"omitempty,gte=0"`
 }
 
 func bindIncidentsQuery(c *gin.Context) (*APIGetIncidentsQuery, error) {
@@ -75,7 +82,7 @@ func bindIncidentsQuery(c *gin.Context) (*APIGetIncidentsQuery, error) {
 	return &query, nil
 }
 
-func parseIncidentParams(c *gin.Context) (*db.IncidentsParams, error) {
+func parseIncidentParams(c *gin.Context, paginated bool) (*db.IncidentsParams, error) {
 	query, err := bindIncidentsQuery(c)
 	if err != nil {
 		return nil, err
@@ -93,6 +100,21 @@ func parseIncidentParams(c *gin.Context) (*db.IncidentsParams, error) {
 			return nil, apiErrors.ErrIncidentFQueryInvalidFormat
 		}
 		params.IsActive = query.IsActive
+	}
+
+	if paginated {
+		// For /events: apply default limit and max limit logic.
+		limit := defaultIncidentLimit
+		if query.Limit != nil {
+			val := *query.Limit
+			if val > maxIncidentLimit {
+				val = maxIncidentLimit
+			}
+			limit = val
+		} else {
+			params.Limit = &limit
+		}
+		params.Offset = query.Offset
 	}
 
 	// Status: Manual validation.
@@ -117,27 +139,30 @@ func parseIncidentParams(c *gin.Context) (*db.IncidentsParams, error) {
 	return params, nil
 }
 
-// GetIncidentsHandler retrieves incidents based on query parameters.
-func GetIncidentsHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
+// GetEventsHandler retrieves incidents based on query parameters.
+func GetEventsHandler(dbInst *db.DB, logger *zap.Logger, paginated bool) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		logger.Debug("retrieve and parse incidents params from query")
 
-		params, err := parseIncidentParams(c)
+		params, err := parseIncidentParams(c, paginated)
 		if err != nil {
 			apiErrors.RaiseBadRequestErr(c, err)
 			return
 		}
 
 		logger.Debug("retrieve incidents with params", zap.Any("params", params))
-		r, err := dbInst.GetIncidents(params)
+		r, total, err := dbInst.GetIncidentsWithCount(params)
 		if err != nil {
 			logger.Error("failed to retrieve incidents", zap.Error(err))
 			apiErrors.RaiseInternalErr(c, err)
 			return
 		}
 
-		if len(r) == 0 {
-			logger.Debug("no incidents found matching the specific criteria", zap.Any("params", params))
+		if total == 0 {
+			logger.Debug(
+				"no incidents found matching the specific criteria",
+				zap.Any("params", params), zap.Bool("paginated", paginated),
+			)
 			c.JSON(http.StatusOK, gin.H{"data": []Incident{}})
 			return
 		}
@@ -147,7 +172,13 @@ func GetIncidentsHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 			incidents[i] = toAPIIncident(inc)
 		}
 
-		c.JSON(http.StatusOK, gin.H{"data": incidents})
+		if paginated {
+			// For /events, include 'total' for pagination.
+			c.JSON(http.StatusOK, gin.H{"data": incidents, "total": total})
+		} else {
+			// For /incidents, return data wrapper without 'total'.
+			c.JSON(http.StatusOK, gin.H{"data": incidents})
+		}
 	}
 }
 

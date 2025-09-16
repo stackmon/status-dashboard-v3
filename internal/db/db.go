@@ -56,23 +56,23 @@ type IncidentsParams struct {
 	ComponentIDs []int
 	LastCount    int
 	IsActive     *bool
+	Limit        *int
+	Offset       *int
 }
 
-// GetIncidents retrieves incidents based on the provided parameters.
-// If no parameters are provided, it returns all incidents.
-// params is a slice because of the optional nature of parameters.
-func (db *DB) GetIncidents(params ...*IncidentsParams) ([]*Incident, error) {
+// GetIncidentsWithCount retrieves incidents based on the provided parameters, with pagination and total count.
+func (db *DB) GetIncidentsWithCount(params ...*IncidentsParams) ([]*Incident, int64, error) {
 	var incidents []*Incident
+	var total int64
 	var param IncidentsParams
 	if len(params) > 0 && params[0] != nil {
 		param = *params[0]
 	}
 
-	r := db.g.Model(&Incident{}).
-		Preload("Statuses").
-		Preload("Components", func(db *gorm.DB) *gorm.DB { return db.Select("ID, Name") }).
-		Preload("Components.Attrs")
+	// Base query for filtering
+	r := db.g.Model(&Incident{})
 
+	// Apply filters
 	if param.Types != nil {
 		r = r.Where("incident.type IN (?)", param.Types)
 	}
@@ -92,7 +92,20 @@ func (db *DB) GetIncidents(params ...*IncidentsParams) ([]*Incident, error) {
 
 	// it's a special case for active events
 	if param.IsActive != nil {
-		return db.processActiveEvents(r, *param.IsActive)
+		if !*param.IsActive {
+			return nil, 0, ErrDBIncidentFilterActiveFalse //nolint:wrapcheck
+		}
+		currentTime := time.Now().UTC()
+		r = r.Where("(incident.end_date IS NULL) OR "+
+			"(incident.start_date <= ? AND "+
+			"incident.end_date >= ? AND "+
+			"incident.status NOT IN (?))",
+			currentTime,
+			currentTime,
+			[]event.Status{event.MaintenanceCompleted,
+				event.MaintenanceCancelled,
+				event.InfoCompleted,
+				event.InfoCancelled})
 	}
 
 	if param.Status != nil {
@@ -108,19 +121,44 @@ func (db *DB) GetIncidents(params ...*IncidentsParams) ([]*Incident, error) {
 		r = r.Where("incident.end_date <= ?", *param.EndDate)
 	}
 
+	// Get total count before applying limit and offset
+	if err := r.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+
+	// Apply preloads, order, and pagination for the final query
+	r = r.
+		Preload("Statuses").
+		Preload("Components", func(db *gorm.DB) *gorm.DB { return db.Select("ID, Name") }).
+		Preload("Components.Attrs")
+
 	r = r.Order("incident.start_date DESC")
 
 	if param.LastCount != 0 {
 		r = r.Limit(param.LastCount)
 	}
 
-	if err := r.Find(&incidents).Error; err != nil {
-		return nil, err
+	if param.Limit != nil {
+		r = r.Limit(*param.Limit)
 	}
-	return incidents, nil
+	if param.Offset != nil {
+		r = r.Offset(*param.Offset)
+	}
+
+	if err := r.Find(&incidents).Error; err != nil {
+		return nil, 0, err
+	}
+	return incidents, total, nil
 }
 
-func (db *DB) processActiveEvents(r *gorm.DB, isActive bool) ([]*Incident, error) { //nolint:gocognit
+// GetIncidents retrieves incidents based on the provided parameters.
+// This is a wrapper around GetIncidentsWithCount for backward compatibility.
+func (db *DB) GetIncidents(params ...*IncidentsParams) ([]*Incident, error) {
+	incidents, _, err := db.GetIncidentsWithCount(params...)
+	return incidents, err
+}
+
+func (db *DB) processActiveEvents(r *gorm.DB, isActive bool) ([]*Incident, error) { //nolint:gocognit,deadcode,unused
 	var incidents []*Incident
 	if !isActive {
 		// We don't support not active events, because they are not useful.

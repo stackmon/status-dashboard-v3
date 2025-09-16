@@ -132,7 +132,7 @@ func initRoutesV2(t *testing.T, c *gin.Engine, dbInst *db.DB, logger *zap.Logger
 	v2Api.POST("components", v2.PostComponentHandler(dbInst, logger))
 	v2Api.GET("components/:id", v2.GetComponentHandler(dbInst, logger))
 
-	v2Api.GET("incidents", v2.GetIncidentsHandler(dbInst, logger))
+	v2Api.GET("incidents", v2.GetEventsHandler(dbInst, logger, false))
 	v2Api.POST("incidents", api.ValidateComponentsMW(dbInst, logger), v2.PostIncidentHandler(dbInst, logger))
 	v2Api.GET("incidents/:id", v2.GetIncidentHandler(dbInst, logger))
 	v2Api.PATCH("incidents/:id", v2.PatchIncidentHandler(dbInst, logger))
