@@ -65,8 +65,8 @@ type APIGetIncidentsQuery struct {
 	Impact     *int          `form:"impact" binding:"omitempty,gte=0,lte=3"`
 	System     *bool         `form:"system" binding:"omitempty"`
 	Components *string       `form:"components"` // custom validation in parseAndSetComponents
-	Limit      *int          `form:"limit" binding:"omitempty,gte=0"`
-	Offset     *int          `form:"offset" binding:"omitempty,gte=0"`
+	Page       *int          `form:"page" binding:"omitempty,gte=1"`
+	Limit      *int          `form:"limit" binding:"omitempty,gte=0,lte=100"`
 }
 
 func bindIncidentsQuery(c *gin.Context) (*APIGetIncidentsQuery, error) {
@@ -104,17 +104,24 @@ func parseIncidentParams(c *gin.Context, paginated bool) (*db.IncidentsParams, e
 
 	if paginated {
 		// For /events: apply default limit and max limit logic.
+		page := 1
 		limit := defaultIncidentLimit
-		if query.Limit != nil {
-			val := *query.Limit
-			if val > maxIncidentLimit {
-				val = maxIncidentLimit
-			}
-			limit = val
-		} else {
-			params.Limit = &limit
+
+		if query.Page != nil && *query.Page > 0 {
+			page = *query.Page
 		}
-		params.Offset = query.Offset
+
+		if query.Limit != nil {
+			limit = min(*query.Limit, maxIncidentLimit)
+		}
+
+		params.Page = &page
+
+		params.Limit = &limit
+		if limit > 0 {
+			offset := (page - 1) * limit
+			params.Offset = &offset
+		}
 	}
 
 	// Status: Manual validation.
@@ -167,19 +174,53 @@ func GetEventsHandler(dbInst *db.DB, logger *zap.Logger, paginated bool) gin.Han
 			return
 		}
 
-		incidents := make([]*Incident, len(r))
-		for i, inc := range r {
-			incidents[i] = toAPIIncident(inc)
+		if paginated {
+			handlePaginatedResponse(c, r, params, total)
+			return
 		}
 
-		if paginated {
-			// For /events, include 'total' for pagination.
-			c.JSON(http.StatusOK, gin.H{"data": incidents, "total": total})
-		} else {
-			// For /incidents, return data wrapper without 'total'.
-			c.JSON(http.StatusOK, gin.H{"data": incidents})
+		events := make([]*Incident, len(r))
+		for i, inc := range r {
+			events[i] = toAPIEvent(inc)
 		}
+		c.JSON(http.StatusOK, gin.H{"data": events})
 	}
+}
+
+func handlePaginatedResponse(c *gin.Context, r []*db.Incident, params *db.IncidentsParams, total int64) {
+	events := make([]*Incident, len(r))
+	for i, inc := range r {
+		events[i] = toAPIEvent(inc)
+	}
+
+	page := 1
+	if params.Page != nil {
+		page = *params.Page
+	}
+
+	limit := defaultIncidentLimit
+	if params.Limit != nil {
+		limit = *params.Limit
+	}
+
+	recordsPerPage := limit
+	totalPages := 1
+	if limit == 0 {
+		recordsPerPage = int(total)
+		page = 1
+	} else if total > 0 {
+		totalPages = int((total + int64(limit) - 1) / int64(limit))
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"data": events,
+		"pagination": gin.H{
+			"pageIndex":      page,
+			"recordsPerPage": recordsPerPage,
+			"totalRecords":   total,
+			"totalPages":     totalPages,
+		},
+	})
 }
 
 func GetIncidentHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
@@ -201,11 +242,11 @@ func GetIncidentHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 			return
 		}
 
-		c.JSON(http.StatusOK, toAPIIncident(r))
+		c.JSON(http.StatusOK, toAPIEvent(r))
 	}
 }
 
-func toAPIIncident(inc *db.Incident) *Incident {
+func toAPIEvent(inc *db.Incident) *Incident {
 	components := make([]int, len(inc.Components))
 	for i, comp := range inc.Components {
 		components[i] = int(comp.ID)
@@ -537,7 +578,7 @@ func PatchIncidentHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc { /
 			return
 		}
 
-		c.JSON(http.StatusOK, toAPIIncident(inc))
+		c.JSON(http.StatusOK, toAPIEvent(inc))
 	}
 }
 
@@ -728,7 +769,7 @@ func PostIncidentExtractHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFu
 			return
 		}
 
-		c.JSON(http.StatusOK, toAPIIncident(inc))
+		c.JSON(http.StatusOK, toAPIEvent(inc))
 	}
 }
 

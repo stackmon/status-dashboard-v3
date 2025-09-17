@@ -535,10 +535,31 @@ components:
       type: object
       properties:
         data:
-          $ref: '#/components/schemas/Incidents'
-        total:
+          type: array
+          items:
+            $ref: '#/components/schemas/Incident'
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+    Pagination:
+      type: object
+      description: объект пагинации
+      properties:
+        pageIndex:
           type: integer
-          example: 100
+          example: 1
+        recordsPerPage:
+          type: integer
+          example: 50
+        totalRecords:
+          type: integer
+          example: 500
+        totalPages:
+          type: integer
+          example: 10
+      required:
+        - pageIndex
+        - recordsPerPage
+        - totalRecords
     Incident:
       type: object
       required:

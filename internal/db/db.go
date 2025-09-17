@@ -58,6 +58,7 @@ type IncidentsParams struct {
 	IsActive     *bool
 	Limit        *int
 	Offset       *int
+	Page         *int
 }
 
 // GetIncidentsWithCount retrieves incidents based on the provided parameters, with pagination and total count.
@@ -138,7 +139,7 @@ func (db *DB) GetIncidentsWithCount(params ...*IncidentsParams) ([]*Incident, in
 		r = r.Limit(param.LastCount)
 	}
 
-	if param.Limit != nil {
+	if param.Limit != nil && *param.Limit > 0 {
 		r = r.Limit(*param.Limit)
 	}
 	if param.Offset != nil {
