@@ -64,90 +64,6 @@ type APIGetIncidentsQuery struct {
 	Components *string       `form:"components"` // custom validation in parseAndSetComponents
 }
 
-type PostIncidentResp struct {
-	Result []*ProcessComponentResp `json:"result"`
-}
-
-type ProcessComponentResp struct {
-	ComponentID int    `json:"component_id"`
-	IncidentID  int    `json:"incident_id,omitempty"`
-	Error       string `json:"error,omitempty"`
-}
-
-type PatchIncidentData struct {
-	Title       *string      `json:"title,omitempty"`
-	Description *string      `json:"description,omitempty"`
-	Impact      *int         `json:"impact,omitempty"`
-	Message     string       `json:"message" binding:"required"`
-	Status      event.Status `json:"status" binding:"required"`
-	UpdateDate  time.Time    `json:"update_date" binding:"required"`
-	StartDate   *time.Time   `json:"start_date,omitempty"`
-	EndDate     *time.Time   `json:"end_date,omitempty"`
-	Type        string       `json:"type,omitempty" binding:"omitempty,oneof=maintenance info incident"`
-}
-
-type PostIncidentSeparateData struct {
-	Components []int `json:"components" binding:"required,min=1"`
-}
-
-type Component struct {
-	ComponentID
-	Attributes []ComponentAttribute `json:"attributes"`
-	Name       string               `json:"name"`
-}
-
-type ComponentAvailability struct {
-	ComponentID
-	Name         string                `json:"name"`
-	Availability []MonthlyAvailability `json:"availability"`
-	Region       string                `json:"region"`
-}
-
-type ComponentID struct {
-	ID int `json:"id" uri:"id" binding:"required,gte=0"`
-}
-
-// ComponentAttribute provides additional attributes for component.
-// Available list of possible attributes are:
-// 1. type
-// 2. region
-// 3. category
-// All of them are required for creation.
-type ComponentAttribute struct {
-	Name  string `json:"name"`
-	Value string `json:"value"`
-}
-
-var availableAttrs = map[string]struct{}{ //nolint:gochecknoglobals
-	"type":     {},
-	"region":   {},
-	"category": {},
-}
-
-type MonthlyAvailability struct {
-	Year       int     `json:"year"`
-	Month      int     `json:"month"`      // Number of the month (1 - 12)
-	Percentage float64 `json:"percentage"` // Percent (0 - 100 / example: 95.23478)
-}
-
-type PostComponentData struct {
-	Attributes []ComponentAttribute `json:"attrs" binding:"required"`
-	Name       string               `json:"name" binding:"required"`
-}
-
-type EventUpdateData struct {
-	Index     int          `json:"index"`
-	ID        int          `json:"id,omitempty"`
-	Status    event.Status `json:"status"`
-	Text      string       `json:"text"`
-	Timestamp time.Time    `json:"timestamp"`
-}
-type PatchEventUpdateData struct {
-	IncidentID  int     `uri:"id" binding:"required,gt=0"`
-	UpdateIndex int     `uri:"update_id" binding:"required,gt=0"`
-	Text        *string `json:"text,omitempty"`
-}
-
 func bindIncidentsQuery(c *gin.Context) (*APIGetIncidentsQuery, error) {
 	var query APIGetIncidentsQuery
 
@@ -407,6 +323,16 @@ func PostIncidentHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc { //
 	}
 }
 
+type PostIncidentResp struct {
+	Result []*ProcessComponentResp `json:"result"`
+}
+
+type ProcessComponentResp struct {
+	ComponentID int    `json:"component_id"`
+	IncidentID  int    `json:"incident_id,omitempty"`
+	Error       string `json:"error,omitempty"`
+}
+
 func validateEventCreation(incData IncidentData) error {
 	if err := validateEventCreationImpact(incData); err != nil {
 		return err
@@ -502,6 +428,18 @@ func createEvent(dbInst *db.DB, log *zap.Logger, inc *db.Incident) error {
 	}
 
 	return nil
+}
+
+type PatchIncidentData struct {
+	Title       *string      `json:"title,omitempty"`
+	Description *string      `json:"description,omitempty"`
+	Impact      *int         `json:"impact,omitempty"`
+	Message     string       `json:"message" binding:"required"`
+	Status      event.Status `json:"status" binding:"required"`
+	UpdateDate  time.Time    `json:"update_date" binding:"required"`
+	StartDate   *time.Time   `json:"start_date,omitempty"`
+	EndDate     *time.Time   `json:"end_date,omitempty"`
+	Type        string       `json:"type,omitempty" binding:"omitempty,oneof=maintenance info incident"`
 }
 
 func PatchIncidentHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc { //nolint:gocognit
@@ -697,6 +635,10 @@ func updateFields(income *PatchIncidentData, stored *db.Incident) {
 	}
 }
 
+type PostIncidentSeparateData struct {
+	Components []int `json:"components" binding:"required,min=1"`
+}
+
 func PostIncidentExtractHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc { //nolint:gocognit
 	return func(c *gin.Context) {
 		logger.Debug("start to extract components to the new incident")
@@ -763,6 +705,46 @@ func PostIncidentExtractHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFu
 	}
 }
 
+type Component struct {
+	ComponentID
+	Attributes []ComponentAttribute `json:"attributes"`
+	Name       string               `json:"name"`
+}
+
+type ComponentAvailability struct {
+	ComponentID
+	Name         string                `json:"name"`
+	Availability []MonthlyAvailability `json:"availability"`
+	Region       string                `json:"region"`
+}
+
+type ComponentID struct {
+	ID int `json:"id" uri:"id" binding:"required,gte=0"`
+}
+
+// ComponentAttribute provides additional attributes for component.
+// Available list of possible attributes are:
+// 1. type
+// 2. region
+// 3. category
+// All of them are required for creation.
+type ComponentAttribute struct {
+	Name  string `json:"name"`
+	Value string `json:"value"`
+}
+
+var availableAttrs = map[string]struct{}{ //nolint:gochecknoglobals
+	"type":     {},
+	"region":   {},
+	"category": {},
+}
+
+type MonthlyAvailability struct {
+	Year       int     `json:"year"`
+	Month      int     `json:"month"`      // Number of the month (1 - 12)
+	Percentage float64 `json:"percentage"` // Percent (0 - 100 / example: 95.23478)
+}
+
 func GetComponentsHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		logger.Debug("retrieve components")
@@ -799,6 +781,11 @@ func GetComponentHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 
 		c.JSON(http.StatusOK, r)
 	}
+}
+
+type PostComponentData struct {
+	Attributes []ComponentAttribute `json:"attrs" binding:"required"`
+	Name       string               `json:"name" binding:"required"`
 }
 
 // PostComponentHandler creates a new component.
@@ -1067,6 +1054,19 @@ func hoursInMonth(year int, month int) float64 {
 	nextMonth := firstDay.AddDate(0, 1, 0)
 
 	return float64(nextMonth.Sub(firstDay).Hours())
+}
+
+type EventUpdateData struct {
+	Index     int          `json:"index"`
+	ID        int          `json:"id,omitempty"`
+	Status    event.Status `json:"status"`
+	Text      string       `json:"text"`
+	Timestamp time.Time    `json:"timestamp"`
+}
+type PatchEventUpdateData struct {
+	IncidentID  int     `uri:"id" binding:"required,gt=0"`
+	UpdateIndex int     `uri:"update_id" binding:"required,gt=0"`
+	Text        *string `json:"text,omitempty"`
 }
 
 func bindAndValidatePatchEventUpdate(c *gin.Context) (*PatchEventUpdateData, error) {
