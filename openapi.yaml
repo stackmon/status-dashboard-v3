@@ -283,14 +283,14 @@ paths:
         - $ref: '#/components/parameters/IncidentFilterSystem'
         - $ref: '#/components/parameters/IncidentFilterComponents'
         - $ref: '#/components/parameters/PaginationLimit'
-        - $ref: '#/components/parameters/PaginationOffset'
+        - $ref: '#/components/parameters/PaginationPage'
       responses:
         '200':
           description: Successful operation. Returns a list of events matching the criteria. If none match, data is an empty array.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PaginatedIncidents'
+                $ref: '#/components/schemas/PaginatedEvents'
 
   /v2/incidents/{incident_id}:
     get:
@@ -531,7 +531,7 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/Incident'
-    PaginatedIncidents:
+    PaginatedEvents:
       type: object
       properties:
         data:
@@ -542,7 +542,7 @@ components:
           $ref: '#/components/schemas/Pagination'
     Pagination:
       type: object
-      description: объект пагинации
+      description: Pagination object
       properties:
         pageIndex:
           type: integer
@@ -560,6 +560,7 @@ components:
         - pageIndex
         - recordsPerPage
         - totalRecords
+        - totalPages
     Incident:
       type: object
       required:
@@ -934,18 +935,18 @@ components:
       schema:
         type: string
         example: "1,5,23"
+    PaginationPage:
+      name: page
+      in: query
+      description: The page number for pagination.
+      required: false
+      schema:
+        type: integer
+        example: 1
     PaginationLimit:
       name: limit
       in: query
       description: The numbers of items to return.
-      required: false
-      schema:
-        type: integer
-        example: 20
-    PaginationOffset:
-      name: offset
-      in: query
-      description: The number of items to skip before starting to collect the result set.
       required: false
       schema:
         type: integer
