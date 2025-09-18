@@ -1099,7 +1099,11 @@ func bindAndValidatePatchEventUpdate(c *gin.Context) (*PatchEventUpdateData, err
 
 func PatchEventUpdateTextHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		logger.Debug("Patch event.update.text")
+		logger.Debug(
+			"Patching text for event update",
+			zap.String("incidentID", c.Param("id")),
+			zap.String("updateIndex", c.Param("update_id")),
+		)
 
 		patch, err := bindAndValidatePatchEventUpdate(c)
 		if err != nil {
