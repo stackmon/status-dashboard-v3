@@ -1102,17 +1102,6 @@ func PatchEventUpdateTextHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerF
 			return
 		}
 
-		// Incident existence check.
-		_, err = dbInst.GetIncident(incID.ID)
-		if err != nil {
-			if errors.Is(err, db.ErrDBIncidentDSNotExist) {
-				apiErrors.RaiseStatusNotFoundErr(c, apiErrors.ErrIncidentDSNotExist)
-				return
-			}
-			apiErrors.RaiseInternalErr(c, err)
-			return
-		}
-
 		// Update existence check.
 		r, err := dbInst.GetEventUpdates(uint(incID.ID))
 		if err != nil {
