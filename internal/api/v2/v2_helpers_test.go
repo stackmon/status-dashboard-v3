@@ -2,12 +2,13 @@ package v2
 
 import (
 	"database/sql/driver"
+	"errors"
 	"testing"
 	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/gin-gonic/gin"
-	"github.com/stackmon/otc-status-dashboard/internal/api/errors"
+	apiErrors "github.com/stackmon/otc-status-dashboard/internal/api/errors"
 	"github.com/stackmon/otc-status-dashboard/internal/db"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
@@ -22,7 +23,7 @@ func initTests(t *testing.T) (*gin.Engine, sqlmock.Sqlmock) {
 
 	gin.SetMode(gin.TestMode)
 	r := gin.Default()
-	r.NoRoute(errors.Return404)
+	r.NoRoute(apiErrors.Return404)
 
 	log, _ := zap.NewDevelopment()
 	initRoutes(t, r, d, log)
@@ -44,7 +45,11 @@ func initRoutes(t *testing.T, c *gin.Engine, dbInst *db.DB, log *zap.Logger) {
 		v2Api.POST("incidents", PostIncidentHandler(dbInst, log))
 		v2Api.GET("incidents/:id", GetIncidentHandler(dbInst, log))
 		v2Api.PATCH("incidents/:id", PatchIncidentHandler(dbInst, log))
-		v2Api.PATCH("incidents/:id/updates/:update_id", PatchEventUpdateTextHandler(dbInst, log))
+		// wrap PATCH update handler with local test middleware to simulate EventExistanceCheck
+		v2Api.PATCH("incidents/:id/updates/:update_id",
+			EventExistenceCheckForTests(dbInst, log),
+			PatchEventUpdateTextHandler(dbInst, log),
+		)
 
 		v2Api.GET("availability", GetComponentsAvailabilityHandler(dbInst, log))
 	}
@@ -231,4 +236,31 @@ func prepareMockForPatchEventUpdate(t *testing.T, mock sqlmock.Sqlmock, incident
 	mock.ExpectQuery(`^SELECT \* FROM "incident_status" WHERE incident_id = \$1 ORDER BY id ASC`).
 		WithArgs(incident.ID).
 		WillReturnRows(rowsStatusAfter)
+}
+
+// EventExistenceCheckForTests duplicates logic from api.EventExistanceCheck but lives in package v2 tests
+func EventExistenceCheckForTests(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		// minimal URI binder
+		var uri struct {
+			ID uint `uri:"id" binding:"required"`
+		}
+		if err := c.ShouldBindUri(&uri); err != nil {
+			apiErrors.RaiseBadRequestErr(c, err)
+			return
+		}
+
+		_, err := dbInst.GetIncident(int(uri.ID))
+		if err != nil {
+			// compare with db sentinel error
+			if errors.Is(err, db.ErrDBIncidentDSNotExist) {
+				apiErrors.RaiseStatusNotFoundErr(c, apiErrors.ErrIncidentDSNotExist)
+				return
+			}
+			apiErrors.RaiseInternalErr(c, err)
+			return
+		}
+
+		c.Next()
+	}
 }
