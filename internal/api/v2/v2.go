@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/go-playground/validator/v10"
 	"go.uber.org/zap"
 
 	apiErrors "github.com/stackmon/otc-status-dashboard/internal/api/errors"
@@ -1064,37 +1063,29 @@ type EventUpdateData struct {
 	Timestamp time.Time    `json:"timestamp"`
 }
 type PatchEventUpdateData struct {
-	IncidentID  int     `uri:"id" binding:"required,gt=0"`
 	UpdateIndex int     `uri:"update_id" binding:"required,gt=0"`
 	Text        *string `json:"text,omitempty"`
 }
 
-func bindAndValidatePatchEventUpdate(c *gin.Context) (*PatchEventUpdateData, error) {
-	var patch PatchEventUpdateData
-
-	err := c.ShouldBindUri(&patch)
-	if err != nil {
-		var ve validator.ValidationErrors
-		if !errors.As(err, &ve) {
-			return nil, apiErrors.ErrIncidentFQueryInvalidFormat
-		}
-		for _, fe := range ve {
-			switch fe.Field() {
-			case "IncidentID":
-				return nil, apiErrors.ErrIncidentDSNotExist
-			case "UpdateIndex":
-				return nil, apiErrors.ErrInvalidUpdateIndex
-			}
-		}
+func bindAndValidatePatchEventUpdate(c *gin.Context) (*IncidentID, *PatchEventUpdateData, error) {
+	var incID IncidentID
+	if err := c.ShouldBindUri(&incID); err != nil {
+		apiErrors.RaiseBadRequestErr(c, err)
+		return nil, nil, err
 	}
 
-	if err = c.ShouldBindJSON(&patch); err != nil {
-		return nil, err
+	var patchData PatchEventUpdateData
+	if err := c.ShouldBindUri(&patchData); err != nil {
+		return nil, nil, apiErrors.ErrInvalidUpdateIndex
 	}
-	if patch.Text == nil || *patch.Text == "" {
-		return nil, apiErrors.ErrUpdateTextEmpty
+
+	if err := c.ShouldBindJSON(&patchData); err != nil {
+		return nil, nil, err
 	}
-	return &patch, nil
+	if patchData.Text == nil || *patchData.Text == "" {
+		return nil, nil, apiErrors.ErrUpdateTextEmpty
+	}
+	return &incID, &patchData, nil
 }
 
 func PatchEventUpdateTextHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
@@ -1105,14 +1096,14 @@ func PatchEventUpdateTextHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerF
 			zap.String("updateIndex", c.Param("update_id")),
 		)
 
-		patch, err := bindAndValidatePatchEventUpdate(c)
+		incID, patchData, err := bindAndValidatePatchEventUpdate(c)
 		if err != nil {
 			apiErrors.RaiseBadRequestErr(c, err)
 			return
 		}
 
 		// Incident existence check.
-		_, err = dbInst.GetIncident(patch.IncidentID)
+		_, err = dbInst.GetIncident(incID.ID)
 		if err != nil {
 			if errors.Is(err, db.ErrDBIncidentDSNotExist) {
 				apiErrors.RaiseStatusNotFoundErr(c, apiErrors.ErrIncidentDSNotExist)
@@ -1123,14 +1114,14 @@ func PatchEventUpdateTextHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerF
 		}
 
 		// Update existence check.
-		r, err := dbInst.GetEventUpdates(uint(patch.IncidentID))
+		r, err := dbInst.GetEventUpdates(uint(incID.ID))
 		if err != nil {
 			apiErrors.RaiseInternalErr(c, err)
 			return
 		}
 		updates := mapEventUpdates(r, true)
 
-		targetUpdate := findEventUpdateByIndex(updates, patch.UpdateIndex)
+		targetUpdate := findEventUpdateByIndex(updates, patchData.UpdateIndex)
 
 		if targetUpdate == nil {
 			apiErrors.RaiseStatusNotFoundErr(c, db.ErrDBEventUpdateDSNotExist)
@@ -1138,9 +1129,9 @@ func PatchEventUpdateTextHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerF
 		}
 
 		err = dbInst.ModifyEventUpdate(
-			uint(patch.IncidentID),
+			uint(incID.ID),
 			uint(targetUpdate.ID),
-			*patch.Text,
+			*patchData.Text,
 		)
 
 		if err != nil {
@@ -1152,7 +1143,7 @@ func PatchEventUpdateTextHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerF
 			return
 		}
 
-		upds, errDB := dbInst.GetEventUpdates(uint(patch.IncidentID))
+		upds, errDB := dbInst.GetEventUpdates(uint(incID.ID))
 		if errDB != nil {
 			apiErrors.RaiseInternalErr(c, errDB)
 			return
