@@ -238,10 +238,9 @@ func prepareMockForPatchEventUpdate(t *testing.T, mock sqlmock.Sqlmock, incident
 		WillReturnRows(rowsStatusAfter)
 }
 
-// EventExistenceCheckForTests duplicates logic from api.EventExistanceCheck but lives in package v2 tests
-func EventExistenceCheckForTests(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
+// EventExistenceCheckForTests duplicates logic from api.EventExistanceCheck but exists in package v2 tests.
+func EventExistenceCheckForTests(dbInst *db.DB, _ *zap.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// minimal URI binder
 		var uri struct {
 			ID uint `uri:"id" binding:"required"`
 		}
@@ -252,7 +251,6 @@ func EventExistenceCheckForTests(dbInst *db.DB, logger *zap.Logger) gin.HandlerF
 
 		_, err := dbInst.GetIncident(int(uri.ID))
 		if err != nil {
-			// compare with db sentinel error
 			if errors.Is(err, db.ErrDBIncidentDSNotExist) {
 				apiErrors.RaiseStatusNotFoundErr(c, apiErrors.ErrIncidentDSNotExist)
 				return

@@ -148,8 +148,6 @@ func truncateIncidents(t *testing.T) {
 	t.Helper()
 	t.Log("cleaning up incident-related tables before test")
 
-	// Create a new GORM DB connection just for truncation.
-	// This avoids modifying the db package to expose the underlying *gorm.DB.
 	gormDB, err := gorm.Open(gormpostgres.Open(databaseURL), &gorm.Config{})
 	require.NoError(t, err, "failed to open gorm connection for truncation")
 
