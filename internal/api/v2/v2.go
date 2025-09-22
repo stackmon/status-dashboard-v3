@@ -181,7 +181,7 @@ func toAPIIncident(inc *db.Incident) *Incident {
 		components[i] = int(comp.ID)
 	}
 
-	updates := mapEventUpdates(inc.Statuses, false)
+	updates := mapEventUpdates(inc.Statuses)
 
 	var description string
 	if inc.Description != nil {
@@ -1056,36 +1056,36 @@ func hoursInMonth(year int, month int) float64 {
 }
 
 type EventUpdateData struct {
-	Index     int          `json:"index"`
-	ID        int          `json:"id,omitempty"`
+	ID        int          `json:"id"`
 	Status    event.Status `json:"status"`
 	Text      string       `json:"text"`
 	Timestamp time.Time    `json:"timestamp"`
 }
 type PatchEventUpdateData struct {
-	UpdateIndex int     `uri:"update_id" binding:"required,gt=0"`
-	Text        *string `json:"text,omitempty"`
+	Text string `json:"text" binding:"required"`
 }
 
-func bindAndValidatePatchEventUpdate(c *gin.Context) (*IncidentID, *PatchEventUpdateData, error) {
-	var incID IncidentID
-	if err := c.ShouldBindUri(&incID); err != nil {
+func bindAndValidatePatchEventUpdate(c *gin.Context) (int, int, string, error) {
+	type updateData struct {
+		IncidenID int `uri:"incidentID" binding:"required,gt=0"`
+		UpdateID  int `uri:"updateID" binding:"required,gte=0"`
+	}
+
+	var updData updateData
+
+	if err := c.ShouldBindUri(&updData); err != nil {
 		apiErrors.RaiseBadRequestErr(c, err)
-		return nil, nil, err
+		return 0, 0, "", err
 	}
 
 	var patchData PatchEventUpdateData
-	if err := c.ShouldBindUri(&patchData); err != nil {
-		return nil, nil, apiErrors.ErrInvalidUpdateIndex
-	}
-
 	if err := c.ShouldBindJSON(&patchData); err != nil {
-		return nil, nil, err
+		return 0, 0, "", err
 	}
-	if patchData.Text == nil || *patchData.Text == "" {
-		return nil, nil, apiErrors.ErrUpdateTextEmpty
+	if patchData.Text == "" {
+		return 0, 0, "", apiErrors.ErrUpdateTextEmpty
 	}
-	return &incID, &patchData, nil
+	return updData.IncidenID, updData.UpdateID, patchData.Text, nil
 }
 
 func PatchEventUpdateTextHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
@@ -1096,76 +1096,45 @@ func PatchEventUpdateTextHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerF
 			zap.String("updateIndex", c.Param("update_id")),
 		)
 
-		incID, patchData, err := bindAndValidatePatchEventUpdate(c)
+		incID, updID, text, err := bindAndValidatePatchEventUpdate(c)
 		if err != nil {
 			apiErrors.RaiseBadRequestErr(c, err)
 			return
 		}
 
 		// Update existence check.
-		r, err := dbInst.GetEventUpdates(uint(incID.ID))
+		updates, err := dbInst.GetEventUpdates(uint(incID))
 		if err != nil {
 			apiErrors.RaiseInternalErr(c, err)
 			return
 		}
-		updates := mapEventUpdates(r, true)
 
-		targetUpdate := findEventUpdateByIndex(updates, patchData.UpdateIndex)
-
-		if targetUpdate == nil {
-			apiErrors.RaiseStatusNotFoundErr(c, db.ErrDBEventUpdateDSNotExist)
-			return
+		if updID > len(updates) {
+			apiErrors.RaiseStatusNotFoundErr(c, fmt.Errorf("updates not found for incident %d", incID))
 		}
 
-		err = dbInst.ModifyEventUpdate(
-			uint(incID.ID),
-			uint(targetUpdate.ID),
-			*patchData.Text,
-		)
+		targetUPD := updates[updID]
+		targetUPD.Text = text
 
-		if err != nil {
-			if errors.Is(err, db.ErrDBEventUpdateDSNotExist) {
-				apiErrors.RaiseStatusNotFoundErr(c, apiErrors.ErrUpdateDSNotExist)
-				return
-			}
+		if err = dbInst.ModifyEventUpdate(targetUPD); err != nil {
 			apiErrors.RaiseInternalErr(c, err)
 			return
 		}
 
-		upds, errDB := dbInst.GetEventUpdates(uint(incID.ID))
-		if errDB != nil {
-			apiErrors.RaiseInternalErr(c, errDB)
-			return
-		}
-
-		c.JSON(http.StatusOK, mapEventUpdates(upds, false))
+		c.JSON(http.StatusOK, gin.H{"result": "ok"})
 	}
 }
 
-func findEventUpdateByIndex(updates []EventUpdateData, index int) *EventUpdateData {
-	for i := range updates {
-		if updates[i].Index == index {
-			return &updates[i]
-		}
-	}
-	return nil
-}
-
-func mapEventUpdates(statuses []db.IncidentStatus, withID bool) []EventUpdateData {
+func mapEventUpdates(statuses []db.IncidentStatus) []EventUpdateData {
 	updates := make([]EventUpdateData, len(statuses))
 	for i, s := range statuses {
-		id := 0
-		if withID {
-			id = int(s.ID)
-		}
-
 		updates[i] = EventUpdateData{
-			Index:     i + 1,
-			ID:        id,
+			ID:        i,
 			Status:    s.Status,
 			Text:      s.Text,
 			Timestamp: s.Timestamp,
 		}
 	}
+
 	return updates
 }

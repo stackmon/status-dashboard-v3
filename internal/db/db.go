@@ -599,10 +599,10 @@ func (db *DB) GetEventUpdates(incidentID uint) ([]IncidentStatus, error) {
 	return updates, nil
 }
 
-func (db *DB) ModifyEventUpdate(incidentID, updateID uint, text string) error {
+func (db *DB) ModifyEventUpdate(update IncidentStatus) error {
 	r := db.g.Model(&IncidentStatus{}).
-		Where("id = ? AND incident_id = ?", updateID, incidentID).
-		Update("text", text)
+		Where("id = ? AND incident_id = ?", update.ID, update.IncidentID).
+		Update("text", update.Text)
 
 	if r.Error != nil {
 		return r.Error

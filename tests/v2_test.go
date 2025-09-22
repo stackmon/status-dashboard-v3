@@ -1258,7 +1258,7 @@ func TestV2PatchEventUpdateHandler(t *testing.T) {
 				err := json.Unmarshal(body, &updates)
 				require.NoError(t, err)
 				require.Len(t, updates, 1)
-				assert.Equal(t, 1, updates[0].Index)
+				assert.Equal(t, 0, updates[0])
 				assert.Equal(t, "The text of this update has been successfully changed.", updates[0].Text)
 				assert.Equal(t, event.IncidentDetected, updates[0].Status)
 			},

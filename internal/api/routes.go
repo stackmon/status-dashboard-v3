@@ -53,7 +53,7 @@ func (a *API) InitRoutes() {
 			AuthenticationMW(a.oa2Prov, a.log),
 			ValidateComponentsMW(a.db, a.log),
 			v2.PostIncidentExtractHandler(a.db, a.log))
-		v2API.PATCH("incidents/:id/updates/:update_id",
+		v2API.PATCH("incidents/:incidentID/updates/:updateID",
 			AuthenticationMW(a.oa2Prov, a.log),
 			EventExistanceCheck(a.db, a.log),
 			v2.PatchEventUpdateTextHandler(a.db, a.log))
