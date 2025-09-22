@@ -28,7 +28,7 @@ func TestGetIncidentsHandler(t *testing.T) {
 
 	prepareIncident(t, m, testTime)
 
-	var response = `{"data":[{"id":1,"title":"Incident title A","description":"Description A","impact":0,"components":[150],"start_date":"%s","end_date":"%s","system":false,"type":"maintenance","updates":[{"index":1,"status":"resolved","text":"Issue solved.","timestamp":"%s"}]},{"id":2,"title":"Incident title B","description":"Description B","impact":3,"components":[151],"start_date":"%s","end_date":"%s","system":false,"type":"incident","updates":[{"index":1,"status":"resolved","text":"Issue solved.","timestamp":"%s"}]}]}`
+	var response = `{"data":[{"id":1,"title":"Incident title A","description":"Description A","impact":0,"components":[150],"start_date":"%s","end_date":"%s","system":false,"type":"maintenance","updates":[{"id":0,"status":"resolved","text":"Issue solved.","timestamp":"%s"}]},{"id":2,"title":"Incident title B","description":"Description B","impact":3,"components":[151],"start_date":"%s","end_date":"%s","system":false,"type":"incident","updates":[{"id":0,"status":"resolved","text":"Issue solved.","timestamp":"%s"}]}]}`
 
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest(http.MethodGet, "/v2/incidents", nil)
@@ -99,8 +99,8 @@ func TestGetIncidentsHandlerFilters(t *testing.T) {
 	}
 
 	// Expected JSON responses (simplified for brevity)
-	responseA := fmt.Sprintf(`{"data":[{"id":1,"title":"Incident title A","description":"Description A","impact":0,"components":[150],"start_date":"%s","end_date":"%s","system":false,"type":"maintenance","updates":[{"index":1,"status":"completed","text":"Maintenance completed.","timestamp":"%s"}]}]}`, startDate, endDate, endDate)
-	responseB := fmt.Sprintf(`{"data":[{"id":2,"title":"Incident title B","description":"Description B","impact":3,"components":[151],"start_date":"%s","system":true,"type":"incident","updates":[{"index":1,"status":"analysing","text":"Incident analysing.","timestamp":"%s"}]}]}`, startDate, startDate)
+	responseA := fmt.Sprintf(`{"data":[{"id":1,"title":"Incident title A","description":"Description A","impact":0,"components":[150],"start_date":"%s","end_date":"%s","system":false,"type":"maintenance","updates":[{"id":0,"status":"completed","text":"Maintenance completed.","timestamp":"%s"}]}]}`, startDate, endDate, endDate)
+	responseB := fmt.Sprintf(`{"data":[{"id":2,"title":"Incident title B","description":"Description B","impact":3,"components":[151],"start_date":"%s","system":true,"type":"incident","updates":[{"id":0,"status":"analysing","text":"Incident analysing.","timestamp":"%s"}]}]}`, startDate, startDate)
 	responseEmpty := `{"data":[]}`
 	isActiveTrue := true
 
@@ -684,11 +684,13 @@ func TestPatchEventUpdateHandler(t *testing.T) {
 	testEndTime, err := time.Parse(time.RFC3339, endDate)
 	require.NoError(t, err)
 
-	eventID := 1
+	eventID := 111
 	impact2 := 2 // Incident
 	systemTrue := true
-	updateID1 := 1
-	updateID2 := 2
+	updateID1 := 87
+	updateID2 := 88
+	updateIndex1 := 0
+	updateIndex2 := 1
 
 	// Mock data setup
 	incidentA := db.Incident{
@@ -712,20 +714,18 @@ func TestPatchEventUpdateHandler(t *testing.T) {
 			},
 		},
 		Statuses: []db.IncidentStatus{
-			{ID: 1, IncidentID: 1, Timestamp: testTime, Text: "Incident analysing.", Status: "analysing"},
-			{ID: 2, IncidentID: 1, Timestamp: testEndTime, Text: "Incident resolved.", Status: "resolved"},
+			{ID: uint(updateID1), IncidentID: 111, Timestamp: testTime, Text: "Incident analysing.", Status: "analysing"},
+			{ID: uint(updateID2), IncidentID: 111, Timestamp: testEndTime, Text: "Incident resolved.", Status: "resolved"},
 		},
 	}
 
 	responseAfterFirst := fmt.Sprintf(
-		`[{"index":0,"status":"analysing","text":"Updated: analysing","timestamp":"%s"},
-		  {"index":1,"status":"resolved","text":"Incident resolved.","timestamp":"%s"}]`,
-		startDate, endDate,
+		`{"status":"analysing","text":"Updated: analysing","timestamp":"%s"}`,
+		startDate,
 	)
 	responseAfterSecond := fmt.Sprintf(
-		`[{"index":0,"status":"analysing","text":"Incident analysing.","timestamp":"%s"},
-		  {"index":1,"status":"resolved","text":"Updated: resolved","timestamp":"%s"}]`,
-		startDate, endDate,
+		`{"status":"resolved","text":"Updated: resolved","timestamp":"%s"}`,
+		endDate,
 	)
 
 	testCases := []struct {
@@ -737,28 +737,30 @@ func TestPatchEventUpdateHandler(t *testing.T) {
 		expectedBody   string
 	}{
 		{
-			name: "Update incident update index=0",
-			url:  "incidents/1/updates/0",
-			body: `{"text":"Updated: analysing"}`,
+			name: "Update incident update id=0",
+			url:  fmt.Sprintf("incidents/111/updates/%d", updateIndex1),
+			body: `{"text": "Updated: analysing"}`,
 			mockSetup: func(m sqlmock.Sqlmock) {
 				prepareMockForPatchEventUpdate(
 					t, m, &incidentA,
 					uint(updateID1),
 					"Updated: analysing",
+					updateIndex1,
 				)
 			},
 			expectedStatus: http.StatusOK,
 			expectedBody:   responseAfterFirst,
 		},
 		{
-			name: "Update incident update index=1",
-			url:  "incidents/1/updates/1",
-			body: `{"text":"Updated: resolved"}`,
+			name: "Update incident update id=1",
+			url:  fmt.Sprintf("incidents/111/updates/%d", updateIndex2),
+			body: `{"text": "Updated: resolved"}`,
 			mockSetup: func(m sqlmock.Sqlmock) {
 				prepareMockForPatchEventUpdate(
 					t, m, &incidentA,
 					uint(updateID2),
 					"Updated: resolved",
+					updateIndex2,
 				)
 			},
 			expectedStatus: http.StatusOK,

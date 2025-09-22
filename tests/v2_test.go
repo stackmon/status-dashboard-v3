@@ -1209,7 +1209,7 @@ func TestV2PostInfoWithExistingEventsHandler(t *testing.T) {
 }
 
 func TestV2PatchEventUpdateHandler(t *testing.T) {
-	t.Log("start to test PATCH /v2/incidents/:id/updates/:update_id")
+	t.Log("start to test PATCH /v2/incidents/:incidentID/updates/:updateID")
 	r, _, _ := initTests(t)
 
 	// Clean up database before test to ensure a clean state for this test case.

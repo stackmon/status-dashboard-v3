@@ -17,7 +17,7 @@ import (
 
 // Event IDs and core data structures.
 type IncidentID struct {
-	ID int `json:"id" uri:"id" binding:"required,gte=0"`
+	ID int `json:"id" uri:"incidentID" binding:"required,gte=0"`
 }
 
 type IncidentData struct {
@@ -181,7 +181,6 @@ func toAPIIncident(inc *db.Incident) *Incident {
 		components[i] = int(comp.ID)
 	}
 
-	updates := mapEventUpdates(inc.Statuses)
 	updates := mapEventUpdates(inc.Statuses)
 
 	var description string
@@ -1062,20 +1061,20 @@ type EventUpdateData struct {
 	Text      string       `json:"text"`
 	Timestamp time.Time    `json:"timestamp"`
 }
-type PatchEventUpdateData struct {
-	Text string `json:"text" binding:"required"`
-}
 
 func bindAndValidatePatchEventUpdate(c *gin.Context) (int, int, string, error) {
 	type updateData struct {
-		IncidenID int `uri:"incidentID" binding:"required,gt=0"`
-		UpdateID  int `uri:"updateID" binding:"required,gte=0"`
+		IncidentID int  `uri:"incidentID" binding:"required,gt=0"`
+		UpdateID   *int `uri:"updateID" binding:"required,gte=0"`
+	}
+
+	type PatchEventUpdateData struct {
+		Text string `json:"text" binding:"required"`
 	}
 
 	var updData updateData
 
 	if err := c.ShouldBindUri(&updData); err != nil {
-		apiErrors.RaiseBadRequestErr(c, err)
 		return 0, 0, "", err
 	}
 
@@ -1086,15 +1085,15 @@ func bindAndValidatePatchEventUpdate(c *gin.Context) (int, int, string, error) {
 	if patchData.Text == "" {
 		return 0, 0, "", apiErrors.ErrUpdateTextEmpty
 	}
-	return updData.IncidenID, updData.UpdateID, patchData.Text, nil
+	return updData.IncidentID, *updData.UpdateID, patchData.Text, nil
 }
 
 func PatchEventUpdateTextHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		logger.Debug(
 			"Patching text for event update",
-			zap.String("incidentID", c.Param("id")),
-			zap.String("Index", c.Param("index")),
+			zap.String("incidentID", c.Param("incidentID")),
+			zap.String("updateID", c.Param("updateID")),
 		)
 
 		incID, updID, text, err := bindAndValidatePatchEventUpdate(c)
@@ -1110,23 +1109,24 @@ func PatchEventUpdateTextHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerF
 			return
 		}
 
-		if updID > len(updates) {
-			apiErrors.RaiseStatusNotFoundErr(c, fmt.Errorf("updates not found for incident %d", incID))
+		if updID < 0 || updID >= len(updates) {
+			apiErrors.RaiseStatusNotFoundErr(c, apiErrors.ErrUpdateDSNotExist)
+			return
 		}
 
 		targetUPD := updates[updID]
 		targetUPD.Text = text
 
-		if err = dbInst.ModifyEventUpdate(targetUPD); err != nil {
+		updated, err := dbInst.ModifyEventUpdate(targetUPD)
+		if err != nil {
 			apiErrors.RaiseInternalErr(c, err)
 			return
 		}
 
-		c.JSON(http.StatusOK, gin.H{"result": "ok"})
+		c.JSON(http.StatusOK, updated)
 	}
 }
 
-func mapEventUpdates(statuses []db.IncidentStatus) []EventUpdateData {
 func mapEventUpdates(statuses []db.IncidentStatus) []EventUpdateData {
 	updates := make([]EventUpdateData, len(statuses))
 	for i, s := range statuses {

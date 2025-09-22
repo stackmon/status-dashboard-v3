@@ -8,6 +8,7 @@ import (
 	"go.uber.org/zap"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 	"moul.io/zapgorm2"
 
 	"github.com/stackmon/otc-status-dashboard/internal/conf"
@@ -599,17 +600,20 @@ func (db *DB) GetEventUpdates(incidentID uint) ([]IncidentStatus, error) {
 	return updates, nil
 }
 
-func (db *DB) ModifyEventUpdate(update IncidentStatus) error {
+func (db *DB) ModifyEventUpdate(update IncidentStatus) (IncidentStatus, error) {
+	var updated IncidentStatus
 	r := db.g.Model(&IncidentStatus{}).
+		Clauses(clause.Returning{}).
 		Where("id = ? AND incident_id = ?", update.ID, update.IncidentID).
-		Update("text", update.Text)
+		Update("text", update.Text).
+		Scan(&updated)
 
 	if r.Error != nil {
-		return r.Error
+		return IncidentStatus{}, r.Error
 	}
 	if r.RowsAffected == 0 {
-		return ErrDBEventUpdateDSNotExist
+		return IncidentStatus{}, ErrDBEventUpdateDSNotExist
 	}
 
-	return nil
+	return updated, nil
 }

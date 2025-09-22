@@ -43,10 +43,10 @@ func initRoutes(t *testing.T, c *gin.Engine, dbInst *db.DB, log *zap.Logger) {
 
 		v2Api.GET("incidents", GetIncidentsHandler(dbInst, log))
 		v2Api.POST("incidents", PostIncidentHandler(dbInst, log))
-		v2Api.GET("incidents/:id", GetIncidentHandler(dbInst, log))
-		v2Api.PATCH("incidents/:id", PatchIncidentHandler(dbInst, log))
+		v2Api.GET("incidents/:incidentID", GetIncidentHandler(dbInst, log))
+		v2Api.PATCH("incidents/:incidentID", PatchIncidentHandler(dbInst, log))
 		// wrap PATCH update handler with local test middleware to simulate EventExistanceCheck
-		v2Api.PATCH("incidents/:id/updates/:update_id",
+		v2Api.PATCH("incidents/:incidentID/updates/:updateID",
 			EventExistenceCheckForTests(dbInst, log),
 			PatchEventUpdateTextHandler(dbInst, log),
 		)
@@ -193,56 +193,60 @@ func getYearAndMonth(year, month, offset int) (int, int) {
 	return year, newMonth
 }
 
-func prepareMockForPatchEventUpdate(t *testing.T, mock sqlmock.Sqlmock, incident *db.Incident, updateID uint, updatedText string) {
+func prepareMockForPatchEventUpdate(t *testing.T, mock sqlmock.Sqlmock, incident *db.Incident, updateID uint, updatedText string, updateIndex int) {
 	t.Helper()
 
-	// Mock for db.GetIncident()
+	// First mock for GetIncident in EventExistenceCheck middleware
 	rowsInc, incidentIDs, componentIDs := prepareIncidentRows([]*db.Incident{incident})
 	mock.ExpectQuery(`^SELECT (.+) FROM "incident"`).WillReturnRows(rowsInc)
 
 	rowsIncComp, rowsComp, rowsCompAttr, rowsStatus := prepareRelatedRows([]*db.Incident{incident})
 
-	mock.ExpectQuery(`^SELECT (.+) FROM "incident_component_relation"`).WithArgs(incidentIDs...).WillReturnRows(rowsIncComp)
-	mock.ExpectQuery(`^SELECT (.+) FROM "component"`).WithArgs(componentIDs...).WillReturnRows(rowsComp)
-	mock.ExpectQuery("^SELECT (.+) FROM \"component_attribute\"").WillReturnRows(rowsCompAttr)
-	mock.ExpectQuery(`^SELECT (.+) FROM "incident_status"`).WithArgs(incidentIDs...).WillReturnRows(rowsStatus)
-
-	// Mock for db.GetEventUpdates()
-	rowsStatus = sqlmock.NewRows([]string{"id", "incident_id", "timestamp", "text", "status"})
-	for _, status := range incident.Statuses {
-		rowsStatus.AddRow(status.ID, status.IncidentID, status.Timestamp, status.Text, status.Status)
-	}
-	mock.ExpectQuery(`^SELECT \* FROM "incident_status" WHERE incident_id = \$1 ORDER BY id ASC`).
-		WithArgs(incident.ID).
+	mock.ExpectQuery(`^SELECT (.+) FROM "incident_component_relation"`).
+		WithArgs(incidentIDs...).
+		WillReturnRows(rowsIncComp)
+	mock.ExpectQuery(`^SELECT (.+) FROM "component"`).
+		WithArgs(componentIDs...).
+		WillReturnRows(rowsComp)
+	mock.ExpectQuery("^SELECT (.+) FROM \"component_attribute\"").
+		WillReturnRows(rowsCompAttr)
+	mock.ExpectQuery(`^SELECT (.+) FROM "incident_status"`).
+		WithArgs(incidentIDs...).
 		WillReturnRows(rowsStatus)
 
+	// Second mock for GetEventUpdates in handler - get all updates
+	statusRows := sqlmock.NewRows([]string{"id", "incident_id", "timestamp", "text", "status"})
+	for _, status := range incident.Statuses {
+		statusRows.AddRow(status.ID, status.IncidentID, status.Timestamp, status.Text, status.Status)
+	}
+	mock.ExpectQuery(`^SELECT \* FROM "incident_status" WHERE incident_id = \$1`).
+		WithArgs(incident.ID).
+		WillReturnRows(statusRows)
+
+	// Get target update by index
+	targetStatus := incident.Statuses[updateIndex]
+
+	// Mock for update transaction
+	returningRows := sqlmock.NewRows([]string{"id", "incident_id", "status", "text", "timestamp"})
+	returningRows.AddRow(targetStatus.ID, targetStatus.IncidentID, targetStatus.Status, updatedText, targetStatus.Timestamp)
+
 	mock.ExpectBegin()
-
-	mock.ExpectExec(`^UPDATE "incident_status" SET "text"=\$1 WHERE id = \$2 AND incident_id = \$3`).
-		WithArgs(updatedText, updateID, incident.ID).
-		WillReturnResult(sqlmock.NewResult(1, 1))
-
+	mock.ExpectQuery(`^UPDATE "incident_status" SET "text"=\$1 WHERE id = \$2 AND incident_id = \$3 RETURNING .*`).
+		WithArgs(updatedText, targetStatus.ID, incident.ID).
+		WillReturnRows(returningRows)
 	mock.ExpectCommit()
 
-	// Mock for the final db.GetEventUpdates()
-	rowsStatusAfter := sqlmock.NewRows([]string{"id", "incident_id", "timestamp", "text", "status"})
-	for _, status := range incident.Statuses {
-		text := status.Text
-		if status.ID == updateID {
-			text = updatedText
-		}
-		rowsStatusAfter.AddRow(status.ID, status.IncidentID, status.Timestamp, text, status.Status)
-	}
-	mock.ExpectQuery(`^SELECT \* FROM "incident_status" WHERE incident_id = \$1 ORDER BY id ASC`).
-		WithArgs(incident.ID).
-		WillReturnRows(rowsStatusAfter)
+	mock.ExpectQuery(`^SELECT \* FROM "incident_status" WHERE id = \$1 AND incident_id = \$2`).
+		WithArgs(updateID, incident.ID).
+		WillReturnRows(returningRows)
+
 }
 
 // EventExistenceCheckForTests duplicates logic from api.EventExistanceCheck but exists in package v2 tests.
 func EventExistenceCheckForTests(dbInst *db.DB, _ *zap.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var uri struct {
-			ID uint `uri:"id" binding:"required"`
+			ID uint `uri:"incidentID" binding:"required"`
 		}
 		if err := c.ShouldBindUri(&uri); err != nil {
 			apiErrors.RaiseBadRequestErr(c, err)

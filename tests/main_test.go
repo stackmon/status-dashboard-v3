@@ -136,10 +136,10 @@ func initRoutesV2(t *testing.T, c *gin.Engine, dbInst *db.DB, logger *zap.Logger
 
 	v2Api.GET("incidents", v2.GetIncidentsHandler(dbInst, logger))
 	v2Api.POST("incidents", api.ValidateComponentsMW(dbInst, logger), v2.PostIncidentHandler(dbInst, logger))
-	v2Api.GET("incidents/:id", v2.GetIncidentHandler(dbInst, logger))
-	v2Api.PATCH("incidents/:id", v2.PatchIncidentHandler(dbInst, logger))
-	v2Api.POST("incidents/:id/extract", v2.PostIncidentExtractHandler(dbInst, logger))
-	v2Api.PATCH("incidents/:id/updates/:update_id", api.CheckEventExistanceMW(dbInst, logger), v2.PatchEventUpdateTextHandler(dbInst, logger))
+	v2Api.GET("incidents/:incidentID", v2.GetIncidentHandler(dbInst, logger))
+	v2Api.PATCH("incidents/:incidentID", v2.PatchIncidentHandler(dbInst, logger))
+	v2Api.POST("incidents/:incidentID/extract", v2.PostIncidentExtractHandler(dbInst, logger))
+	v2Api.PATCH("incidents/:incidentID/updates/:updateID", api.CheckEventExistanceMW(dbInst, logger), v2.PatchEventUpdateTextHandler(dbInst, logger))
 
 	v2Api.GET("availability", v2.GetComponentsAvailabilityHandler(dbInst, logger))
 }
