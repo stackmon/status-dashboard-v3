@@ -142,7 +142,7 @@ func AuthenticationV1DeprecatedMW(prov *auth.Provider, logger *zap.Logger, secre
 	}
 }
 
-func EventExistanceCheck(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
+func CheckEventExistanceMW(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		logger.Debug("checking incident existence")
 

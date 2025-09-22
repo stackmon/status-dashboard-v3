@@ -55,7 +55,7 @@ func (a *API) InitRoutes() {
 			v2.PostIncidentExtractHandler(a.db, a.log))
 		v2API.PATCH("incidents/:incidentID/updates/:updateID",
 			AuthenticationMW(a.oa2Prov, a.log),
-			EventExistanceCheck(a.db, a.log),
+			CheckEventExistanceMW(a.db, a.log),
 			v2.PatchEventUpdateTextHandler(a.db, a.log))
 		v2API.GET("availability", v2.GetComponentsAvailabilityHandler(a.db, a.log))
 

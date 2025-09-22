@@ -182,6 +182,7 @@ func toAPIIncident(inc *db.Incident) *Incident {
 	}
 
 	updates := mapEventUpdates(inc.Statuses)
+	updates := mapEventUpdates(inc.Statuses)
 
 	var description string
 	if inc.Description != nil {
@@ -1093,7 +1094,7 @@ func PatchEventUpdateTextHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerF
 		logger.Debug(
 			"Patching text for event update",
 			zap.String("incidentID", c.Param("id")),
-			zap.String("updateIndex", c.Param("update_id")),
+			zap.String("Index", c.Param("index")),
 		)
 
 		incID, updID, text, err := bindAndValidatePatchEventUpdate(c)
@@ -1125,6 +1126,7 @@ func PatchEventUpdateTextHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerF
 	}
 }
 
+func mapEventUpdates(statuses []db.IncidentStatus) []EventUpdateData {
 func mapEventUpdates(statuses []db.IncidentStatus) []EventUpdateData {
 	updates := make([]EventUpdateData, len(statuses))
 	for i, s := range statuses {

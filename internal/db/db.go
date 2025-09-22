@@ -183,7 +183,7 @@ func (db *DB) GetIncident(id int) (*Incident, error) {
 	r := db.g.Model(&Incident{}).
 		Where(inc).
 		Preload("Statuses", func(db *gorm.DB) *gorm.DB {
-			return db.Order("id ASC") // Order by ID to get the latest status last
+			return db.Order("id ASC")
 		}).
 		Preload("Components", func(db *gorm.DB) *gorm.DB {
 			return db.Select("ID, Name")

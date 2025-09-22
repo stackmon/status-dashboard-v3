@@ -718,13 +718,13 @@ func TestPatchEventUpdateHandler(t *testing.T) {
 	}
 
 	responseAfterFirst := fmt.Sprintf(
-		`[{"index":1,"status":"analysing","text":"Updated: analysing","timestamp":"%s"},
-		  {"index":2,"status":"resolved","text":"Incident resolved.","timestamp":"%s"}]`,
+		`[{"index":0,"status":"analysing","text":"Updated: analysing","timestamp":"%s"},
+		  {"index":1,"status":"resolved","text":"Incident resolved.","timestamp":"%s"}]`,
 		startDate, endDate,
 	)
 	responseAfterSecond := fmt.Sprintf(
-		`[{"index":1,"status":"analysing","text":"Incident analysing.","timestamp":"%s"},
-		  {"index":2,"status":"resolved","text":"Updated: resolved","timestamp":"%s"}]`,
+		`[{"index":0,"status":"analysing","text":"Incident analysing.","timestamp":"%s"},
+		  {"index":1,"status":"resolved","text":"Updated: resolved","timestamp":"%s"}]`,
 		startDate, endDate,
 	)
 
@@ -737,8 +737,8 @@ func TestPatchEventUpdateHandler(t *testing.T) {
 		expectedBody   string
 	}{
 		{
-			name: "Update incident update index=1",
-			url:  "incidents/1/updates/1",
+			name: "Update incident update index=0",
+			url:  "incidents/1/updates/0",
 			body: `{"text":"Updated: analysing"}`,
 			mockSetup: func(m sqlmock.Sqlmock) {
 				prepareMockForPatchEventUpdate(
@@ -751,8 +751,8 @@ func TestPatchEventUpdateHandler(t *testing.T) {
 			expectedBody:   responseAfterFirst,
 		},
 		{
-			name: "Update incident update index=2",
-			url:  "incidents/1/updates/2",
+			name: "Update incident update index=1",
+			url:  "incidents/1/updates/1",
 			body: `{"text":"Updated: resolved"}`,
 			mockSetup: func(m sqlmock.Sqlmock) {
 				prepareMockForPatchEventUpdate(
