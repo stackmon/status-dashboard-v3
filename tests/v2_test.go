@@ -34,7 +34,7 @@ func TestV2GetIncidentsHandler(t *testing.T) {
 	t.Logf("start to test GET %s", v2Incidents)
 	r, _, _ := initTests(t)
 
-	incidentStr := `{"id":1,"title":"Closed incident without any update","impact":1,"components":[1],"start_date":"2024-10-24T10:12:42Z","end_date":"2024-10-24T11:12:42Z","system":false,"type":"incident","updates":[{"index":1,"status":"resolved","text":"close incident","timestamp":"2024-10-24T11:12:42.559346Z"}],"status":"resolved"}`
+	incidentStr := `{"id":1,"title":"Closed incident without any update","impact":1,"components":[1],"start_date":"2024-10-24T10:12:42Z","end_date":"2024-10-24T11:12:42Z","system":false,"type":"incident","updates":[{"id":0,"status":"resolved","text":"close incident","timestamp":"2024-10-24T11:12:42.559346Z"}],"status":"resolved"}`
 
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest(http.MethodGet, v2Incidents, nil)
@@ -1234,7 +1234,7 @@ func TestV2PatchEventUpdateHandler(t *testing.T) {
 	require.Len(t, createResp.Result, 1)
 	incidentID := createResp.Result[0].IncidentID
 
-	// The created incident has one update with index 1
+	// The created incident has one update with index 0
 	initialIncident := v2GetIncident(t, r, incidentID)
 	require.Len(t, initialIncident.Updates, 1)
 
@@ -1250,23 +1250,22 @@ func TestV2PatchEventUpdateHandler(t *testing.T) {
 		{
 			name:           "Successful update",
 			incidentID:     incidentID,
-			updateIndex:    1,
+			updateIndex:    0,
 			body:           `{"text": "The text of this update has been successfully changed."}`,
 			expectedStatus: http.StatusOK,
 			checkResponse: func(t *testing.T, body []byte) {
-				var updates []v2.EventUpdateData
-				err := json.Unmarshal(body, &updates)
+				var update v2.EventUpdateData
+				err := json.Unmarshal(body, &update)
 				require.NoError(t, err)
-				require.Len(t, updates, 1)
-				assert.Equal(t, 0, updates[0])
-				assert.Equal(t, "The text of this update has been successfully changed.", updates[0].Text)
-				assert.Equal(t, event.IncidentDetected, updates[0].Status)
+				assert.Equal(t, 0, update.ID)
+				assert.Equal(t, "The text of this update has been successfully changed.", update.Text)
+				assert.Equal(t, event.IncidentDetected, update.Status)
 			},
 		},
 		{
 			name:           "Incident not found",
 			incidentID:     99999,
-			updateIndex:    1,
+			updateIndex:    0,
 			body:           `{"text": "This should fail."}`,
 			expectedStatus: http.StatusNotFound,
 			expectedBody:   fmt.Sprintf(`{"errMsg":"%s"}`, apiErrors.ErrIncidentDSNotExist),
@@ -1280,33 +1279,33 @@ func TestV2PatchEventUpdateHandler(t *testing.T) {
 			expectedBody:   fmt.Sprintf(`{"errMsg":"%s"}`, apiErrors.ErrUpdateDSNotExist),
 		},
 		{
-			name:           "Invalid update index (zero)",
+			name:           "Invalid update index (negative)",
 			incidentID:     incidentID,
-			updateIndex:    0,
+			updateIndex:    -1,
 			body:           `{"text": "This should also fail."}`,
 			expectedStatus: http.StatusBadRequest,
-			expectedBody:   fmt.Sprintf(`{"errMsg":"%s"}`, apiErrors.ErrInvalidUpdateIndex),
+			expectedBody:   (`{"errMsg":"Key: 'updateData.UpdateID' Error:Field validation for 'UpdateID' failed on the 'gte' tag"}`),
 		},
 		{
 			name:           "Empty text in body",
 			incidentID:     incidentID,
-			updateIndex:    1,
+			updateIndex:    0,
 			body:           `{"text": ""}`,
 			expectedStatus: http.StatusBadRequest,
-			expectedBody:   fmt.Sprintf(`{"errMsg":"%s"}`, apiErrors.ErrUpdateTextEmpty),
+			expectedBody:   (`{"errMsg":"Key: 'PatchEventUpdateData.Text' Error:Field validation for 'Text' failed on the 'required' tag"}`),
 		},
 		{
 			name:           "Missing text field in body",
 			incidentID:     incidentID,
-			updateIndex:    1,
+			updateIndex:    0,
 			body:           `{}`,
 			expectedStatus: http.StatusBadRequest,
-			expectedBody:   fmt.Sprintf(`{"errMsg":"%s"}`, apiErrors.ErrUpdateTextEmpty),
+			expectedBody:   (`{"errMsg":"Key: 'PatchEventUpdateData.Text' Error:Field validation for 'Text' failed on the 'required' tag"}`),
 		},
 		{
-			name:           "Invalid JSON body",
+			name:           "ff",
 			incidentID:     incidentID,
-			updateIndex:    1,
+			updateIndex:    0,
 			body:           `{"text": "invalid json`,
 			expectedStatus: http.StatusBadRequest,
 			expectedBody:   `{"errMsg":"unexpected EOF"}`,

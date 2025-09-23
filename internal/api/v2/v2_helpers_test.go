@@ -14,7 +14,7 @@ import (
 	"go.uber.org/zap"
 )
 
-func initTests(t *testing.T) (*gin.Engine, sqlmock.Sqlmock) {
+func initTests(t *testing.T) (*gin.Engine, sqlmock.Sqlmock, *db.DB) {
 	t.Helper()
 
 	t.Log("start initialisation")
@@ -28,7 +28,7 @@ func initTests(t *testing.T) (*gin.Engine, sqlmock.Sqlmock) {
 	log, _ := zap.NewDevelopment()
 	initRoutes(t, r, d, log)
 
-	return r, m
+	return r, m, d
 }
 
 func initRoutes(t *testing.T, c *gin.Engine, dbInst *db.DB, log *zap.Logger) {
@@ -215,9 +215,9 @@ func prepareMockForPatchEventUpdate(t *testing.T, mock sqlmock.Sqlmock, incident
 		WillReturnRows(rowsStatus)
 
 	// Second mock for GetEventUpdates in handler - get all updates
-	statusRows := sqlmock.NewRows([]string{"id", "incident_id", "timestamp", "text", "status"})
+	statusRows := sqlmock.NewRows([]string{"id", "incident_id", "status", "text", "timestamp"})
 	for _, status := range incident.Statuses {
-		statusRows.AddRow(status.ID, status.IncidentID, status.Timestamp, status.Text, status.Status)
+		statusRows.AddRow(status.ID, status.IncidentID, status.Status, status.Text, status.Timestamp)
 	}
 	mock.ExpectQuery(`^SELECT \* FROM "incident_status" WHERE incident_id = \$1`).
 		WithArgs(incident.ID).
@@ -236,10 +236,31 @@ func prepareMockForPatchEventUpdate(t *testing.T, mock sqlmock.Sqlmock, incident
 		WillReturnRows(returningRows)
 	mock.ExpectCommit()
 
+	// Mock for Scan(&updated)
+	returningRows = sqlmock.NewRows([]string{"id", "incident_id", "status", "text", "timestamp"})
+	returningRows.AddRow(targetStatus.ID, targetStatus.IncidentID, targetStatus.Status, updatedText, targetStatus.Timestamp)
 	mock.ExpectQuery(`^SELECT \* FROM "incident_status" WHERE id = \$1 AND incident_id = \$2`).
 		WithArgs(updateID, incident.ID).
 		WillReturnRows(returningRows)
+}
 
+func prepareMockForModifyEventUpdate(
+	t *testing.T,
+	mock sqlmock.Sqlmock,
+	status db.IncidentStatus,
+	updatedText string,
+) {
+	t.Helper()
+
+	mock.ExpectBegin()
+
+	returningRows := sqlmock.NewRows([]string{"id", "incident_id", "text", "status", "timestamp"}).
+		AddRow(status.ID, status.IncidentID, updatedText, status.Status, status.Timestamp)
+	mock.ExpectQuery(`^UPDATE "incident_status" SET "text"=\$1 WHERE id = \$2 AND incident_id = \$3 RETURNING .*`).
+		WithArgs(updatedText, status.ID, status.IncidentID).
+		WillReturnRows(returningRows)
+
+	mock.ExpectCommit()
 }
 
 // EventExistenceCheckForTests duplicates logic from api.EventExistanceCheck but exists in package v2 tests.

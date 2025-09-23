@@ -1082,9 +1082,6 @@ func bindAndValidatePatchEventUpdate(c *gin.Context) (int, int, string, error) {
 	if err := c.ShouldBindJSON(&patchData); err != nil {
 		return 0, 0, "", err
 	}
-	if patchData.Text == "" {
-		return 0, 0, "", apiErrors.ErrUpdateTextEmpty
-	}
 	return updData.IncidentID, *updData.UpdateID, patchData.Text, nil
 }
 
@@ -1118,12 +1115,18 @@ func PatchEventUpdateTextHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerF
 		targetUPD.Text = text
 
 		updated, err := dbInst.ModifyEventUpdate(targetUPD)
+
 		if err != nil {
 			apiErrors.RaiseInternalErr(c, err)
 			return
 		}
 
-		c.JSON(http.StatusOK, updated)
+		c.JSON(http.StatusOK, EventUpdateData{
+			ID:        updID,
+			Status:    updated.Status,
+			Text:      updated.Text,
+			Timestamp: updated.Timestamp,
+		})
 	}
 }
 

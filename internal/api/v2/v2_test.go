@@ -18,7 +18,7 @@ import (
 )
 
 func TestGetIncidentsHandler(t *testing.T) {
-	r, m := initTests(t)
+	r, m, _ := initTests(t)
 
 	startDate := "2024-09-01T11:45:26.371Z"
 	endDate := "2024-09-04T11:45:26.371Z"
@@ -300,7 +300,7 @@ func TestGetIncidentsHandlerFilters(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			r, m := initTests(t)
+			r, m, _ := initTests(t)
 			if tc.expectedStatus == http.StatusOK {
 				params := &db.IncidentsParams{} // Expected params for the mock
 				tc.mockSetup(m, params)
@@ -318,7 +318,7 @@ func TestGetIncidentsHandlerFilters(t *testing.T) {
 }
 
 func TestReturn404Handler(t *testing.T) {
-	r, _ := initTests(t)
+	r, _, _ := initTests(t)
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest(http.MethodGet, "/anyendpoint", nil)
 	r.ServeHTTP(w, req)
@@ -328,7 +328,7 @@ func TestReturn404Handler(t *testing.T) {
 }
 
 func TestGetComponentsAvailabilityHandler(t *testing.T) {
-	r, m := initTests(t)
+	r, m, _ := initTests(t)
 	// Mocking data for testing
 
 	currentTime := time.Now().UTC()
@@ -714,18 +714,18 @@ func TestPatchEventUpdateHandler(t *testing.T) {
 			},
 		},
 		Statuses: []db.IncidentStatus{
-			{ID: uint(updateID1), IncidentID: 111, Timestamp: testTime, Text: "Incident analysing.", Status: "analysing"},
-			{ID: uint(updateID2), IncidentID: 111, Timestamp: testEndTime, Text: "Incident resolved.", Status: "resolved"},
+			{ID: uint(updateID1), IncidentID: 111, Status: "analysing", Text: "Incident analysing.", Timestamp: testTime},
+			{ID: uint(updateID2), IncidentID: 111, Status: "resolved", Text: "Incident resolved.", Timestamp: testEndTime},
 		},
 	}
 
 	responseAfterFirst := fmt.Sprintf(
-		`{"status":"analysing","text":"Updated: analysing","timestamp":"%s"}`,
-		startDate,
+		`{"id":%d,"status":"analysing","text":"Updated: analysing","timestamp":"%s"}`,
+		updateIndex1, startDate,
 	)
 	responseAfterSecond := fmt.Sprintf(
-		`{"status":"resolved","text":"Updated: resolved","timestamp":"%s"}`,
-		endDate,
+		`{"id":%d,"status":"resolved","text":"Updated: resolved","timestamp":"%s"}`,
+		updateIndex2, endDate,
 	)
 
 	testCases := []struct {
@@ -770,7 +770,7 @@ func TestPatchEventUpdateHandler(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			r, m := initTests(t)
+			r, m, _ := initTests(t)
 			tc.mockSetup(m)
 
 			w := httptest.NewRecorder()
@@ -787,4 +787,37 @@ func TestPatchEventUpdateHandler(t *testing.T) {
 			assert.NoError(t, m.ExpectationsWereMet())
 		})
 	}
+}
+
+func TestModifyEventUpdate(t *testing.T) {
+	_, m, d := initTests(t)
+	startDate := "2025-08-01T11:45:26.371Z"
+	testTime, err := time.Parse(time.RFC3339, startDate)
+	require.NoError(t, err)
+
+	eventID := 111
+	updateID := 87
+	updatedText := "Updated: analysing"
+
+	status := db.IncidentStatus{
+		ID:         uint(updateID),
+		IncidentID: uint(eventID),
+		Status:     "analysing",
+		Text:       "Incident analysing.",
+		Timestamp:  testTime,
+	}
+	prepareMockForModifyEventUpdate(t, m, status, updatedText)
+
+	returningRows := sqlmock.NewRows([]string{"id", "incident_id", "text", "status", "timestamp"}).
+		AddRow(status.ID, status.IncidentID, updatedText, status.Status, status.Timestamp)
+	m.ExpectQuery(`^SELECT \* FROM "incident_status" WHERE id = \$1 AND incident_id = \$2`).
+		WithArgs(status.ID, status.IncidentID).
+		WillReturnRows(returningRows)
+
+	status.Text = updatedText
+
+	updated, err := d.ModifyEventUpdate(status)
+	require.NoError(t, err)
+	require.NotZero(t, updated.ID)
+	require.Equal(t, updatedText, updated.Text)
 }
