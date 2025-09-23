@@ -255,12 +255,6 @@ paths:
           required: false
           schema:
             type: string
-        - name: status
-          in: query
-          description: Filter by the event status (e.g., 'resolved', 'fixing', 'completed'). See backend implementation for all valid statuses.
-          required: false
-          schema:
-            type: string
         - name: start_date
           in: query
           description: Filter incidents active on or after this date (RFC3339 format).
@@ -784,7 +778,7 @@ components:
               type: integer
               format: int64
               nullable: true
-              example: 163
+              example: 0
         - $ref: '#/components/schemas/IncidentStatusPost'
     IncidentStatusPost:
       type: object
@@ -912,8 +906,6 @@ components:
     EventUpdateData:
       type: object
       properties:
-        index:
-          type: integer
         id:
           type: integer
         status:
