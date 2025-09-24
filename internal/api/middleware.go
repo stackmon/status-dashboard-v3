@@ -1,6 +1,7 @@
 package api
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/stackmon/otc-status-dashboard/internal/api/auth"
 	apiErrors "github.com/stackmon/otc-status-dashboard/internal/api/errors"
+	v2 "github.com/stackmon/otc-status-dashboard/internal/api/v2"
 	"github.com/stackmon/otc-status-dashboard/internal/db"
 )
 
@@ -133,6 +135,30 @@ func AuthenticationV1DeprecatedMW(prov *auth.Provider, logger *zap.Logger, secre
 
 		if !token.Valid {
 			apiErrors.RaiseNotAuthorizedErr(c, apiErrors.ErrAuthNotAuthenticated)
+			return
+		}
+
+		c.Next()
+	}
+}
+
+func CheckEventExistanceMW(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		logger.Debug("checking incident existence")
+
+		var incID v2.IncidentID
+		if err := c.ShouldBindUri(&incID); err != nil {
+			apiErrors.RaiseBadRequestErr(c, err)
+			return
+		}
+
+		_, err := dbInst.GetIncident(incID.ID)
+		if err != nil {
+			if errors.Is(err, db.ErrDBIncidentDSNotExist) {
+				apiErrors.RaiseStatusNotFoundErr(c, apiErrors.ErrIncidentDSNotExist)
+				return
+			}
+			apiErrors.RaiseInternalErr(c, err)
 			return
 		}
 

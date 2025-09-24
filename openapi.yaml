@@ -255,12 +255,6 @@ paths:
           required: false
           schema:
             type: string
-        - name: status
-          in: query
-          description: Filter by the event status (e.g., 'resolved', 'fixing', 'completed'). See backend implementation for all valid statuses.
-          required: false
-          schema:
-            type: string
         - name: start_date
           in: query
           description: Filter incidents active on or after this date (RFC3339 format).
@@ -406,7 +400,46 @@ paths:
           description: Invalid ID supplied
         '404':
           description: Incident not found.
-
+  /v2/incidents/{incident_id}/updates/{update_id}:
+    patch:
+      summary: Update the text of an incident update.
+      tags:
+        - incidents
+      parameters:
+        - name: incident_id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+        - name: update_id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                text:
+                  type: string
+                  example: "Updated status text"
+      responses:
+        '200':
+          description: Update successful.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/EventUpdateData'
+        '400':
+          description: Invalid input.
+        '404':
+          description: Not found.
   /v1/component_status:
     get:
       summary: Get all components.
@@ -745,7 +778,7 @@ components:
               type: integer
               format: int64
               nullable: true
-              example: 163
+              example: 0
         - $ref: '#/components/schemas/IncidentStatusPost'
     IncidentStatusPost:
       type: object
@@ -870,3 +903,15 @@ components:
         errMsg:
           type: string
           example: "any error message"
+    EventUpdateData:
+      type: object
+      properties:
+        id:
+          type: integer
+        status:
+          type: string
+        text:
+          type: string
+        timestamp:
+          type: string
+          format: date-time

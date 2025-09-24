@@ -47,13 +47,16 @@ func (a *API) InitRoutes() {
 			ValidateComponentsMW(a.db, a.log),
 			v2.PostIncidentHandler(a.db, a.log),
 		)
-		v2API.GET("incidents/:id", v2.GetIncidentHandler(a.db, a.log))
-		v2API.PATCH("incidents/:id", AuthenticationMW(a.oa2Prov, a.log), v2.PatchIncidentHandler(a.db, a.log))
-		v2API.POST("incidents/:id/extract",
+		v2API.GET("incidents/:incidentID", v2.GetIncidentHandler(a.db, a.log))
+		v2API.PATCH("incidents/:incidentID", AuthenticationMW(a.oa2Prov, a.log), v2.PatchIncidentHandler(a.db, a.log))
+		v2API.POST("incidents/:incidentID/extract",
 			AuthenticationMW(a.oa2Prov, a.log),
 			ValidateComponentsMW(a.db, a.log),
 			v2.PostIncidentExtractHandler(a.db, a.log))
-
+		v2API.PATCH("incidents/:incidentID/updates/:updateID",
+			AuthenticationMW(a.oa2Prov, a.log),
+			CheckEventExistanceMW(a.db, a.log),
+			v2.PatchEventUpdateTextHandler(a.db, a.log))
 		v2API.GET("availability", v2.GetComponentsAvailabilityHandler(a.db, a.log))
 
 		// For testing purposes only

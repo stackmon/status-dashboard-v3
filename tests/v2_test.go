@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	apiErrors "github.com/stackmon/otc-status-dashboard/internal/api/errors"
 	v2 "github.com/stackmon/otc-status-dashboard/internal/api/v2"
 	"github.com/stackmon/otc-status-dashboard/internal/event"
 )
@@ -33,7 +34,7 @@ func TestV2GetIncidentsHandler(t *testing.T) {
 	t.Logf("start to test GET %s", v2Incidents)
 	r, _, _ := initTests(t)
 
-	incidentStr := `{"id":1,"title":"Closed incident without any update","impact":1,"components":[1],"start_date":"2024-10-24T10:12:42Z","end_date":"2024-10-24T11:12:42Z","system":false,"type":"incident","updates":[{"status":"resolved","text":"close incident","timestamp":"2024-10-24T11:12:42.559346Z"}],"status":"resolved"}`
+	incidentStr := `{"id":1,"title":"Closed incident without any update","impact":1,"components":[1],"start_date":"2024-10-24T10:12:42Z","end_date":"2024-10-24T11:12:42Z","system":false,"type":"incident","updates":[{"id":0,"status":"resolved","text":"close incident","timestamp":"2024-10-24T11:12:42.559346Z"}],"status":"resolved"}`
 
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest(http.MethodGet, v2Incidents, nil)
@@ -257,6 +258,7 @@ func TestV2PostIncidentsHandler(t *testing.T) {
 	assert.Len(t, oldIncident.Components, 1)
 	assert.NotNil(t, oldIncident.Updates)
 	assert.Len(t, oldIncident.Updates, 3)
+	t.Logf("STATUS updates: %v", oldIncident.Updates)
 	assert.Equal(t, event.IncidentDetected, oldIncident.Updates[0].Status)
 	assert.Equal(t, event.OutDatedSystem, oldIncident.Updates[1].Status)
 	assert.Equal(t, event.OutDatedSystem, oldIncident.Updates[2].Status)
@@ -699,7 +701,7 @@ func v2PatchIncident(t *testing.T, r *gin.Engine, inc *v2.Incident, status ...ev
 	assert.Equal(t, 200, w.Code)
 }
 
-func v2GetComponents(t *testing.T, r *gin.Engine) []v2.Component {
+func Testv2GetComponents(t *testing.T, r *gin.Engine) []v2.Component {
 	t.Helper()
 
 	url := "/v2/components"
@@ -774,12 +776,12 @@ func TestV2CreateComponentAndList(t *testing.T) {
 	assert.Contains(t, w.Body.String(), "component attribute has invalid format")
 
 	// List all components to verify
-	components := v2GetComponents(t, r)
-	t.Log("Final components list:")
-	for _, comp := range components {
-		t.Logf("Component ID=%d, Name=%s, Attributes=%+v",
-			comp.ID, comp.Name, comp.Attributes)
-	}
+	// components := v2GetComponents(t, r)
+	// t.Log("Final components list:")
+	// for _, comp := range components {
+	// t.Logf("Component ID=%d, Name=%s, Attributes=%+v",
+	// comp.ID, comp.Name, comp.Attributes)
+	// }
 }
 
 func TestV2GetComponentsAvailability(t *testing.T) {
@@ -876,7 +878,7 @@ func checkComponentAvailability(t *testing.T, compAvail v2.ComponentAvailability
 		if _, ok := targetMonths[avail.Month]; ok {
 			assert.InEpsilon(t, 50.00000, avail.Percentage, 0.00001,
 				"Availability percentage should be 50% for the target months")
-			t.Logf("Availability for %v: %d-%d: %.2f%%", compAvail.Name, avail.Year, avail.Month, avail.Percentage)
+			// t.Logf("Availability for %v: %d-%d: %.2f%%", compAvail.Name, avail.Year, avail.Month, avail.Percentage)
 		} else {
 			assert.InEpsilon(t, 100.00000, avail.Percentage, 0.00001,
 				"Availability percentage should be 100% for all months except the target months")
@@ -1204,4 +1206,130 @@ func TestV2PostInfoWithExistingEventsHandler(t *testing.T) {
 	assert.True(t, maintenanceEndDate.Truncate(time.Second).Equal(fetchedMaintenanceIncident.EndDate.Truncate(time.Second)), "Maintenance end date mismatch")
 	assert.Contains(t, fetchedMaintenanceIncident.Components, incidentComponentID, "Maintenance event should still have its component")
 	assert.Len(t, fetchedMaintenanceIncident.Components, 1, "Maintenance event should only have its original component")
+}
+
+func TestV2PatchEventUpdateHandler(t *testing.T) {
+	t.Log("start to test PATCH /v2/incidents/:incidentID/updates/:updateID")
+	r, _, _ := initTests(t)
+
+	// Clean up database before test to ensure a clean state for this test case.
+	truncateIncidents(t)
+
+	components := []int{1}
+	impact := 1
+	title := "Incident for testing update patch"
+	startDate := time.Now().UTC()
+	system := false
+	incidentCreateData := v2.IncidentData{
+		Title:      title,
+		Impact:     &impact,
+		Components: components,
+		StartDate:  startDate,
+		System:     &system,
+		Type:       event.TypeIncident,
+	}
+
+	createResp := v2CreateIncident(t, r, &incidentCreateData)
+	require.NotNil(t, createResp, "Failed to create incident for test")
+	require.Len(t, createResp.Result, 1)
+	incidentID := createResp.Result[0].IncidentID
+
+	// The created incident has one update with index 0
+	initialIncident := v2GetIncident(t, r, incidentID)
+	require.Len(t, initialIncident.Updates, 1)
+
+	testCases := []struct {
+		name           string
+		incidentID     int
+		updateIndex    int
+		body           string
+		expectedStatus int
+		expectedBody   string
+		checkResponse  func(t *testing.T, body []byte)
+	}{
+		{
+			name:           "Successful update",
+			incidentID:     incidentID,
+			updateIndex:    0,
+			body:           `{"text": "The text of this update has been successfully changed."}`,
+			expectedStatus: http.StatusOK,
+			checkResponse: func(t *testing.T, body []byte) {
+				var update v2.EventUpdateData
+				err := json.Unmarshal(body, &update)
+				require.NoError(t, err)
+				assert.Equal(t, 0, update.ID)
+				assert.Equal(t, "The text of this update has been successfully changed.", update.Text)
+				assert.Equal(t, event.IncidentDetected, update.Status)
+			},
+		},
+		{
+			name:           "Incident not found",
+			incidentID:     99999,
+			updateIndex:    0,
+			body:           `{"text": "This should fail."}`,
+			expectedStatus: http.StatusNotFound,
+			expectedBody:   fmt.Sprintf(`{"errMsg":"%s"}`, apiErrors.ErrIncidentDSNotExist),
+		},
+		{
+			name:           "Update index not found",
+			incidentID:     incidentID,
+			updateIndex:    99,
+			body:           `{"text": "This should also fail."}`,
+			expectedStatus: http.StatusNotFound,
+			expectedBody:   fmt.Sprintf(`{"errMsg":"%s"}`, apiErrors.ErrUpdateDSNotExist),
+		},
+		{
+			name:           "Invalid update index (negative)",
+			incidentID:     incidentID,
+			updateIndex:    -1,
+			body:           `{"text": "This should also fail."}`,
+			expectedStatus: http.StatusBadRequest,
+			expectedBody:   (`{"errMsg":"Key: 'updateData.UpdateID' Error:Field validation for 'UpdateID' failed on the 'gte' tag"}`),
+		},
+		{
+			name:           "Empty text in body",
+			incidentID:     incidentID,
+			updateIndex:    0,
+			body:           `{"text": ""}`,
+			expectedStatus: http.StatusBadRequest,
+			expectedBody:   (`{"errMsg":"Key: 'PatchEventUpdateData.Text' Error:Field validation for 'Text' failed on the 'required' tag"}`),
+		},
+		{
+			name:           "Missing text field in body",
+			incidentID:     incidentID,
+			updateIndex:    0,
+			body:           `{}`,
+			expectedStatus: http.StatusBadRequest,
+			expectedBody:   (`{"errMsg":"Key: 'PatchEventUpdateData.Text' Error:Field validation for 'Text' failed on the 'required' tag"}`),
+		},
+		{
+			name:           "ff",
+			incidentID:     incidentID,
+			updateIndex:    0,
+			body:           `{"text": "invalid json`,
+			expectedStatus: http.StatusBadRequest,
+			expectedBody:   `{"errMsg":"unexpected EOF"}`,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			url := fmt.Sprintf("/v2/incidents/%d/updates/%d", tc.incidentID, tc.updateIndex)
+			req, _ := http.NewRequest(http.MethodPatch, url, strings.NewReader(tc.body))
+			req.Header.Set("Content-Type", "application/json")
+
+			w := httptest.NewRecorder()
+			r.ServeHTTP(w, req)
+
+			assert.Equal(t, tc.expectedStatus, w.Code)
+
+			if tc.checkResponse != nil {
+				tc.checkResponse(t, w.Body.Bytes())
+			}
+
+			if tc.expectedBody != "" {
+				assert.JSONEq(t, tc.expectedBody, w.Body.String())
+			}
+		})
+	}
 }

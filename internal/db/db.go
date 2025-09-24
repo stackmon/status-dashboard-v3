@@ -8,6 +8,7 @@ import (
 	"go.uber.org/zap"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 	"moul.io/zapgorm2"
 
 	"github.com/stackmon/otc-status-dashboard/internal/conf"
@@ -182,7 +183,9 @@ func (db *DB) GetIncident(id int) (*Incident, error) {
 
 	r := db.g.Model(&Incident{}).
 		Where(inc).
-		Preload("Statuses").
+		Preload("Statuses", func(db *gorm.DB) *gorm.DB {
+			return db.Order("id ASC")
+		}).
 		Preload("Components", func(db *gorm.DB) *gorm.DB {
 			return db.Select("ID, Name")
 		}).
@@ -581,4 +584,36 @@ func (db *DB) GetUniqueAttributeValues(attrName string) ([]string, error) {
 	}
 
 	return values, nil
+}
+
+func (db *DB) GetEventUpdates(incidentID uint) ([]IncidentStatus, error) {
+	var updates []IncidentStatus
+	r := db.g.Model(&IncidentStatus{}).
+		Where("incident_id = ?", incidentID).
+		Order("id ASC").
+		Find(&updates)
+
+	if r.Error != nil {
+		return nil, r.Error
+	}
+
+	return updates, nil
+}
+
+func (db *DB) ModifyEventUpdate(update IncidentStatus) (IncidentStatus, error) {
+	var updated IncidentStatus
+	r := db.g.Model(&IncidentStatus{}).
+		Clauses(clause.Returning{}).
+		Where("id = ? AND incident_id = ?", update.ID, update.IncidentID).
+		Update("text", update.Text).
+		Scan(&updated)
+
+	if r.Error != nil {
+		return IncidentStatus{}, r.Error
+	}
+	if r.RowsAffected == 0 {
+		return IncidentStatus{}, ErrDBEventUpdateDSNotExist
+	}
+
+	return updated, nil
 }
