@@ -30,3 +30,6 @@ var ErrIncidentPatchImpactStatusWrong = errors.New("wrong status for changing im
 var ErrIncidentPatchImpactToZeroForbidden = errors.New("can not change impact to 0")
 
 var ErrMaintenanceEndDateEmpty = errors.New("maintenance end_date is empty")
+
+var ErrUpdateTextEmpty = errors.New("text field is required")
+var ErrUpdateDSNotExist = errors.New("update does not exist")

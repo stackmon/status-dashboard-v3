@@ -15,6 +15,8 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
+	gormpostgres "gorm.io/driver/postgres"
+	"gorm.io/gorm"
 
 	"github.com/stackmon/otc-status-dashboard/internal/api"
 	"github.com/stackmon/otc-status-dashboard/internal/api/auth"
@@ -134,9 +136,26 @@ func initRoutesV2(t *testing.T, c *gin.Engine, dbInst *db.DB, logger *zap.Logger
 
 	v2Api.GET("incidents", v2.GetEventsHandler(dbInst, logger, false))
 	v2Api.POST("incidents", api.ValidateComponentsMW(dbInst, logger), v2.PostIncidentHandler(dbInst, logger))
-	v2Api.GET("incidents/:id", v2.GetIncidentHandler(dbInst, logger))
-	v2Api.PATCH("incidents/:id", v2.PatchIncidentHandler(dbInst, logger))
-	v2Api.POST("incidents/:id/extract", v2.PostIncidentExtractHandler(dbInst, logger))
+	v2Api.GET("incidents/:incidentID", v2.GetIncidentHandler(dbInst, logger))
+	v2Api.PATCH("incidents/:incidentID", v2.PatchIncidentHandler(dbInst, logger))
+	v2Api.POST("incidents/:incidentID/extract", v2.PostIncidentExtractHandler(dbInst, logger))
+	v2Api.PATCH("incidents/:incidentID/updates/:updateID", api.CheckEventExistanceMW(dbInst, logger), v2.PatchEventUpdateTextHandler(dbInst, logger))
 
 	v2Api.GET("availability", v2.GetComponentsAvailabilityHandler(dbInst, logger))
+}
+
+func truncateIncidents(t *testing.T) {
+	t.Helper()
+	t.Log("cleaning up incident-related tables before test")
+
+	gormDB, err := gorm.Open(gormpostgres.Open(databaseURL), &gorm.Config{})
+	require.NoError(t, err, "failed to open gorm connection for truncation")
+
+	result := gormDB.Exec("TRUNCATE TABLE incident, incident_status, incident_component_relation RESTART IDENTITY")
+	require.NoError(t, result.Error, "failed to truncate incident tables")
+
+	sqlDB, err := gormDB.DB()
+	require.NoError(t, err, "failed to get sql.DB from gorm for closing")
+	err = sqlDB.Close()
+	require.NoError(t, err, "failed to close gorm connection for truncation")
 }

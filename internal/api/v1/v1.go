@@ -11,7 +11,6 @@ import (
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 
-	"github.com/stackmon/otc-status-dashboard/internal/api/common"
 	apiErrors "github.com/stackmon/otc-status-dashboard/internal/api/errors"
 	"github.com/stackmon/otc-status-dashboard/internal/db"
 	"github.com/stackmon/otc-status-dashboard/internal/event"
@@ -279,11 +278,11 @@ func PostComponentStatusHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFu
 
 		log.Info("find opened incident with the component")
 		// the strange logic, because we will get the first incident with component, but we can have another one
-		incident := common.GetIncidentWithComponent(storedComponent.ID, openedIncidents)
+		incident := GetIncidentWithComponent(storedComponent.ID, openedIncidents)
 		log.Info("found opened incident", zap.Any("openedIncident", incident))
 		if incident == nil {
 			log.Info("there are no incidents with given component, find an incident with incoming impact")
-			incByImpact := common.FindIncidentByImpact(inComponent.Impact, openedIncidents)
+			incByImpact := FindIncidentByImpact(inComponent.Impact, openedIncidents)
 			if incByImpact != nil {
 				log.Info(
 					"found an incident with given impact, add the component to the incident",
@@ -328,7 +327,7 @@ func PostComponentStatusHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFu
 			return
 		}
 
-		storedIncident, err := common.MoveIncidentToHigherImpact(
+		storedIncident, err := MoveIncidentToHigherImpact(
 			dbInst, log, storedComponent,
 			incident, openedIncidents,
 			inComponent.Impact, inComponent.Text)

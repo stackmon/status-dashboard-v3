@@ -15,13 +15,17 @@ import (
 	"github.com/stackmon/otc-status-dashboard/internal/event"
 )
 
+<<<<<<< HEAD
 const (
 	defaultIncidentLimit = 50
 	maxIncidentLimit     = 100
 )
 
+=======
+// Event IDs and core data structures.
+>>>>>>> origin/main
 type IncidentID struct {
-	ID int `json:"id" uri:"id" binding:"required,gte=0"`
+	ID int `json:"id" uri:"incidentID" binding:"required,gte=0"`
 }
 
 type IncidentData struct {
@@ -45,8 +49,8 @@ type IncidentData struct {
 	//    2. info
 	//    3. incident
 	// Type field is mandatory.
-	Type    string              `json:"type" binding:"required,oneof=maintenance info incident"`
-	Updates []db.IncidentStatus `json:"updates,omitempty"`
+	Type    string            `json:"type" binding:"required,oneof=maintenance info incident"`
+	Updates []EventUpdateData `json:"updates,omitempty"`
 	// Status does not take into account OutDatedSystem status.
 	Status event.Status `json:"status,omitempty"`
 }
@@ -252,6 +256,8 @@ func toAPIEvent(inc *db.Incident) *Incident {
 		components[i] = int(comp.ID)
 	}
 
+	updates := mapEventUpdates(inc.Statuses)
+
 	var description string
 	if inc.Description != nil {
 		description = *inc.Description
@@ -265,7 +271,7 @@ func toAPIEvent(inc *db.Incident) *Incident {
 		StartDate:   *inc.StartDate,
 		EndDate:     inc.EndDate,
 		System:      &inc.System,
-		Updates:     inc.Statuses,
+		Updates:     updates,
 		Status:      inc.Status,
 		Type:        inc.Type,
 	}
@@ -1089,6 +1095,7 @@ func calculateAvailability(component *db.Component) ([]MonthlyAvailability, erro
 	return monthlyAvailability, nil
 }
 
+// Helper functions for calculateAvailability.
 func adjustIncidentPeriod(incidentStart, incidentEnd, periodStart, periodEnd time.Time) (time.Time, time.Time, bool) {
 	if incidentEnd.Before(periodStart) || incidentStart.After(periodEnd) {
 		return time.Time{}, time.Time{}, false
@@ -1121,4 +1128,93 @@ func hoursInMonth(year int, month int) float64 {
 	nextMonth := firstDay.AddDate(0, 1, 0)
 
 	return float64(nextMonth.Sub(firstDay).Hours())
+}
+
+type EventUpdateData struct {
+	ID        int          `json:"id"`
+	Status    event.Status `json:"status"`
+	Text      string       `json:"text"`
+	Timestamp time.Time    `json:"timestamp"`
+}
+
+func bindAndValidatePatchEventUpdate(c *gin.Context) (int, int, string, error) {
+	type updateData struct {
+		IncidentID int  `uri:"incidentID" binding:"required,gt=0"`
+		UpdateID   *int `uri:"updateID" binding:"required,gte=0"`
+	}
+
+	type PatchEventUpdateData struct {
+		Text string `json:"text" binding:"required"`
+	}
+
+	var updData updateData
+
+	if err := c.ShouldBindUri(&updData); err != nil {
+		return 0, 0, "", err
+	}
+
+	var patchData PatchEventUpdateData
+	if err := c.ShouldBindJSON(&patchData); err != nil {
+		return 0, 0, "", err
+	}
+	return updData.IncidentID, *updData.UpdateID, patchData.Text, nil
+}
+
+func PatchEventUpdateTextHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		logger.Debug(
+			"Patching text for event update",
+			zap.String("incidentID", c.Param("incidentID")),
+			zap.String("updateID", c.Param("updateID")),
+		)
+
+		incID, updID, text, err := bindAndValidatePatchEventUpdate(c)
+		if err != nil {
+			apiErrors.RaiseBadRequestErr(c, err)
+			return
+		}
+
+		// Update existence check.
+		updates, err := dbInst.GetEventUpdates(uint(incID))
+		if err != nil {
+			apiErrors.RaiseInternalErr(c, err)
+			return
+		}
+
+		if updID < 0 || updID >= len(updates) {
+			apiErrors.RaiseStatusNotFoundErr(c, apiErrors.ErrUpdateDSNotExist)
+			return
+		}
+
+		targetUPD := updates[updID]
+		targetUPD.Text = text
+
+		updated, err := dbInst.ModifyEventUpdate(targetUPD)
+
+		if err != nil {
+			apiErrors.RaiseInternalErr(c, err)
+			return
+		}
+
+		c.JSON(http.StatusOK, EventUpdateData{
+			ID:        updID,
+			Status:    updated.Status,
+			Text:      updated.Text,
+			Timestamp: updated.Timestamp,
+		})
+	}
+}
+
+func mapEventUpdates(statuses []db.IncidentStatus) []EventUpdateData {
+	updates := make([]EventUpdateData, len(statuses))
+	for i, s := range statuses {
+		updates[i] = EventUpdateData{
+			ID:        i,
+			Status:    s.Status,
+			Text:      s.Text,
+			Timestamp: s.Timestamp,
+		}
+	}
+
+	return updates
 }
