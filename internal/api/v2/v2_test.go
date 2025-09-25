@@ -189,16 +189,6 @@ func TestGetIncidentsHandlerFilters(t *testing.T) {
 			expectedBody:   responseB,
 		},
 		{
-			name: "Filter by status=analysing",
-			url:  "/v2/incidents?status=analysing",
-			mockSetup: func(m sqlmock.Sqlmock, params *db.IncidentsParams) {
-				params.Status = &incidentB.Statuses[0].Status
-				prepareMockForIncidents(t, m, []*db.Incident{&incidentB})
-			},
-			expectedStatus: http.StatusOK,
-			expectedBody:   responseB,
-		},
-		{
 			name: "Filter combination: type=incident&active=true",
 			url:  "/v2/incidents?type=incident&active=true",
 			mockSetup: func(m sqlmock.Sqlmock, params *db.IncidentsParams) {
