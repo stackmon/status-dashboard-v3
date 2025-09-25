@@ -15,15 +15,12 @@ import (
 	"github.com/stackmon/otc-status-dashboard/internal/event"
 )
 
-<<<<<<< HEAD
 const (
 	defaultIncidentLimit = 50
 	maxIncidentLimit     = 100
 )
 
-=======
 // Event IDs and core data structures.
->>>>>>> origin/main
 type IncidentID struct {
 	ID int `json:"id" uri:"incidentID" binding:"required,gte=0"`
 }

@@ -773,16 +773,9 @@ func TestPatchEventUpdateHandler(t *testing.T) {
 			r, m, _ := initTests(t)
 			tc.mockSetup(m)
 
-<<<<<<< HEAD
-		v2Api.GET("incidents", GetEventsHandler(dbInst, log, false))
-		v2Api.POST("incidents", PostIncidentHandler(dbInst, log))
-		v2Api.GET("incidents/:id", GetIncidentHandler(dbInst, log))
-		v2Api.PATCH("incidents/:id", PatchIncidentHandler(dbInst, log))
-=======
 			w := httptest.NewRecorder()
 			req, _ := http.NewRequest(http.MethodPatch, fmt.Sprintf("/v2/%s", tc.url), strings.NewReader(tc.body))
 			req.Header.Set("Content-Type", "application/json")
->>>>>>> origin/main
 
 			r.ServeHTTP(w, req)
 
