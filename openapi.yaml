@@ -236,7 +236,6 @@ paths:
       tags:
         - incidents
       parameters:
-<<<<<<< HEAD
         - $ref: '#/components/parameters/IncidentFilterType'
         - $ref: '#/components/parameters/IncidentFilterActive'
         - $ref: '#/components/parameters/IncidentFilterStatus'
@@ -245,64 +244,6 @@ paths:
         - $ref: '#/components/parameters/IncidentFilterImpact'
         - $ref: '#/components/parameters/IncidentFilterSystem'
         - $ref: '#/components/parameters/IncidentFilterComponents'
-=======
-        - name: type
-          in: query
-          description: Filter by incident type ('incident', 'maintenance' or 'info'). Can be a comma-separated list of types.
-          required: false
-          schema:
-            type: string
-            example: "incident,maintenance"
-        - name: active
-          in: query
-          description: Filter by active status for events. For incidents, this means the incident is currently ongoing. For maintenance, it means the maintenance is currently in progress. And for info, it means the info event is currently active. Supporting only 'true' value.
-          required: false
-          schema:
-            type: boolean
-        - name: status
-          in: query
-          description: Filter by the latest incident status (e.g., 'resolved', 'fixing', 'completed'). See backend implementation for all valid statuses.
-          required: false
-          schema:
-            type: string
-        - name: start_date
-          in: query
-          description: Filter incidents active on or after this date (RFC3339 format).
-          required: false
-          schema:
-            type: string
-            format: date-time
-            example: "2023-10-26T00:00:00Z"
-        - name: end_date
-          in: query
-          description: Filter incidents active on or before this date (RFC3339 format). Must be after start_date if both are provided.
-          required: false
-          schema:
-            type: string
-            format: date-time
-            example: "2023-10-27T23:59:59Z"
-        - name: impact
-          in: query
-          description: Filter by specific impact level (0=Maintenance, 1=Minor, 2=Major, 3=Outage).
-          required: false
-          schema:
-            type: integer
-            enum: [0, 1, 2, 3]
-            example: 2
-        - name: system
-          in: query
-          description: Filter by whether the incident was system-generated ('true') or manually created ('false').
-          required: false
-          schema:
-            type: boolean
-        - name: components
-          in: query
-          description: Filter by associated component IDs (comma-separated list of positive integers).
-          required: false
-          schema:
-            type: string
-            example: "1,5,23"
->>>>>>> origin/main
       responses:
         '200':
           description: Successful operation. Returns a list of incidents matching the criteria. If none match, data is an empty array.
@@ -647,6 +588,7 @@ components:
           example: 1
         recordsPerPage:
           type: integer
+          enum: [0, 10, 20, 50, 100]
           example: 50
         totalRecords:
           type: integer
@@ -968,7 +910,18 @@ components:
         errMsg:
           type: string
           example: "any error message"
-<<<<<<< HEAD
+    EventUpdateData:
+      type: object
+      properties:
+        id:
+          type: integer
+        status:
+          type: string
+        text:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
   parameters:
     IncidentFilterType:
       name: type
@@ -1050,17 +1003,3 @@ components:
       schema:
         type: integer
         example: 0
-=======
-    EventUpdateData:
-      type: object
-      properties:
-        id:
-          type: integer
-        status:
-          type: string
-        text:
-          type: string
-        timestamp:
-          type: string
-          format: date-time
->>>>>>> origin/main
