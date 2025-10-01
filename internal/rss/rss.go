@@ -107,7 +107,7 @@ func HandleRSS(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 
 // TODO: add list of valid regions to the config or to the db
 func validateRegion(region string) bool {
-	regions := [3]string{"EU-DE", "EU-NL", "Global"}
+	regions := [4]string{"EU-DE", "EU-NL", "EU-CH2", "Global"}
 	for _, r := range regions {
 		if r == region {
 			return true
