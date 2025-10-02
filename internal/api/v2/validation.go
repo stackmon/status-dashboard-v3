@@ -37,6 +37,25 @@ func validateAndSetStatus(queryStatus *event.Status, params *db.IncidentsParams)
 	return nil
 }
 
+// validateAndSetLimit validates the limit in the pagination query.
+func validateAndSetLimit(queryLimit *int, params *db.IncidentsParams) error {
+	var allowedLimits = map[int]struct{}{
+		0:   {},
+		10:  {},
+		20:  {},
+		50:  {},
+		100: {},
+	}
+
+	if queryLimit != nil {
+		if _, valid := allowedLimits[*queryLimit]; !valid {
+			return apiErrors.ErrIncidentFQueryInvalidFormat
+		}
+		params.Limit = queryLimit
+	}
+	return nil
+}
+
 // parseAndSetComponents parses component IDs from a comma-separated string and sets them on db.IncidentsParams.
 func parseAndSetComponents(queryComponents *string, params *db.IncidentsParams) error {
 	if queryComponents == nil {

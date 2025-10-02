@@ -17,7 +17,7 @@ import (
 
 const (
 	defaultIncidentLimit = 50
-	maxIncidentLimit     = 100
+	defaultPageNumber    = 1
 )
 
 // Event IDs and core data structures.
@@ -67,7 +67,7 @@ type APIGetIncidentsQuery struct {
 	System     *bool         `form:"system" binding:"omitempty"`
 	Components *string       `form:"components"` // custom validation in parseAndSetComponents
 	Page       *int          `form:"page" binding:"omitempty,gte=1"`
-	Limit      *int          `form:"limit" binding:"omitempty,gte=0,lte=100"`
+	Limit      *int          `form:"limit"` // custom validation in validateAndSetLimit
 }
 
 func bindIncidentsQuery(c *gin.Context) (*APIGetIncidentsQuery, error) {
@@ -104,19 +104,21 @@ func parseIncidentParams(c *gin.Context, paginated bool) (*db.IncidentsParams, e
 	}
 
 	if paginated {
-		// For /events: apply default limit and max limit logic.
-		page := 1
-		limit := defaultIncidentLimit
+		err = validateAndSetLimit(query.Limit, params)
+		if err != nil {
+			return nil, err
+		}
 
+		page := defaultPageNumber
 		if query.Page != nil && *query.Page > 0 {
 			page = *query.Page
 		}
-
-		if query.Limit != nil {
-			limit = min(*query.Limit, maxIncidentLimit)
-		}
-
 		params.Page = &page
+
+		limit := defaultIncidentLimit
+		if params.Limit != nil {
+			limit = *params.Limit
+		}
 
 		params.Limit = &limit
 		if limit > 0 {
