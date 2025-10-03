@@ -58,7 +58,7 @@ func (a *API) InitRoutes() {
 			CheckEventExistanceMW(a.db, a.log),
 			v2.PatchEventUpdateTextHandler(a.db, a.log))
 		// Paginated events.
-		v2API.GET("events/", v2.GetEventsHandler(a.db, a.log, true))
+		v2API.GET("events", v2.GetEventsHandler(a.db, a.log, true))
 		v2API.GET("availability", v2.GetComponentsAvailabilityHandler(a.db, a.log))
 
 		// For testing purposes only

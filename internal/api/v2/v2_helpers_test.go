@@ -50,7 +50,7 @@ func initRoutes(t *testing.T, c *gin.Engine, dbInst *db.DB, log *zap.Logger) {
 			EventExistenceCheckForTests(dbInst, log),
 			PatchEventUpdateTextHandler(dbInst, log),
 		)
-
+		v2Api.GET("events", GetEventsHandler(dbInst, log, true))
 		v2Api.GET("availability", GetComponentsAvailabilityHandler(dbInst, log))
 	}
 }
@@ -157,6 +157,40 @@ func prepareMockForIncidents(t *testing.T, mock sqlmock.Sqlmock, result []*db.In
 
 	mock.ExpectQuery(`^SELECT (.+) FROM "incident_component_relation"`).WithArgs(incidentIDs...).WillReturnRows(rowsIncComp)
 	mock.ExpectQuery(`^SELECT (.+) FROM "component"`).WithArgs(componentIDs...).WillReturnRows(rowsComp)
+	mock.ExpectQuery("^SELECT (.+) FROM \"component_attribute\"").WillReturnRows(rowsCompAttr)
+	mock.ExpectQuery(`^SELECT (.+) FROM "incident_status"`).WithArgs(incidentIDs...).WillReturnRows(rowsStatus)
+}
+
+func prepareMockForEvents(t *testing.T, mock sqlmock.Sqlmock, result []*db.Incident, totalCount int) {
+	t.Helper()
+
+	mock.ExpectQuery(`^SELECT count\(\*\) FROM "incident"`).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(totalCount))
+
+	if len(result) == 0 {
+		mock.ExpectQuery(`^SELECT (.+) FROM "incident"`).
+			WillReturnRows(sqlmock.NewRows([]string{"id", "text", "description", "start_date", "end_date", "impact", "system", "type"}))
+		return
+	}
+
+	rowsInc, incidentIDs, componentIDs := prepareIncidentRows(result)
+	mock.ExpectQuery(`^SELECT (.+) FROM "incident"`).
+		WillReturnRows(rowsInc)
+
+	rowsIncComp, rowsComp, rowsCompAttr, rowsStatus := prepareRelatedRows(result)
+
+	mock.ExpectQuery(`^SELECT (.+) FROM "incident_component_relation"`).
+		WithArgs(incidentIDs...).
+		WillReturnRows(rowsIncComp)
+
+	uniqueComponentIDs := make(map[driver.Value]bool)
+	for _, id := range componentIDs {
+		uniqueComponentIDs[id] = true
+	}
+	if len(uniqueComponentIDs) > 0 {
+		mock.ExpectQuery(`^SELECT (.+) FROM "component"`).WillReturnRows(rowsComp)
+	}
+
 	mock.ExpectQuery("^SELECT (.+) FROM \"component_attribute\"").WillReturnRows(rowsCompAttr)
 	mock.ExpectQuery(`^SELECT (.+) FROM "incident_status"`).WithArgs(incidentIDs...).WillReturnRows(rowsStatus)
 }
