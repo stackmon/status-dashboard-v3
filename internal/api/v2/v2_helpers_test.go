@@ -41,7 +41,7 @@ func initRoutes(t *testing.T, c *gin.Engine, dbInst *db.DB, log *zap.Logger) {
 		v2Api.GET("component_status", GetComponentsHandler(dbInst, log))
 		v2Api.POST("component_status", PostComponentHandler(dbInst, log))
 
-		v2Api.GET("incidents", GetIncidentsHandler(dbInst, log))
+		v2Api.GET("incidents", GetEventsHandler(dbInst, log, false))
 		v2Api.POST("incidents", PostIncidentHandler(dbInst, log))
 		v2Api.GET("incidents/:incidentID", GetIncidentHandler(dbInst, log))
 		v2Api.PATCH("incidents/:incidentID", PatchIncidentHandler(dbInst, log))
@@ -50,13 +50,16 @@ func initRoutes(t *testing.T, c *gin.Engine, dbInst *db.DB, log *zap.Logger) {
 			EventExistenceCheckForTests(dbInst, log),
 			PatchEventUpdateTextHandler(dbInst, log),
 		)
-
+		v2Api.GET("events", GetEventsHandler(dbInst, log, true))
 		v2Api.GET("availability", GetComponentsAvailabilityHandler(dbInst, log))
 	}
 }
 
 func prepareIncident(t *testing.T, mock sqlmock.Sqlmock, testTime time.Time) {
 	t.Helper()
+
+	mock.ExpectQuery(`^SELECT count\(\*\) FROM "incident"$`).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(2))
 
 	rowsInc := sqlmock.NewRows([]string{"id", "text", "description", "start_date", "end_date", "impact", "system", "type"}).
 		AddRow(1, "Incident title A", "Description A", testTime, testTime.Add(time.Hour*72), 0, false, "maintenance").
@@ -136,17 +139,58 @@ func prepareMockForIncidents(t *testing.T, mock sqlmock.Sqlmock, result []*db.In
 	t.Helper()
 
 	if len(result) == 0 {
-		mock.ExpectQuery(`^SELECT (.+) FROM "incident"`).WillReturnRows(sqlmock.NewRows([]string{"id", "text", "description", "start_date", "end_date", "impact", "system", "type"}))
+		mock.ExpectQuery(`^SELECT count\(\*\) FROM "incident"`).
+			WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
+		mock.ExpectQuery(`^SELECT (.+) FROM "incident"`).
+			WillReturnRows(sqlmock.NewRows([]string{"id", "text", "description", "start_date", "end_date", "impact", "system", "type"}))
 		return
 	}
 
+	mock.ExpectQuery(`^SELECT count\(\*\) FROM "incident"`).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(len(result)))
+
 	rowsInc, incidentIDs, componentIDs := prepareIncidentRows(result)
-	mock.ExpectQuery(`^SELECT (.+) FROM "incident"`).WillReturnRows(rowsInc)
+	mock.ExpectQuery(`^SELECT (.+) FROM "incident"`).
+		WillReturnRows(rowsInc)
 
 	rowsIncComp, rowsComp, rowsCompAttr, rowsStatus := prepareRelatedRows(result)
 
 	mock.ExpectQuery(`^SELECT (.+) FROM "incident_component_relation"`).WithArgs(incidentIDs...).WillReturnRows(rowsIncComp)
 	mock.ExpectQuery(`^SELECT (.+) FROM "component"`).WithArgs(componentIDs...).WillReturnRows(rowsComp)
+	mock.ExpectQuery("^SELECT (.+) FROM \"component_attribute\"").WillReturnRows(rowsCompAttr)
+	mock.ExpectQuery(`^SELECT (.+) FROM "incident_status"`).WithArgs(incidentIDs...).WillReturnRows(rowsStatus)
+}
+
+func prepareMockForEvents(t *testing.T, mock sqlmock.Sqlmock, result []*db.Incident, totalCount int) {
+	t.Helper()
+
+	mock.ExpectQuery(`^SELECT count\(\*\) FROM "incident"`).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(totalCount))
+
+	if len(result) == 0 {
+		mock.ExpectQuery(`^SELECT (.+) FROM "incident"`).
+			WillReturnRows(sqlmock.NewRows([]string{"id", "text", "description", "start_date", "end_date", "impact", "system", "type"}))
+		return
+	}
+
+	rowsInc, incidentIDs, componentIDs := prepareIncidentRows(result)
+	mock.ExpectQuery(`^SELECT (.+) FROM "incident"`).
+		WillReturnRows(rowsInc)
+
+	rowsIncComp, rowsComp, rowsCompAttr, rowsStatus := prepareRelatedRows(result)
+
+	mock.ExpectQuery(`^SELECT (.+) FROM "incident_component_relation"`).
+		WithArgs(incidentIDs...).
+		WillReturnRows(rowsIncComp)
+
+	uniqueComponentIDs := make(map[driver.Value]bool)
+	for _, id := range componentIDs {
+		uniqueComponentIDs[id] = true
+	}
+	if len(uniqueComponentIDs) > 0 {
+		mock.ExpectQuery(`^SELECT (.+) FROM "component"`).WillReturnRows(rowsComp)
+	}
+
 	mock.ExpectQuery("^SELECT (.+) FROM \"component_attribute\"").WillReturnRows(rowsCompAttr)
 	mock.ExpectQuery(`^SELECT (.+) FROM "incident_status"`).WithArgs(incidentIDs...).WillReturnRows(rowsStatus)
 }
