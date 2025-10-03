@@ -318,7 +318,7 @@ func TestReturn404Handler(t *testing.T) {
 	assert.JSONEq(t, `{"errMsg":"page not found"}`, w.Body.String())
 }
 
-func TestGetEventsHandler(t *testing.T) { //nolint:funlen,gocognit
+func TestGetEventsHandler(t *testing.T) { //nolint:gocognit
 	const totalEvents = 60
 	const maintenanceCount = 10
 	const infoCount = 10
