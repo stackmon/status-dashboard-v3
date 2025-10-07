@@ -43,9 +43,8 @@ func initRoutes(t *testing.T, c *gin.Engine, dbInst *db.DB, log *zap.Logger) {
 
 		v2Api.GET("incidents", GetIncidentsHandler(dbInst, log))
 		v2Api.POST("incidents", PostIncidentHandler(dbInst, log))
-		v2Api.GET("incidents/:incidentID", GetIncidentHandler(dbInst, log))
+		v2Api.GET("incidents/:incidentID", GetIncidentHandler(log))
 		v2Api.PATCH("incidents/:incidentID", PatchIncidentHandler(dbInst, log))
-		// wrap PATCH update handler with local test middleware to simulate EventExistanceCheck
 		v2Api.PATCH("incidents/:incidentID/updates/:updateID",
 			EventExistenceCheckForTests(dbInst, log),
 			PatchEventUpdateTextHandler(dbInst, log),
@@ -263,7 +262,7 @@ func prepareMockForModifyEventUpdate(
 	mock.ExpectCommit()
 }
 
-// EventExistenceCheckForTests duplicates logic from api.EventExistanceCheck but exists in package v2 tests.
+// EventExistenceCheckForTests duplicates logic from api.EventExistenceCheck but exists in package v2 tests.
 func EventExistenceCheckForTests(dbInst *db.DB, _ *zap.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var uri struct {

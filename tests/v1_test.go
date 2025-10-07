@@ -22,7 +22,7 @@ func TestV1GetIncidentsHandler(t *testing.T) {
 	t.Log("start to test GET /v1/incidents")
 	r, _, _ := initTests(t)
 
-	var response = `[{"id":1,"text":"Closed incident without any update","impact":1,"start_date":"2024-10-24 10:12","end_date":"2024-10-24 11:12","updates":[{"status":"resolved","text":"close incident","timestamp":"2024-10-24 11:12"}]}]`
+	var response = `[{"id":1,"text":"Closed incident without any update","impact":1,"start_date":"2025-05-22 10:12","end_date":"2025-05-22 11:12","updates":[{"status":"resolved","text":"close incident","timestamp":"2025-05-22 11:12"}]}]`
 
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest(http.MethodGet, "/v1/incidents", nil)
@@ -37,7 +37,7 @@ func TestV1GetComponentsStatusHandler(t *testing.T) {
 	t.Log("start to test GET /v1/component_status")
 	r, _, _ := initTests(t)
 
-	var response = `[{"id":1,"attributes":[{"name":"region","value":"EU-DE"},{"name":"category","value":"Container"},{"name":"type","value":"cce"}],"name":"Cloud Container Engine","incidents":[{"id":1,"text":"Closed incident without any update","impact":1,"start_date":"2024-10-24 10:12","end_date":"2024-10-24 11:12","updates":[{"status":"resolved","text":"close incident","timestamp":"2024-10-24 11:12"}]}]},{"id":2,"attributes":[{"name":"region","value":"EU-NL"},{"name":"category","value":"Container"},{"name":"type","value":"cce"}],"name":"Cloud Container Engine","incidents":[]},{"id":3,"attributes":[{"name":"region","value":"EU-DE"},{"name":"category","value":"Compute"},{"name":"type","value":"ecs"}],"name":"Elastic Cloud Server","incidents":[]},{"id":4,"attributes":[{"name":"region","value":"EU-NL"},{"name":"category","value":"Compute"},{"name":"type","value":"ecs"}],"name":"Elastic Cloud Server","incidents":[]},{"id":5,"attributes":[{"name":"region","value":"EU-DE"},{"name":"category","value":"Database"},{"name":"type","value":"dcs"}],"name":"Distributed Cache Service","incidents":[]},{"id":6,"attributes":[{"name":"region","value":"EU-NL"},{"name":"category","value":"Database"},{"name":"type","value":"dcs"}],"name":"Distributed Cache Service","incidents":[]}]`
+	var response = `[{"id":1,"attributes":[{"name":"region","value":"EU-DE"},{"name":"category","value":"Container"},{"name":"type","value":"cce"}],"name":"Cloud Container Engine","incidents":[{"id":1,"text":"Closed incident without any update","impact":1,"start_date":"2025-05-22 10:12","end_date":"2025-05-22 11:12","updates":[{"status":"resolved","text":"close incident","timestamp":"2025-05-22 11:12"}]}]},{"id":2,"attributes":[{"name":"region","value":"EU-NL"},{"name":"category","value":"Container"},{"name":"type","value":"cce"}],"name":"Cloud Container Engine","incidents":[]},{"id":3,"attributes":[{"name":"region","value":"EU-DE"},{"name":"category","value":"Compute"},{"name":"type","value":"ecs"}],"name":"Elastic Cloud Server","incidents":[]},{"id":4,"attributes":[{"name":"region","value":"EU-NL"},{"name":"category","value":"Compute"},{"name":"type","value":"ecs"}],"name":"Elastic Cloud Server","incidents":[]},{"id":5,"attributes":[{"name":"region","value":"EU-DE"},{"name":"category","value":"Database"},{"name":"type","value":"dcs"}],"name":"Distributed Cache Service","incidents":[]},{"id":6,"attributes":[{"name":"region","value":"EU-NL"},{"name":"category","value":"Database"},{"name":"type","value":"dcs"}],"name":"Distributed Cache Service","incidents":[]}]`
 
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest(http.MethodGet, "/v1/component_status", nil)
