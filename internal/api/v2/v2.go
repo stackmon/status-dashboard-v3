@@ -121,10 +121,6 @@ func parseIncidentParams(c *gin.Context, paginated bool) (*db.IncidentsParams, e
 		}
 
 		params.Limit = &limit
-		if limit > 0 {
-			offset := (page - 1) * limit
-			params.Offset = &offset
-		}
 	}
 
 	// Status: Manual validation.
@@ -161,7 +157,7 @@ func GetEventsHandler(dbInst *db.DB, logger *zap.Logger, paginated bool) gin.Han
 		}
 
 		logger.Debug("retrieve incidents with params", zap.Any("params", params))
-		r, total, err := dbInst.GetIncidentsWithCount(params)
+		r, total, err := dbInst.GetEventsWithCount(params)
 		if err != nil {
 			logger.Error("failed to retrieve incidents", zap.Error(err))
 			apiErrors.RaiseInternalErr(c, err)
@@ -323,7 +319,7 @@ func PostIncidentHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc { //
 
 		log.Info("get active events from the database")
 		isActive := true
-		openedIncidents, err := dbInst.GetIncidents(&db.IncidentsParams{IsActive: &isActive})
+		openedIncidents, err := dbInst.GetEvents(&db.IncidentsParams{IsActive: &isActive})
 		if err != nil {
 			apiErrors.RaiseInternalErr(c, err)
 			return

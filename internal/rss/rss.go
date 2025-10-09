@@ -156,7 +156,7 @@ func getEvents(dbInstance *db.DB, log *zap.Logger, params feedParams, maxInciden
 			return nil, err
 		}
 	default:
-		incidents, err = dbInstance.GetIncidents(incParams)
+		incidents, err = dbInstance.GetEvents(incParams)
 		if err != nil {
 			return nil, err
 		}
