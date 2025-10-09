@@ -47,9 +47,7 @@ func (a *API) InitRoutes() {
 			ValidateComponentsMW(a.db, a.log),
 			v2.PostIncidentHandler(a.db, a.log),
 		)
-		v2API.GET("incidents/:incidentID",
-			CheckEventExistenceMW(a.db, a.log),
-			v2.GetIncidentHandler(a.log))
+		v2API.GET("incidents/:incidentID", v2.GetIncidentHandler(a.db, a.log))
 		v2API.PATCH("incidents/:incidentID",
 			AuthenticationMW(a.oa2Prov, a.log),
 			CheckEventExistenceMW(a.db, a.log),

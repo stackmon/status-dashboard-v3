@@ -152,22 +152,26 @@ func GetIncidentsHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 	}
 }
 
-func GetIncidentHandler(logger *zap.Logger) gin.HandlerFunc {
+func GetIncidentHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		val, exists := c.Get("event")
-		if !exists {
-			logger.Error("event not found in context")
-			apiErrors.RaiseInternalErr(c, errors.New("event not found in context"))
+		logger.Debug("retrieve incident")
+		var incID IncidentID
+		if err := c.ShouldBindUri(&incID); err != nil {
+			apiErrors.RaiseBadRequestErr(c, err)
 			return
 		}
 
-		event, ok := val.(*db.Incident)
-		if !ok {
-			logger.Error("invalid type in context")
-			apiErrors.RaiseInternalErr(c, errors.New("invalid type in context"))
+		r, err := dbInst.GetIncident(incID.ID)
+		if err != nil {
+			if errors.Is(err, db.ErrDBIncidentDSNotExist) {
+				apiErrors.RaiseStatusNotFoundErr(c, apiErrors.ErrIncidentDSNotExist)
+				return
+			}
+			apiErrors.RaiseInternalErr(c, err)
 			return
 		}
-		c.JSON(http.StatusOK, toAPIIncident(event))
+
+		c.JSON(http.StatusOK, toAPIIncident(r))
 	}
 }
 
@@ -437,35 +441,24 @@ type PatchIncidentData struct {
 	Type        string       `json:"type,omitempty" binding:"omitempty,oneof=maintenance info incident"`
 }
 
-func PatchIncidentHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc { //nolint:gocognit
+func PatchIncidentHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		logger.Debug("update incident")
+
+		storedIncident := getEventFromContext(c, logger)
+
 		var incData PatchIncidentData
 		if err := c.ShouldBindBodyWithJSON(&incData); err != nil {
 			apiErrors.RaiseBadRequestErr(c, err)
 			return
 		}
 
-		// Ensure the update date is in UTC
 		incData.UpdateDate = incData.UpdateDate.UTC()
 		if incData.StartDate != nil {
 			*incData.StartDate = incData.StartDate.UTC()
 		}
 		if incData.EndDate != nil {
 			*incData.EndDate = incData.EndDate.UTC()
-		}
-
-		val, exists := c.Get("event")
-		if !exists {
-			logger.Error("event not found in context for PatchIncidentHandler")
-			apiErrors.RaiseInternalErr(c, errors.New("event not found in context"))
-			return
-		}
-		storedIncident, ok := val.(*db.Incident)
-		if !ok {
-			logger.Error("invalid type in context")
-			apiErrors.RaiseInternalErr(c, errors.New("invalid type in context"))
-			return
 		}
 
 		if err := checkPatchData(&incData, storedIncident); err != nil {
@@ -634,21 +627,10 @@ type PostIncidentSeparateData struct {
 	Components []int `json:"components" binding:"required,min=1"`
 }
 
-func PostIncidentExtractHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc { //nolint:gocognit
+func PostIncidentExtractHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		logger.Debug("start to extract components to the new incident")
-		val, exists := c.Get("event")
-		if !exists {
-			logger.Error("event not found in context for PostIncidentExtractHandler")
-			apiErrors.RaiseInternalErr(c, errors.New("event not found in context"))
-			return
-		}
-		storedInc, ok := val.(*db.Incident)
-		if !ok {
-			logger.Error("invalid type in context")
-			apiErrors.RaiseInternalErr(c, errors.New("invalid type in context"))
-			return
-		}
+		storedInc := getEventFromContext(c, logger)
 
 		var incData PostIncidentSeparateData
 		if err := c.ShouldBindBodyWithJSON(&incData); err != nil {
@@ -1138,4 +1120,21 @@ func mapEventUpdates(statuses []db.IncidentStatus) []EventUpdateData {
 	}
 
 	return updates
+}
+
+func getEventFromContext(c *gin.Context, logger *zap.Logger) *db.Incident {
+	val, exists := c.Get("event")
+	if !exists {
+		logger.Error("event not found in context")
+		apiErrors.RaiseInternalErr(c, errors.New("event not found in context"))
+		return nil
+	}
+
+	event, ok := val.(*db.Incident)
+	if !ok {
+		logger.Error("invalid type in context")
+		apiErrors.RaiseInternalErr(c, errors.New("invalid type in context"))
+		return nil
+	}
+	return event
 }
