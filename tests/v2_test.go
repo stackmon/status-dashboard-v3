@@ -34,7 +34,7 @@ func TestV2GetIncidentsHandler(t *testing.T) {
 	t.Logf("start to test GET %s", v2Incidents)
 	r, _, _ := initTests(t)
 
-	incidentStr := `{"id":1,"title":"Closed incident without any update","impact":1,"components":[1],"start_date":"2024-10-24T10:12:42Z","end_date":"2024-10-24T11:12:42Z","system":false,"type":"incident","updates":[{"id":0,"status":"resolved","text":"close incident","timestamp":"2024-10-24T11:12:42.559346Z"}],"status":"resolved"}`
+	incidentStr := `{"id":1,"title":"Closed incident without any update","impact":1,"components":[1],"start_date":"2025-05-22T10:12:42Z","end_date":"2025-05-22T11:12:42Z","system":true,"type":"incident","updates":[{"id":0,"status":"resolved","text":"close incident","timestamp":"2025-05-22T11:12:42.559346Z"}],"status":"resolved"}`
 
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest(http.MethodGet, v2Incidents, nil)
@@ -179,7 +179,6 @@ func TestV2PostIncidentsHandlerNegative(t *testing.T) {
 
 	for title, c := range testCases {
 		t.Logf("start test case: %s\n", title)
-		t.Logf("Input JSON: %s", c.JSON)
 
 		w := httptest.NewRecorder()
 		req, _ := http.NewRequest(http.MethodPost, v2Incidents, strings.NewReader(c.JSON))
@@ -774,116 +773,6 @@ func TestV2CreateComponentAndList(t *testing.T) {
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 	assert.Contains(t, w.Body.String(), "component attribute has invalid format")
-
-	// List all components to verify
-	// components := v2GetComponents(t, r)
-	// t.Log("Final components list:")
-	// for _, comp := range components {
-	// t.Logf("Component ID=%d, Name=%s, Attributes=%+v",
-	// comp.ID, comp.Name, comp.Attributes)
-	// }
-}
-
-func TestV2GetComponentsAvailability(t *testing.T) {
-	t.Logf("start to test GET %s", v2Availability)
-	r, _, _ := initTests(t)
-
-	// Incident preparation
-	t.Log("create an incident")
-
-	components := []int{7}
-	impact := 3
-	title := "Test incident for dns N1"
-	startDate := time.Date(2024, 12, 1, 0, 0, 0, 0, time.UTC)
-	system := true
-
-	// Incident N1
-	incidentCreateDataN1 := v2.IncidentData{
-		Title:      title,
-		Impact:     &impact,
-		Components: components,
-		StartDate:  startDate,
-		EndDate:    nil,
-		System:     &system,
-		Type:       event.TypeIncident,
-	}
-
-	resultN1 := v2CreateIncident(t, r, &incidentCreateDataN1)
-
-	assert.Len(t, resultN1.Result, len(incidentCreateDataN1.Components))
-
-	// Incident closing
-	incidentN1 := v2GetIncident(t, r, resultN1.Result[0].IncidentID)
-	endDate := time.Date(2024, 12, 16, 12, 0, 0, 0, time.UTC)
-	incidentN1.EndDate = &endDate
-	v2PatchIncident(t, r, incidentN1)
-
-	t.Logf("Incident patched: %+v", incidentN1)
-
-	// Incident N2
-
-	title = "Test incident for dns N2"
-	startDate = time.Date(2024, 10, 16, 12, 0, 0, 0, time.UTC)
-	endDate = time.Date(2024, 11, 16, 00, 00, 00, 0, time.UTC)
-
-	incidentCreateDataN2 := v2.IncidentData{
-		Title:      title,
-		Impact:     &impact,
-		Components: components,
-		StartDate:  startDate,
-		EndDate:    nil,
-		System:     &system,
-		Type:       event.TypeIncident,
-	}
-
-	resultN2 := v2CreateIncident(t, r, &incidentCreateDataN2)
-
-	assert.Len(t, resultN2.Result, len(incidentCreateDataN2.Components))
-
-	// Incident closing
-	incidentN2 := v2GetIncident(t, r, resultN2.Result[0].IncidentID)
-
-	incidentN2.EndDate = &endDate
-	v2PatchIncident(t, r, incidentN2)
-
-	t.Logf("Incident patched: %+v", incidentN2)
-
-	// Test case 1: Successful availability listing
-	t.Log("Test case 1: List availability successfully")
-	w := httptest.NewRecorder()
-	req, _ := http.NewRequest(http.MethodGet, v2Availability, nil)
-	r.ServeHTTP(w, req)
-
-	assert.Equal(t, http.StatusOK, w.Code)
-
-	var availability struct {
-		Data []v2.ComponentAvailability `json:"data"`
-	}
-	err := json.Unmarshal(w.Body.Bytes(), &availability)
-	require.NoError(t, err)
-	assert.NotEmpty(t, availability)
-
-	// Test case 2: Check if the availability data is correct
-	targetMonths := map[int]bool{10: true, 11: true, 12: true}
-
-	for _, compAvail := range availability.Data {
-		if compAvail.ID == 7 {
-			checkComponentAvailability(t, compAvail, targetMonths)
-		}
-	}
-}
-
-func checkComponentAvailability(t *testing.T, compAvail v2.ComponentAvailability, targetMonths map[int]bool) {
-	for _, avail := range compAvail.Availability {
-		if _, ok := targetMonths[avail.Month]; ok {
-			assert.InEpsilon(t, 50.00000, avail.Percentage, 0.00001,
-				"Availability percentage should be 50% for the target months")
-			// t.Logf("Availability for %v: %d-%d: %.2f%%", compAvail.Name, avail.Year, avail.Month, avail.Percentage)
-		} else {
-			assert.InEpsilon(t, 100.00000, avail.Percentage, 0.00001,
-				"Availability percentage should be 100% for all months except the target months")
-		}
-	}
 }
 
 func TestV2GetIncidentsFilteredHandler(t *testing.T) {
@@ -901,48 +790,44 @@ func TestV2GetIncidentsFilteredHandler(t *testing.T) {
 		{
 			name:          "No filters",
 			queryParams:   nil,
-			expectedIDs:   []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16},
-			expectedCount: 16,
+			expectedIDs:   []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14},
+			expectedCount: 14,
 		},
 		{
 			name:        "Filter by start_date",
 			queryParams: map[string]string{"start_date": time.Date(2025, 2, 1, 0, 0, 0, 0, time.UTC).Format(time.RFC3339)},
-			// Incidents starting on or after 2025-02-01 (2,3,4,5,6,7,8,9,10,11,12,13)
-			expectedIDs:   []int{2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14},
-			expectedCount: 13,
+			// Incidents starting on or after 2025-02-01
+			expectedIDs:   []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14},
+			expectedCount: 14,
 		},
 		{
 			name:        "Filter by end_date",
-			queryParams: map[string]string{"end_date": time.Date(2025, 2, 1, 0, 0, 0, 0, time.UTC).Format(time.RFC3339)},
-			// Incidents starting on or before 2025-02-01 (1, 12, 13)
-			expectedIDs:   []int{1, 15, 16},
-			expectedCount: 3,
+			queryParams: map[string]string{"end_date": time.Date(2025, 5, 23, 0, 0, 0, 0, time.UTC).Format(time.RFC3339)},
+			// Incidents starting on or before 2025-05-23
+			expectedIDs:   []int{1},
+			expectedCount: 1,
 		},
 		{
-			name:        "Filter by impact minor (1)",
-			queryParams: map[string]string{"impact": "1"},
-			// Actual incident id's: 1, 6, 7, 9, 10, 12, 13
+			name:          "Filter by impact minor (1)",
+			queryParams:   map[string]string{"impact": "1"},
 			expectedIDs:   []int{1, 7, 8, 10, 11, 13, 14},
 			expectedCount: 7,
 		},
 		{
-			name:        "Filter by impact major (2)",
-			queryParams: map[string]string{"impact": "2"},
-			// Actual incident id's: 2, 4, 11
+			name:          "Filter by impact major (2)",
+			queryParams:   map[string]string{"impact": "2"},
 			expectedIDs:   []int{2, 4, 12},
 			expectedCount: 3,
 		},
 		{
-			name:        "Filter by impact maintenance (0)",
-			queryParams: map[string]string{"impact": "0"},
-			// Actual incident id's: 8
+			name:          "Filter by impact maintenance (0)",
+			queryParams:   map[string]string{"impact": "0"},
 			expectedIDs:   []int{6, 9},
 			expectedCount: 2,
 		},
 		{
-			name:        "Filter by component_id 1",
-			queryParams: map[string]string{"components": "1"},
-			// Actual incident id's: 1, 5, 8, 10, 11
+			name:          "Filter by component_id 1",
+			queryParams:   map[string]string{"components": "1"},
 			expectedIDs:   []int{1, 5, 9, 11, 12, 13},
 			expectedCount: 6,
 		},
@@ -953,58 +838,48 @@ func TestV2GetIncidentsFilteredHandler(t *testing.T) {
 			expectedCount: 0,
 		},
 		{
-			name:        "Filter by system true",
-			queryParams: map[string]string{"system": "true"},
-			// Actual incident id's: 14, 15
-			expectedIDs:   []int{15, 16},
-			expectedCount: 2,
+			name:          "Filter by system true",
+			queryParams:   map[string]string{"system": "true"},
+			expectedIDs:   []int{1},
+			expectedCount: 1,
 		},
 		{
-			name:        "Filter by system false",
-			queryParams: map[string]string{"system": "false"},
-			// Actual incident id's: 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11
-			expectedIDs:   []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14},
-			expectedCount: 14,
+			name:          "Filter by system false",
+			queryParams:   map[string]string{"system": "false"},
+			expectedIDs:   []int{2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14},
+			expectedCount: 13,
 		},
 		{
-			name:        "Filter by active true",
-			queryParams: map[string]string{"active": "true"},
-			// IsActive (End Date = <nil>) Actual incident id's: 7, 9
+			name:          "Filter by active true",
+			queryParams:   map[string]string{"active": "true"},
 			expectedIDs:   []int{13, 14},
 			expectedCount: 2,
 		},
 		{
-			name:        "Combination: active true and impact 1",
-			queryParams: map[string]string{"active": "true", "impact": "1"},
-			// IsActive: [12, 13]
-			// Impact 1: [1, 6, 7, 9, 10, 12, 13]
-			// Intersection: [12, 13]
+			name:          "Combination: active true and impact 1",
+			queryParams:   map[string]string{"active": "true", "impact": "1"},
 			expectedIDs:   []int{13, 14},
 			expectedCount: 2,
 		},
 		{
-			name:        "Combination: component_id 3 and system true",
-			queryParams: map[string]string{"components": "3", "system": "true"},
-			// Component 3: [9]
-			// System true: [14, 15]
-			// Intersection: []
+			name:          "Combination: component_id 3 and system true",
+			queryParams:   map[string]string{"components": "3", "system": "true"},
 			expectedIDs:   []int{},
 			expectedCount: 0,
 		},
 		{
-			name:        "Date range: 2025-01-30 to 2025-02-06",
-			queryParams: map[string]string{"start_date": time.Date(2024, 12, 01, 0, 0, 0, 0, time.UTC).Format(time.RFC3339), "end_date": time.Date(2024, 12, 17, 0, 0, 0, 0, time.UTC).Format(time.RFC3339)},
-			// Incidents starting between 2024-12-01 and 2024-12-17 (inclusive for start_date)
+			name:        "Date range: 2025-05-01 to 2025-05-24",
+			queryParams: map[string]string{"start_date": time.Date(2025, 5, 01, 0, 0, 0, 0, time.UTC).Format(time.RFC3339), "end_date": time.Date(2025, 5, 24, 0, 0, 0, 0, time.UTC).Format(time.RFC3339)},
+			// Incidents starting between 2025-05-01 and 2025-05-24 (inclusive for start_date)
 			// No pre-existing incidents in this range.
-			expectedIDs:   []int{15},
+			expectedIDs:   []int{1},
 			expectedCount: 1,
 		},
 		{
-			name:        "Filter by impact 3 (outage)",
-			queryParams: map[string]string{"impact": "3"},
-			// Actual incident id's: 3, 5, 14, 15
-			expectedIDs:   []int{3, 5, 16, 15},
-			expectedCount: 4,
+			name:          "Filter by impact 3 (outage)",
+			queryParams:   map[string]string{"impact": "3"},
+			expectedIDs:   []int{3, 5},
+			expectedCount: 2,
 		},
 	}
 
@@ -1206,6 +1081,109 @@ func TestV2PostInfoWithExistingEventsHandler(t *testing.T) {
 	assert.True(t, maintenanceEndDate.Truncate(time.Second).Equal(fetchedMaintenanceIncident.EndDate.Truncate(time.Second)), "Maintenance end date mismatch")
 	assert.Contains(t, fetchedMaintenanceIncident.Components, incidentComponentID, "Maintenance event should still have its component")
 	assert.Len(t, fetchedMaintenanceIncident.Components, 1, "Maintenance event should only have its original component")
+}
+
+func TestV2GetComponentsAvailability(t *testing.T) {
+	truncateIncidents(t)
+	t.Logf("start to test GET %s", v2Availability)
+	r, _, _ := initTests(t)
+
+	// Incident preparation
+	t.Log("create an incident")
+
+	components := []int{7}
+	impact := 3
+	title := "Test incident for dns N1"
+	startDate := time.Date(2025, 7, 1, 0, 0, 0, 0, time.UTC)
+	system := true
+
+	// Incident N1
+	incidentCreateDataN1 := v2.IncidentData{
+		Title:      title,
+		Impact:     &impact,
+		Components: components,
+		StartDate:  startDate,
+		EndDate:    nil,
+		System:     &system,
+		Type:       event.TypeIncident,
+	}
+
+	resultN1 := v2CreateIncident(t, r, &incidentCreateDataN1)
+
+	assert.Len(t, resultN1.Result, len(incidentCreateDataN1.Components))
+
+	// Incident closing
+	incidentN1 := v2GetIncident(t, r, resultN1.Result[0].IncidentID)
+	endDate := time.Date(2025, 7, 16, 12, 0, 0, 0, time.UTC)
+	incidentN1.EndDate = &endDate
+	v2PatchIncident(t, r, incidentN1)
+
+	t.Logf("Incident patched: %+v", incidentN1)
+
+	// Incident N2
+
+	title = "Test incident for dns N2"
+	startDate = time.Date(2025, 8, 16, 12, 0, 0, 0, time.UTC)
+	endDate = time.Date(2025, 9, 16, 00, 00, 00, 0, time.UTC)
+
+	incidentCreateDataN2 := v2.IncidentData{
+		Title:      title,
+		Impact:     &impact,
+		Components: components,
+		StartDate:  startDate,
+		EndDate:    nil,
+		System:     &system,
+		Type:       event.TypeIncident,
+	}
+
+	resultN2 := v2CreateIncident(t, r, &incidentCreateDataN2)
+
+	assert.Len(t, resultN2.Result, len(incidentCreateDataN2.Components))
+
+	// Incident closing
+	incidentN2 := v2GetIncident(t, r, resultN2.Result[0].IncidentID)
+
+	incidentN2.EndDate = &endDate
+	v2PatchIncident(t, r, incidentN2)
+
+	t.Logf("Incident patched: %+v", incidentN2)
+
+	// Test case 1: Successful availability listing
+	t.Log("Test case 1: List availability successfully")
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodGet, v2Availability, nil)
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var availability struct {
+		Data []v2.ComponentAvailability `json:"data"`
+	}
+	err := json.Unmarshal(w.Body.Bytes(), &availability)
+	require.NoError(t, err)
+	assert.NotEmpty(t, availability)
+
+	// Test case 2: Check if the availability data is correct
+	targetMonths := map[int]bool{7: true, 8: true, 9: true}
+
+	for _, compAvail := range availability.Data {
+		if compAvail.ID == 7 {
+			checkComponentAvailability(t, compAvail, targetMonths)
+		}
+	}
+}
+
+func checkComponentAvailability(t *testing.T, compAvail v2.ComponentAvailability, targetMonths map[int]bool) {
+	for _, avail := range compAvail.Availability {
+		if _, ok := targetMonths[avail.Month]; ok {
+			assert.InEpsilon(t, 50.00000, avail.Percentage, 0.00001,
+				"Availability percentage should be 50% for the target months")
+			// t.Logf("Availability for %v: %d-%d: %.2f%%", compAvail.Name, avail.Year, avail.Month, avail.Percentage)
+		} else {
+			assert.InEpsilon(t, 100.00000, avail.Percentage, 0.00001,
+				"Availability percentage should be 100% for all months except the target months")
+		}
+	}
 }
 
 func TestV2PatchEventUpdateHandler(t *testing.T) {

@@ -48,14 +48,18 @@ func (a *API) InitRoutes() {
 			v2.PostIncidentHandler(a.db, a.log),
 		)
 		v2API.GET("incidents/:incidentID", v2.GetIncidentHandler(a.db, a.log))
-		v2API.PATCH("incidents/:incidentID", AuthenticationMW(a.oa2Prov, a.log), v2.PatchIncidentHandler(a.db, a.log))
+		v2API.PATCH("incidents/:incidentID",
+			AuthenticationMW(a.oa2Prov, a.log),
+			CheckEventExistenceMW(a.db, a.log),
+			v2.PatchIncidentHandler(a.db, a.log))
 		v2API.POST("incidents/:incidentID/extract",
 			AuthenticationMW(a.oa2Prov, a.log),
+			CheckEventExistenceMW(a.db, a.log),
 			ValidateComponentsMW(a.db, a.log),
 			v2.PostIncidentExtractHandler(a.db, a.log))
 		v2API.PATCH("incidents/:incidentID/updates/:updateID",
 			AuthenticationMW(a.oa2Prov, a.log),
-			CheckEventExistanceMW(a.db, a.log),
+			CheckEventExistenceMW(a.db, a.log),
 			v2.PatchEventUpdateTextHandler(a.db, a.log))
 		// Paginated events.
 		v2API.GET("events", v2.GetEventsHandler(a.db, a.log, true))
