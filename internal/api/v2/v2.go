@@ -441,15 +441,11 @@ type PatchIncidentData struct {
 	Type        string       `json:"type,omitempty" binding:"omitempty,oneof=maintenance info incident"`
 }
 
-func PatchIncidentHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc { //nolint:gocognit
+func PatchIncidentHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		logger.Debug("update incident")
 
-		var incID IncidentID
-		if err := c.ShouldBindUri(&incID); err != nil {
-			apiErrors.RaiseBadRequestErr(c, err)
-			return
-		}
+		storedIncident := getEventFromContext(c, logger)
 
 		var incData PatchIncidentData
 		if err := c.ShouldBindBodyWithJSON(&incData); err != nil {
@@ -457,7 +453,6 @@ func PatchIncidentHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc { /
 			return
 		}
 
-		// Ensure the update date is in UTC
 		incData.UpdateDate = incData.UpdateDate.UTC()
 		if incData.StartDate != nil {
 			*incData.StartDate = incData.StartDate.UTC()
@@ -466,13 +461,7 @@ func PatchIncidentHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc { /
 			*incData.EndDate = incData.EndDate.UTC()
 		}
 
-		storedIncident, err := dbInst.GetIncident(incID.ID)
-		if err != nil {
-			apiErrors.RaiseInternalErr(c, err)
-			return
-		}
-
-		if err = checkPatchData(&incData, storedIncident); err != nil {
+		if err := checkPatchData(&incData, storedIncident); err != nil {
 			apiErrors.RaiseBadRequestErr(c, err)
 			return
 		}
@@ -489,7 +478,7 @@ func PatchIncidentHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc { /
 		storedIncident.Statuses = append(storedIncident.Statuses, status)
 		storedIncident.Status = incData.Status
 
-		err = dbInst.ModifyIncident(storedIncident)
+		err := dbInst.ModifyIncident(storedIncident)
 		if err != nil {
 			apiErrors.RaiseInternalErr(c, err)
 			return
@@ -638,15 +627,10 @@ type PostIncidentSeparateData struct {
 	Components []int `json:"components" binding:"required,min=1"`
 }
 
-func PostIncidentExtractHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc { //nolint:gocognit
+func PostIncidentExtractHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		logger.Debug("start to extract components to the new incident")
-
-		var incID IncidentID
-		if err := c.ShouldBindUri(&incID); err != nil {
-			apiErrors.RaiseBadRequestErr(c, err)
-			return
-		}
+		storedInc := getEventFromContext(c, logger)
 
 		var incData PostIncidentSeparateData
 		if err := c.ShouldBindBodyWithJSON(&incData); err != nil {
@@ -657,14 +641,8 @@ func PostIncidentExtractHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFu
 		logger.Debug(
 			"extract components from the incident",
 			zap.Any("components", incData.Components),
-			zap.Int("incident_id", incID.ID),
+			zap.Uint("incident_id", storedInc.ID),
 		)
-
-		storedInc, err := dbInst.GetIncident(incID.ID)
-		if err != nil {
-			apiErrors.RaiseInternalErr(c, err)
-			return
-		}
 
 		var movedComponents []db.Component
 		var movedCounter int
@@ -1142,4 +1120,21 @@ func mapEventUpdates(statuses []db.IncidentStatus) []EventUpdateData {
 	}
 
 	return updates
+}
+
+func getEventFromContext(c *gin.Context, logger *zap.Logger) *db.Incident {
+	val, exists := c.Get("event")
+	if !exists {
+		logger.Error("event not found in context")
+		apiErrors.RaiseInternalErr(c, errors.New("event not found in context"))
+		return nil
+	}
+
+	event, ok := val.(*db.Incident)
+	if !ok {
+		logger.Error("invalid type in context")
+		apiErrors.RaiseInternalErr(c, errors.New("invalid type in context"))
+		return nil
+	}
+	return event
 }

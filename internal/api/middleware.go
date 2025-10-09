@@ -18,6 +18,8 @@ import (
 	"github.com/stackmon/otc-status-dashboard/internal/db"
 )
 
+const eventContextKey = "event"
+
 func ValidateComponentsMW(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		logger.Info("start to validate given components")
@@ -142,9 +144,9 @@ func AuthenticationV1DeprecatedMW(prov *auth.Provider, logger *zap.Logger, secre
 	}
 }
 
-func CheckEventExistanceMW(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
+func CheckEventExistenceMW(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		logger.Debug("checking incident existence")
+		logger.Debug("checking event existence")
 
 		var incID v2.IncidentID
 		if err := c.ShouldBindUri(&incID); err != nil {
@@ -152,7 +154,7 @@ func CheckEventExistanceMW(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 			return
 		}
 
-		_, err := dbInst.GetIncident(incID.ID)
+		event, err := dbInst.GetIncident(incID.ID)
 		if err != nil {
 			if errors.Is(err, db.ErrDBIncidentDSNotExist) {
 				apiErrors.RaiseStatusNotFoundErr(c, apiErrors.ErrIncidentDSNotExist)
@@ -162,6 +164,7 @@ func CheckEventExistanceMW(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 			return
 		}
 
+		c.Set(eventContextKey, event)
 		c.Next()
 	}
 }

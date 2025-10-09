@@ -267,7 +267,7 @@ COPY public.component_attribute (id, component_id, name, value) FROM stdin;
 --
 
 COPY public.incident (id, text, start_date, end_date, impact, type, system, status) FROM stdin;
-1	Closed incident without any update	2024-10-24 10:12:42	2024-10-24 11:12:42	1	incident	f	resolved
+1	Closed incident without any update	2025-05-22 10:12:42	2025-05-22 11:12:42	1	incident	t	resolved
 \.
 
 
@@ -285,7 +285,7 @@ COPY public.incident_component_relation (incident_id, component_id) FROM stdin;
 --
 
 COPY public.incident_status (id, incident_id, "timestamp", text, status) FROM stdin;
-1	1	2024-10-24 11:12:42.559346	close incident	resolved
+1	1	2025-05-22 11:12:42.559346	close incident	resolved
 \.
 
 
