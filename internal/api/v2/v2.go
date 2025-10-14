@@ -145,18 +145,50 @@ func parseIncidentParams(c *gin.Context, paginated bool) (*db.IncidentsParams, e
 	return params, nil
 }
 
-// GetEventsHandler retrieves incidents based on query parameters.
-func GetEventsHandler(dbInst *db.DB, logger *zap.Logger, paginated bool) gin.HandlerFunc {
+func GetIncidentsHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		logger.Debug("retrieve and parse incidents params from query")
 
-		params, err := parseIncidentParams(c, paginated)
+		params, err := parseIncidentParams(c, false)
 		if err != nil {
 			apiErrors.RaiseBadRequestErr(c, err)
 			return
 		}
 
 		logger.Debug("retrieve incidents with params", zap.Any("params", params))
+		r, err := dbInst.GetEvents(params)
+		if err != nil {
+			logger.Error("failed to retrieve incidents", zap.Error(err))
+			apiErrors.RaiseInternalErr(c, err)
+			return
+		}
+
+		if len(r) == 0 {
+			logger.Debug("no incidents found matching the specific criteria", zap.Any("params", params))
+			c.JSON(http.StatusOK, gin.H{"data": []Incident{}})
+			return
+		}
+
+		incidents := make([]*Incident, len(r))
+		for i, inc := range r {
+			incidents[i] = toAPIEvent(inc)
+		}
+
+		c.JSON(http.StatusOK, gin.H{"data": incidents})
+	}
+}
+
+func GetEventsHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		logger.Debug("retrieve and parse events params from query")
+
+		params, err := parseIncidentParams(c, true)
+		if err != nil {
+			apiErrors.RaiseBadRequestErr(c, err)
+			return
+		}
+
+		logger.Debug("retrieve events with params", zap.Any("params", params))
 		r, total, err := dbInst.GetEventsWithCount(params)
 		if err != nil {
 			logger.Error("failed to retrieve incidents", zap.Error(err))
@@ -167,14 +199,9 @@ func GetEventsHandler(dbInst *db.DB, logger *zap.Logger, paginated bool) gin.Han
 		if total == 0 {
 			logger.Debug(
 				"no incidents found matching the specific criteria",
-				zap.Any("params", params), zap.Bool("paginated", paginated),
+				zap.Any("params", params),
 			)
 			c.JSON(http.StatusOK, gin.H{"data": []Incident{}})
-			return
-		}
-
-		if paginated {
-			handlePaginatedResponse(c, r, params, total)
 			return
 		}
 
@@ -182,44 +209,36 @@ func GetEventsHandler(dbInst *db.DB, logger *zap.Logger, paginated bool) gin.Han
 		for i, inc := range r {
 			events[i] = toAPIEvent(inc)
 		}
-		c.JSON(http.StatusOK, gin.H{"data": events})
-	}
-}
 
-func handlePaginatedResponse(c *gin.Context, r []*db.Incident, params *db.IncidentsParams, total int64) {
-	events := make([]*Incident, len(r))
-	for i, inc := range r {
-		events[i] = toAPIEvent(inc)
-	}
+		page := 1
+		if params.Page != nil {
+			page = *params.Page
+		}
 
-	page := 1
-	if params.Page != nil {
-		page = *params.Page
-	}
+		limit := defaultIncidentLimit
+		if params.Limit != nil {
+			limit = *params.Limit
+		}
 
-	limit := defaultIncidentLimit
-	if params.Limit != nil {
-		limit = *params.Limit
-	}
+		recordsPerPage := limit
+		totalPages := 1
+		if limit == 0 {
+			recordsPerPage = int(total)
+			page = 1
+		} else if total > 0 {
+			totalPages = int((total + int64(limit) - 1) / int64(limit))
+		}
 
-	recordsPerPage := limit
-	totalPages := 1
-	if limit == 0 {
-		recordsPerPage = int(total)
-		page = 1
-	} else if total > 0 {
-		totalPages = int((total + int64(limit) - 1) / int64(limit))
+		c.JSON(http.StatusOK, gin.H{
+			"data": events,
+			"pagination": gin.H{
+				"pageIndex":      page,
+				"recordsPerPage": recordsPerPage,
+				"totalRecords":   total,
+				"totalPages":     totalPages,
+			},
+		})
 	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"data": events,
-		"pagination": gin.H{
-			"pageIndex":      page,
-			"recordsPerPage": recordsPerPage,
-			"totalRecords":   total,
-			"totalPages":     totalPages,
-		},
-	})
 }
 
 func GetIncidentHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
