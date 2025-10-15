@@ -2,20 +2,20 @@ package errors
 
 import "errors"
 
-var ErrIncidentDSNotExist = errors.New("incident does not exist")
-var ErrIncidentEndDateShouldBeEmpty = errors.New("incident end_date should be empty")
-var ErrIncidentStartDateInFuture = errors.New("incident start_date should not be in the future")
-var ErrIncidentUpdatesShouldBeEmpty = errors.New("incident updates should be empty")
+var ErrIncidentDSNotExist = errors.New("event does not exist")
+var ErrIncidentEndDateShouldBeEmpty = errors.New("event end_date should be empty")
+var ErrIncidentStartDateInFuture = errors.New("event start_date should not be in the future")
+var ErrIncidentUpdatesShouldBeEmpty = errors.New("event updates should be empty")
 var ErrIncidentTypeImpactMismatch = errors.New(
 	"impact must be 0 for type 'maintenance' or 'info' and gt 0 for 'incident'",
 )
-var ErrIncidentInvalidType = errors.New("incident type is invalid, must be 'maintenance' 'info' or 'incident'")
+var ErrIncidentInvalidType = errors.New("event type is invalid, must be 'maintenance' 'info' or 'incident'")
 
-var ErrIncidentCreationMaintenanceExists = errors.New("incident creation failed, component in maintenance")
+var ErrIncidentCreationMaintenanceExists = errors.New("event creation failed, component in maintenance")
 var ErrIncidentCreationLowImpact = errors.New(
 	"incident creation failed, exists the incident with higher impact for component",
 )
-var ErrIncidentFQueryInvalidFormat = errors.New("incident filter query parameter has an invalid format or value")
+var ErrIncidentFQueryInvalidFormat = errors.New("filter query parameter has an invalid format or value")
 
 // Errors for patching incident
 

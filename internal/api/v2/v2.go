@@ -83,7 +83,7 @@ func bindIncidentsQuery(c *gin.Context) (*APIGetIncidentsQuery, error) {
 	return &query, nil
 }
 
-func parseIncidentParams(c *gin.Context, paginated bool) (*db.IncidentsParams, error) {
+func parseFilterParams(c *gin.Context) (*db.IncidentsParams, error) {
 	query, err := bindIncidentsQuery(c)
 	if err != nil {
 		return nil, err
@@ -101,26 +101,6 @@ func parseIncidentParams(c *gin.Context, paginated bool) (*db.IncidentsParams, e
 			return nil, apiErrors.ErrIncidentFQueryInvalidFormat
 		}
 		params.IsActive = query.IsActive
-	}
-
-	if paginated {
-		err = validateAndSetLimit(query.Limit, params)
-		if err != nil {
-			return nil, err
-		}
-
-		page := defaultPageNumber
-		if query.Page != nil && *query.Page > 0 {
-			page = *query.Page
-		}
-		params.Page = &page
-
-		limit := defaultIncidentLimit
-		if params.Limit != nil {
-			limit = *params.Limit
-		}
-
-		params.Limit = &limit
 	}
 
 	// Status: Manual validation.
@@ -145,11 +125,35 @@ func parseIncidentParams(c *gin.Context, paginated bool) (*db.IncidentsParams, e
 	return params, nil
 }
 
+func parsePaginationParams(c *gin.Context, params *db.IncidentsParams) error {
+	query, err := bindIncidentsQuery(c)
+	if err != nil {
+		return err
+	}
+
+	err = validateAndSetLimit(query.Limit, params)
+	if err != nil {
+		return err
+	}
+
+	page := defaultPageNumber
+	if query.Page != nil && *query.Page > 0 {
+		page = *query.Page
+	}
+	params.Page = &page
+
+	limit := defaultIncidentLimit
+	if params.Limit != nil {
+		limit = *params.Limit
+	}
+	params.Limit = &limit
+	return nil
+}
+
 func GetIncidentsHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		logger.Debug("retrieve and parse incidents params from query")
-
-		params, err := parseIncidentParams(c, false)
+		params, err := parseFilterParams(c)
 		if err != nil {
 			apiErrors.RaiseBadRequestErr(c, err)
 			return
@@ -181,8 +185,12 @@ func GetIncidentsHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 func GetEventsHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		logger.Debug("retrieve and parse events params from query")
-
-		params, err := parseIncidentParams(c, true)
+		params, err := parseFilterParams(c)
+		if err != nil {
+			apiErrors.RaiseBadRequestErr(c, err)
+			return
+		}
+		err = parsePaginationParams(c, params)
 		if err != nil {
 			apiErrors.RaiseBadRequestErr(c, err)
 			return

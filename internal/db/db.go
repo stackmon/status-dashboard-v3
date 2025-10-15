@@ -194,63 +194,6 @@ func (db *DB) GetEvents(params ...*IncidentsParams) ([]*Incident, error) {
 	return incidents, err
 }
 
-func (db *DB) processActiveEvents(r *gorm.DB, isActive bool) ([]*Incident, error) { //nolint:gocognit,deadcode,unused
-	var incidents []*Incident
-	if !isActive {
-		// We don't support not active events, because they are not useful.
-		return incidents, ErrDBIncidentFilterActiveFalse
-	}
-
-	currentTime := time.Now().UTC()
-	// For opened incidents:
-	// 1. Include all events with NULL end_date (only for incidents)
-	// 2. Include maintenance and info events where current time is between start_date and end_date
-	//TODO: this case doesn't include events in cancelled status, planned, etc. Just uses the time period.
-	// Fix it after introducing the field "current_status"
-	r = r.Where("(end_date is NULL) OR (start_date <= ? AND end_date >= ?)",
-		currentTime, currentTime)
-
-	if err := r.Find(&incidents).Error; err != nil {
-		return nil, err
-	}
-
-	// manual sorting
-	var openedEvents []*Incident
-	for _, ev := range incidents {
-		if ev.Type == event.TypeInformation {
-			var finished bool
-			for _, status := range ev.Statuses {
-				if status.Status == event.InfoCancelled || status.Status == event.InfoCompleted {
-					finished = true
-				}
-			}
-			if !finished {
-				openedEvents = append(openedEvents, ev)
-			}
-
-			continue
-		}
-
-		if ev.Type == event.TypeMaintenance {
-			var finished bool
-			for _, status := range ev.Statuses {
-				if status.Status == event.MaintenanceCancelled || status.Status == event.MaintenanceCompleted {
-					finished = true
-				}
-			}
-			if !finished {
-				openedEvents = append(openedEvents, ev)
-			}
-
-			continue
-		}
-
-		openedEvents = append(openedEvents, ev)
-	}
-
-	return openedEvents, nil
-}
-
 func (db *DB) GetIncident(id int) (*Incident, error) {
 	inc := Incident{ID: uint(id)}
 

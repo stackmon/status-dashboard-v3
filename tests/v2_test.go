@@ -22,6 +22,7 @@ import (
 const (
 	v2Incidents    = "/v2/incidents"
 	v2Availability = "/v2/availability"
+	v2Events       = "/v2/events"
 )
 
 // V2IncidentsListResponse defines the expected structure for the GET /v2/incidents endpoint.
@@ -913,6 +914,97 @@ func TestV2GetIncidentsFilteredHandler(t *testing.T) {
 				actualIDs[i] = inc.ID
 			}
 			assert.ElementsMatch(t, tc.expectedIDs, actualIDs, "Unexpected incident IDs for: "+tc.name)
+		})
+	}
+}
+
+func TestV2GetEventsHandler(t *testing.T) {
+	t.Logf("start to test GET %s with pagination", v2Events)
+	r, _, _ := initTests(t)
+
+	type V2EventsListResponse struct {
+		Data       []*v2.Incident `json:"data"`
+		Pagination struct {
+			PageIndex      int   `json:"pageIndex"`
+			RecordsPerPage int   `json:"recordsPerPage"`
+			TotalRecords   int64 `json:"totalRecords"`
+			TotalPages     int   `json:"totalPages"`
+		} `json:"pagination"`
+	}
+
+	// Log all incidents for better debugging
+	allIncidents := v2GetIncidents(t, r)
+	t.Logf("Initial incidents in DB: %+v", len(allIncidents))
+
+	testCases := []struct {
+		name               string
+		queryParams        string
+		expectedStatusCode int
+		expectedTotal      int64
+		expectedPages      int
+		expectedItemsCount int
+		expectedLimit      int
+		expectedPage       int
+	}{
+		{
+			name:               "Default pagination",
+			queryParams:        "",
+			expectedStatusCode: http.StatusOK,
+			expectedTotal:      14,
+			expectedPages:      1,
+			expectedItemsCount: 14,
+			expectedLimit:      50, // default limit
+			expectedPage:       1,  // default page
+		},
+		{
+			name:               "Pagination with limit 10, page 1",
+			queryParams:        "?limit=10&page=1",
+			expectedStatusCode: http.StatusOK,
+			expectedTotal:      14,
+			expectedPages:      2,
+			expectedItemsCount: 10,
+			expectedLimit:      10,
+			expectedPage:       1,
+		},
+		{
+			name:               "Pagination with limit 10, page 2",
+			queryParams:        "?limit=10&page=2",
+			expectedStatusCode: http.StatusOK,
+			expectedTotal:      14,
+			expectedPages:      2,
+			expectedItemsCount: 4,
+			expectedLimit:      10,
+			expectedPage:       2,
+		},
+		{
+			name:               "Pagination with limit 20, page 1",
+			queryParams:        "?limit=20&page=1",
+			expectedStatusCode: http.StatusOK,
+			expectedTotal:      14,
+			expectedPages:      1,
+			expectedItemsCount: 14,
+			expectedLimit:      20,
+			expectedPage:       1,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			req, _ := http.NewRequest(http.MethodGet, v2Events+tc.queryParams, nil)
+			r.ServeHTTP(w, req)
+
+			assert.Equal(t, tc.expectedStatusCode, w.Code)
+
+			var response V2EventsListResponse
+			err := json.Unmarshal(w.Body.Bytes(), &response)
+			require.NoError(t, err)
+
+			assert.Len(t, response.Data, tc.expectedItemsCount)
+			assert.Equal(t, tc.expectedTotal, response.Pagination.TotalRecords)
+			assert.Equal(t, tc.expectedPages, response.Pagination.TotalPages)
+			assert.Equal(t, tc.expectedLimit, response.Pagination.RecordsPerPage)
+			assert.Equal(t, tc.expectedPage, response.Pagination.PageIndex)
 		})
 	}
 }

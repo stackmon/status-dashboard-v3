@@ -45,8 +45,8 @@ This handler is responsible for fetching events from the database. It is used by
   - **Constraint**: Must be `gte=1`.
 - `limit` (integer): The number of items per page.
   - **Default**: `50`
-  - **Allowed Values**: `10`, `20`, `50`, `100`.
-  - **Special Case**: If `limit=0`, all matching records are returned without pagination.
+  - **Allowed Values**: `10`, `20`, `50`.
+
 
 ### Example Request
 

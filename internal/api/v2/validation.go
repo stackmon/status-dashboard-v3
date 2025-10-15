@@ -40,11 +40,9 @@ func validateAndSetStatus(queryStatus *event.Status, params *db.IncidentsParams)
 // validateAndSetLimit validates the limit in the pagination query.
 func validateAndSetLimit(queryLimit *int, params *db.IncidentsParams) error {
 	var allowedLimits = map[int]struct{}{
-		0:   {},
-		10:  {},
-		20:  {},
-		50:  {},
-		100: {},
+		10: {},
+		20: {},
+		50: {},
 	}
 
 	if queryLimit != nil {
