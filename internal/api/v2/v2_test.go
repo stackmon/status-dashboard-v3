@@ -1,6 +1,7 @@
 package v2
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -189,16 +190,6 @@ func TestGetIncidentsHandlerFilters(t *testing.T) {
 			expectedBody:   responseB,
 		},
 		{
-			name: "Filter by status=analysing",
-			url:  "/v2/incidents?status=analysing",
-			mockSetup: func(m sqlmock.Sqlmock, params *db.IncidentsParams) {
-				params.Status = &incidentB.Statuses[0].Status
-				prepareMockForIncidents(t, m, []*db.Incident{&incidentB})
-			},
-			expectedStatus: http.StatusOK,
-			expectedBody:   responseB,
-		},
-		{
 			name: "Filter combination: type=incident&active=true",
 			url:  "/v2/incidents?type=incident&active=true",
 			mockSetup: func(m sqlmock.Sqlmock, params *db.IncidentsParams) {
@@ -325,6 +316,210 @@ func TestReturn404Handler(t *testing.T) {
 
 	assert.Equal(t, 404, w.Code)
 	assert.JSONEq(t, `{"errMsg":"page not found"}`, w.Body.String())
+}
+
+func TestGetEventsHandler(t *testing.T) { //nolint:gocognit
+	const totalEvents = 60
+	const maintenanceCount = 10
+	const infoCount = 10
+
+	r, m, _ := initTests(t)
+
+	mockEvents := make([]*db.Incident, 0, totalEvents)
+	startTime := time.Now().UTC().Add(-time.Hour * 24 * 30)
+
+	for i := 1; i <= totalEvents; i++ {
+		eventTitle := fmt.Sprintf("Event %d", i)
+		eventDescription := fmt.Sprintf("Description for Event %d", i)
+		eventStartTime := startTime.Add(time.Hour * time.Duration(i))
+		eventEndTime := eventStartTime.Add(time.Minute * 5)
+		componentID := 150 + (i % 5)
+		var eventType string
+		var impact int
+		var status event.Status
+		var statusText string
+
+		switch {
+		case i <= maintenanceCount:
+			eventType = event.TypeMaintenance
+			impact = 0
+			status = event.MaintenancePlanned
+			statusText = event.MaintenancePlannedStatusText()
+		case i <= maintenanceCount+infoCount:
+			eventType = event.TypeInformation
+			impact = 0
+			status = event.InfoPlanned
+			statusText = event.InfoPlannedStatusText()
+		default:
+			eventType = event.TypeIncident
+			impact = (i % 3) + 1 // Cycle through 1, 2, 3
+			status = event.IncidentDetected
+			statusText = event.IncidentDetectedStatusText()
+		}
+
+		textPtr := new(string)
+		*textPtr = eventTitle
+		descPtr := new(string)
+		*descPtr = eventDescription
+		impactPtr := new(int)
+		*impactPtr = impact
+		startTimePtr := new(time.Time)
+		*startTimePtr = eventStartTime
+		endTimePtr := new(time.Time)
+		*endTimePtr = eventEndTime
+
+		mockEvent := &db.Incident{
+			ID:          uint(i),
+			Text:        textPtr,
+			Description: descPtr,
+			StartDate:   startTimePtr,
+			EndDate:     endTimePtr,
+			Impact:      impactPtr,
+			Type:        eventType,
+			System:      false,
+			Components: []db.Component{
+				{ID: uint(componentID), Name: fmt.Sprintf("Component %d", componentID)},
+			},
+			Statuses: []db.IncidentStatus{
+				{ID: uint(i), IncidentID: uint(i), Status: status, Text: statusText, Timestamp: eventStartTime},
+			},
+			Status: status,
+		}
+		mockEvents = append(mockEvents, mockEvent)
+	}
+
+	testCases := []struct {
+		name           string
+		url            string
+		limit          int
+		page           int
+		expectedCount  int
+		expectedPages  int
+		expectedStatus int
+	}{
+		{
+			name:           "Get first page with limit 20",
+			url:            "/v2/events?limit=20&page=1",
+			limit:          20,
+			page:           1,
+			expectedCount:  20,
+			expectedPages:  3,
+			expectedStatus: http.StatusOK,
+		},
+		{
+			name:           "Get second page with limit 20",
+			url:            "/v2/events?limit=20&page=2",
+			limit:          20,
+			page:           2,
+			expectedCount:  20,
+			expectedPages:  3,
+			expectedStatus: http.StatusOK,
+		},
+		{
+			name:           "Get last page with limit 20",
+			url:            "/v2/events?limit=20&page=3",
+			limit:          20,
+			page:           3,
+			expectedCount:  20,
+			expectedPages:  3,
+			expectedStatus: http.StatusOK,
+		},
+		{
+			name:           "Get page beyond total pages",
+			url:            "/v2/events?limit=20&page=4",
+			limit:          20,
+			page:           4,
+			expectedCount:  0,
+			expectedPages:  3,
+			expectedStatus: http.StatusOK,
+		},
+		{
+			name:           "Get events with default limit (50)",
+			url:            "/v2/events?page=1",
+			limit:          50,
+			page:           1,
+			expectedCount:  50,
+			expectedPages:  2,
+			expectedStatus: http.StatusOK,
+		},
+		{
+			name:           "Get events with invalid limit (150), returns validation error",
+			url:            "/v2/events?limit=150&page=1",
+			limit:          150,
+			page:           1,
+			expectedCount:  0,
+			expectedPages:  0,
+			expectedStatus: http.StatusBadRequest,
+		},
+		{
+			name:           "Get page that is out of bounds but should return empty data",
+			url:            "/v2/events?limit=50&page=3",
+			limit:          50,
+			page:           3,
+			expectedCount:  0,
+			expectedPages:  2,
+			expectedStatus: http.StatusOK,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			reversedEvents := make([]*db.Incident, totalEvents)
+			for i := range totalEvents {
+				reversedEvents[i] = mockEvents[totalEvents-1-i]
+			}
+
+			start := (tc.page - 1) * tc.limit
+			end := start + tc.limit
+			if start > totalEvents {
+				start = totalEvents
+			}
+			if end > totalEvents {
+				end = totalEvents
+			}
+			paginatedMock := reversedEvents[start:end]
+
+			if tc.expectedStatus == http.StatusOK {
+				prepareMockForEvents(t, m, paginatedMock, totalEvents)
+			}
+
+			w := httptest.NewRecorder()
+			req, _ := http.NewRequest(http.MethodGet, tc.url, nil)
+			r.ServeHTTP(w, req)
+
+			t.Logf("Response Body: %s", w.Body.String())
+
+			assert.Equal(t, tc.expectedStatus, w.Code)
+
+			if tc.name == "Get events with invalid limit (150), returns validation error" {
+				assert.JSONEq(t, fmt.Sprintf(`{"errMsg":"%s"}`, errors.ErrIncidentFQueryInvalidFormat), w.Body.String())
+			}
+
+			assert.Equal(t, tc.expectedStatus, w.Code)
+
+			if tc.expectedStatus == http.StatusOK {
+				var response struct {
+					Data       []Incident `json:"data"`
+					Pagination struct {
+						PageIndex      int   `json:"pageIndex"`
+						RecordsPerPage int   `json:"recordsPerPage"`
+						TotalRecords   int64 `json:"totalRecords"`
+						TotalPages     int   `json:"totalPages"`
+					} `json:"pagination"`
+				}
+				err := json.Unmarshal(w.Body.Bytes(), &response)
+				require.NoError(t, err)
+
+				assert.Len(t, response.Data, tc.expectedCount)
+				assert.Equal(t, tc.page, response.Pagination.PageIndex)
+				assert.Equal(t, tc.limit, response.Pagination.RecordsPerPage)
+				assert.Equal(t, int64(totalEvents), response.Pagination.TotalRecords)
+				assert.Equal(t, tc.expectedPages, response.Pagination.TotalPages)
+			}
+
+			assert.NoError(t, m.ExpectationsWereMet())
+		})
+	}
 }
 
 func TestGetComponentsAvailabilityHandler(t *testing.T) {

@@ -57,125 +57,141 @@ type IncidentsParams struct {
 	ComponentIDs []int
 	LastCount    int
 	IsActive     *bool
+	Limit        *int
+	Page         *int
 }
 
-// GetIncidents retrieves incidents based on the provided parameters.
-// If no parameters are provided, it returns all incidents.
-// params is a slice because of the optional nature of parameters.
-func (db *DB) GetIncidents(params ...*IncidentsParams) ([]*Incident, error) {
-	var incidents []*Incident
+func applyEventsFilters(base *gorm.DB, params *IncidentsParams) (*gorm.DB, error) {
+	if params.Types != nil {
+		base = base.Where("incident.type IN (?)", params.Types)
+	}
+
+	if params.Impact != nil {
+		base = base.Where("incident.impact = ?", *params.Impact)
+	}
+
+	if params.IsSystem != nil {
+		base = base.Where("incident.system = ?", *params.IsSystem)
+	}
+
+	if len(params.ComponentIDs) > 0 {
+		base = base.Joins("JOIN incident_component_relation icr ON icr.incident_id = incident.id").
+			Where("icr.component_id IN (?)", params.ComponentIDs).Group("incident.id")
+	}
+
+	// it's a special case for active events
+	if params.IsActive != nil {
+		if !*params.IsActive {
+			return nil, ErrDBIncidentFilterActiveFalse //nolint:wrapcheck
+		}
+		currentTime := time.Now().UTC()
+		base = base.Where("(incident.end_date IS NULL) OR "+
+			"(incident.start_date <= ? AND "+
+			"incident.end_date >= ? AND "+
+			"incident.status NOT IN (?))",
+			currentTime,
+			currentTime,
+			[]event.Status{event.MaintenanceCompleted,
+				event.MaintenanceCancelled,
+				event.InfoCompleted,
+				event.InfoCancelled})
+	}
+
+	if params.Status != nil {
+		base = base.Where("incident.status = ?", params.Status)
+	}
+
+	switch {
+	case params.StartDate != nil && params.EndDate != nil:
+		base = base.Where("incident.start_date >= ? AND incident.end_date <= ?", *params.StartDate, *params.EndDate)
+	case params.StartDate != nil && params.EndDate == nil:
+		base = base.Where("incident.start_date >= ?", *params.StartDate)
+	case params.EndDate != nil && params.StartDate == nil:
+		base = base.Where("incident.end_date <= ?", *params.EndDate)
+	}
+	return base, nil
+}
+
+func (db *DB) fetchPaginatedEvents(filteredBase *gorm.DB, param *IncidentsParams) ([]*Incident, error) {
+	var events []*Incident
+
+	subQuery := filteredBase.
+		Select("incident.id").
+		Order("incident.start_date DESC").
+		Limit(*param.Limit)
+
+	if param.Page != nil && *param.Page > 1 {
+		subQuery = subQuery.Offset((*param.Page - 1) * *param.Limit)
+	}
+
+	r := db.g.Model(&Incident{}).
+		Joins("JOIN (?) AS filtered_ids ON filtered_ids.id = incident.id", subQuery).
+		Preload("Statuses").
+		Preload("Components", func(db *gorm.DB) *gorm.DB { return db.Select("ID, Name") }).
+		Preload("Components.Attrs").
+		Order("incident.start_date DESC")
+
+	if err := r.Find(&events).Error; err != nil {
+		return nil, err
+	}
+	return events, nil
+}
+
+func (db *DB) fetchUnpaginatedEvents(filteredBase *gorm.DB, param *IncidentsParams) ([]*Incident, error) {
+	var events []*Incident
+
+	r := filteredBase.Order("incident.start_date DESC")
+	if param.LastCount > 0 {
+		r = r.Limit(param.LastCount)
+	}
+	if err := r.Preload("Statuses").
+		Preload("Components", func(db *gorm.DB) *gorm.DB { return db.Select("ID, Name") }).
+		Preload("Components.Attrs").
+		Find(&events).Error; err != nil {
+		return nil, err
+	}
+	return events, nil
+}
+
+// GetIncidentsWithCount retrieves incidents based on the provided parameters, with pagination and total count.
+func (db *DB) GetEventsWithCount(params ...*IncidentsParams) ([]*Incident, int64, error) {
 	var param IncidentsParams
+	var total int64
+	var events []*Incident
 	if len(params) > 0 && params[0] != nil {
 		param = *params[0]
 	}
 
-	r := db.g.Model(&Incident{}).
-		Preload("Statuses").
-		Preload("Components", func(db *gorm.DB) *gorm.DB { return db.Select("ID, Name") }).
-		Preload("Components.Attrs")
+	// Base query for filtering
+	base := db.g.Model(&Incident{})
 
-	if param.Types != nil {
-		r = r.Where("incident.type IN (?)", param.Types)
+	filteredBase, err := applyEventsFilters(base, &param)
+	if err != nil {
+		return nil, 0, err
 	}
 
-	if param.Impact != nil {
-		r = r.Where("incident.impact = ?", *param.Impact)
+	// Get total count before applying limit and offset.
+	if err = filteredBase.Count(&total).Error; err != nil {
+		return nil, 0, err
 	}
 
-	if param.IsSystem != nil {
-		r = r.Where("incident.system = ?", *param.IsSystem)
+	if param.Limit != nil && *param.Limit > 0 {
+		events, err = db.fetchPaginatedEvents(filteredBase, &param)
+	} else {
+		events, err = db.fetchUnpaginatedEvents(filteredBase, &param)
 	}
 
-	if len(param.ComponentIDs) > 0 {
-		r = r.Joins("JOIN incident_component_relation icr ON icr.incident_id = incident.id").
-			Where("icr.component_id IN (?)", param.ComponentIDs).Group("incident.id")
+	if err != nil {
+		return nil, 0, err
 	}
-
-	// it's a special case for active events
-	if param.IsActive != nil {
-		return db.processActiveEvents(r, *param.IsActive)
-	}
-
-	if param.Status != nil {
-		r = r.Where("incident.status = ?", param.Status)
-	}
-
-	switch {
-	case param.StartDate != nil && param.EndDate != nil:
-		r = r.Where("incident.start_date >= ? AND incident.end_date <= ?", *param.StartDate, *param.EndDate)
-	case param.StartDate != nil && param.EndDate == nil:
-		r = r.Where("incident.start_date >= ?", *param.StartDate)
-	case param.EndDate != nil && param.StartDate == nil:
-		r = r.Where("incident.end_date <= ?", *param.EndDate)
-	}
-
-	r = r.Order("incident.start_date DESC")
-
-	if param.LastCount != 0 {
-		r = r.Limit(param.LastCount)
-	}
-
-	if err := r.Find(&incidents).Error; err != nil {
-		return nil, err
-	}
-	return incidents, nil
+	return events, total, nil
 }
 
-func (db *DB) processActiveEvents(r *gorm.DB, isActive bool) ([]*Incident, error) { //nolint:gocognit
-	var incidents []*Incident
-	if !isActive {
-		// We don't support not active events, because they are not useful.
-		return incidents, ErrDBIncidentFilterActiveFalse
-	}
-
-	currentTime := time.Now().UTC()
-	// For opened incidents:
-	// 1. Include all events with NULL end_date (only for incidents)
-	// 2. Include maintenance and info events where current time is between start_date and end_date
-	//TODO: this case doesn't include events in cancelled status, planned, etc. Just uses the time period.
-	// Fix it after introducing the field "current_status"
-	r = r.Where("(end_date is NULL) OR (start_date <= ? AND end_date >= ?)",
-		currentTime, currentTime)
-
-	if err := r.Find(&incidents).Error; err != nil {
-		return nil, err
-	}
-
-	// manual sorting
-	var openedEvents []*Incident
-	for _, ev := range incidents {
-		if ev.Type == event.TypeInformation {
-			var finished bool
-			for _, status := range ev.Statuses {
-				if status.Status == event.InfoCancelled || status.Status == event.InfoCompleted {
-					finished = true
-				}
-			}
-			if !finished {
-				openedEvents = append(openedEvents, ev)
-			}
-
-			continue
-		}
-
-		if ev.Type == event.TypeMaintenance {
-			var finished bool
-			for _, status := range ev.Statuses {
-				if status.Status == event.MaintenanceCancelled || status.Status == event.MaintenanceCompleted {
-					finished = true
-				}
-			}
-			if !finished {
-				openedEvents = append(openedEvents, ev)
-			}
-
-			continue
-		}
-
-		openedEvents = append(openedEvents, ev)
-	}
-
-	return openedEvents, nil
+// GetIncidents retrieves incidents based on the provided parameters.
+// This is a wrapper around GetIncidentsWithCount for backward compatibility.
+func (db *DB) GetEvents(params ...*IncidentsParams) ([]*Incident, error) {
+	incidents, _, err := db.GetEventsWithCount(params...)
+	return incidents, err
 }
 
 func (db *DB) GetIncident(id int) (*Incident, error) {

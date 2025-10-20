@@ -61,6 +61,8 @@ func (a *API) InitRoutes() {
 			AuthenticationMW(a.oa2Prov, a.log),
 			CheckEventExistenceMW(a.db, a.log),
 			v2.PatchEventUpdateTextHandler(a.db, a.log))
+		// Paginated events.
+		v2API.GET("events", v2.GetEventsHandler(a.db, a.log))
 		v2API.GET("availability", v2.GetComponentsAvailabilityHandler(a.db, a.log))
 
 		// For testing purposes only
