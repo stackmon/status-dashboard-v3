@@ -8,10 +8,11 @@ import (
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/gin-gonic/gin"
-	apiErrors "github.com/stackmon/otc-status-dashboard/internal/api/errors"
-	"github.com/stackmon/otc-status-dashboard/internal/db"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
+
+	apiErrors "github.com/stackmon/otc-status-dashboard/internal/api/errors"
+	"github.com/stackmon/otc-status-dashboard/internal/db"
 )
 
 func initTests(t *testing.T) (*gin.Engine, sqlmock.Sqlmock, *db.DB) {
@@ -274,8 +275,8 @@ func prepareMockForPatchEventUpdate(t *testing.T, mock sqlmock.Sqlmock, incident
 	returningRows.AddRow(targetStatus.ID, targetStatus.IncidentID, targetStatus.Status, updatedText, targetStatus.Timestamp)
 
 	mock.ExpectBegin()
-	mock.ExpectQuery(`^UPDATE "incident_status" SET "text"=\$1 WHERE id = \$2 AND incident_id = \$3 RETURNING .*`).
-		WithArgs(updatedText, targetStatus.ID, incident.ID).
+	mock.ExpectQuery(`^UPDATE "incident_status" SET "modified_at"=\$1,"text"=\$2 WHERE id = \$3 AND incident_id = \$4 RETURNING .*`).
+		WithArgs(sqlmock.AnyArg(), updatedText, targetStatus.ID, incident.ID).
 		WillReturnRows(returningRows)
 	mock.ExpectCommit()
 
@@ -292,15 +293,16 @@ func prepareMockForModifyEventUpdate(
 	mock sqlmock.Sqlmock,
 	status db.IncidentStatus,
 	updatedText string,
+	modifiedAt time.Time,
 ) {
 	t.Helper()
 
 	mock.ExpectBegin()
 
-	returningRows := sqlmock.NewRows([]string{"id", "incident_id", "text", "status", "timestamp"}).
-		AddRow(status.ID, status.IncidentID, updatedText, status.Status, status.Timestamp)
-	mock.ExpectQuery(`^UPDATE "incident_status" SET "text"=\$1 WHERE id = \$2 AND incident_id = \$3 RETURNING .*`).
-		WithArgs(updatedText, status.ID, status.IncidentID).
+	returningRows := sqlmock.NewRows([]string{"id", "incident_id", "text", "status", "timestamp", "created_at", "modified_at"}).
+		AddRow(status.ID, status.IncidentID, updatedText, status.Status, status.Timestamp, status.CreatedAt, modifiedAt)
+	mock.ExpectQuery(`^UPDATE "incident_status" SET "modified_at"=\$1,"text"=\$2 WHERE id = \$3 AND incident_id = \$4 RETURNING .*`).
+		WithArgs(sqlmock.AnyArg(), updatedText, status.ID, status.IncidentID).
 		WillReturnRows(returningRows)
 
 	mock.ExpectCommit()

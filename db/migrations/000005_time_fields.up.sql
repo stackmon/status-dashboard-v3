@@ -37,3 +37,4 @@ UPDATE incident_status
 SET created_at = "timestamp",
     modified_at = "timestamp"
 WHERE created_at IS NULL;
+

@@ -1227,11 +1227,11 @@ func getEventFromContext(c *gin.Context, logger *zap.Logger) *db.Incident {
 		return nil
 	}
 
-	event, ok := val.(*db.Incident)
+	evnt, ok := val.(*db.Incident)
 	if !ok {
 		logger.Error("invalid type in context")
 		apiErrors.RaiseInternalErr(c, errors.New("invalid type in context"))
 		return nil
 	}
-	return event
+	return evnt
 }

@@ -990,6 +990,9 @@ func TestModifyEventUpdate(t *testing.T) {
 	testTime, err := time.Parse(time.RFC3339, startDate)
 	require.NoError(t, err)
 
+	createdAt := testTime
+	modifiedAt := time.Now().UTC()
+
 	eventID := 111
 	updateID := 87
 	updatedText := "Updated: analysing"
@@ -1000,11 +1003,13 @@ func TestModifyEventUpdate(t *testing.T) {
 		Status:     "analysing",
 		Text:       "Incident analysing.",
 		Timestamp:  testTime,
+		CreatedAt:  &createdAt,
+		ModifiedAt: &createdAt,
 	}
-	prepareMockForModifyEventUpdate(t, m, status, updatedText)
+	prepareMockForModifyEventUpdate(t, m, status, updatedText, modifiedAt)
 
-	returningRows := sqlmock.NewRows([]string{"id", "incident_id", "text", "status", "timestamp"}).
-		AddRow(status.ID, status.IncidentID, updatedText, status.Status, status.Timestamp)
+	returningRows := sqlmock.NewRows([]string{"id", "incident_id", "text", "status", "timestamp", "created_at", "modified_at"}).
+		AddRow(status.ID, status.IncidentID, updatedText, status.Status, status.Timestamp, createdAt, modifiedAt)
 	m.ExpectQuery(`^SELECT \* FROM "incident_status" WHERE id = \$1 AND incident_id = \$2`).
 		WithArgs(status.ID, status.IncidentID).
 		WillReturnRows(returningRows)
@@ -1015,4 +1020,9 @@ func TestModifyEventUpdate(t *testing.T) {
 	require.NoError(t, err)
 	require.NotZero(t, updated.ID)
 	require.Equal(t, updatedText, updated.Text)
+	require.NotNil(t, updated.CreatedAt)
+	require.NotNil(t, updated.ModifiedAt)
+	require.Equal(t, createdAt, *updated.CreatedAt)
+	require.Equal(t, modifiedAt.Truncate(time.Microsecond), updated.ModifiedAt.Truncate(time.Microsecond))
+	require.True(t, updated.ModifiedAt.After(*updated.CreatedAt) || updated.ModifiedAt.Equal(*updated.CreatedAt))
 }

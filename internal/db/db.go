@@ -24,7 +24,11 @@ func New(c *conf.Config) (*DB, error) {
 		DSN: c.DB,
 	})
 
-	gConf := &gorm.Config{}
+	gConf := &gorm.Config{
+		NowFunc: func() time.Time {
+			return time.Now().UTC()
+		},
+	}
 
 	if c.LogLevel != conf.DevelopMode {
 		logger := zapgorm2.New(zap.L())
@@ -153,7 +157,7 @@ func (db *DB) fetchUnpaginatedEvents(filteredBase *gorm.DB, param *IncidentsPara
 	return events, nil
 }
 
-// GetIncidentsWithCount retrieves incidents based on the provided parameters, with pagination and total count.
+// GetEventsWithCount retrieves events based on the provided parameters, with pagination and total count.
 func (db *DB) GetEventsWithCount(params ...*IncidentsParams) ([]*Incident, int64, error) {
 	var param IncidentsParams
 	var total int64
@@ -187,7 +191,7 @@ func (db *DB) GetEventsWithCount(params ...*IncidentsParams) ([]*Incident, int64
 	return events, total, nil
 }
 
-// GetIncidents retrieves incidents based on the provided parameters.
+// GetEvents retrieves events based on the provided parameters.
 // This is a wrapper around GetIncidentsWithCount for backward compatibility.
 func (db *DB) GetEvents(params ...*IncidentsParams) ([]*Incident, error) {
 	incidents, _, err := db.GetEventsWithCount(params...)
@@ -467,13 +471,17 @@ func (db *DB) MoveComponentFromOldToAnotherIncident(
 	})
 
 	text = fmt.Sprintf("%s moved to %s", comp.PrintAttrs(), incNew.Link())
+	status := event.OutDatedSystem
+
 	if closeOld {
 		text = fmt.Sprintf("%s, Incident closed by system", text)
+		status = event.IncidentResolved
+		incOld.Status = event.IncidentResolved
 	}
 
 	incOld.Statuses = append(incOld.Statuses, IncidentStatus{
 		IncidentID: incOld.ID,
-		Status:     event.OutDatedSystem,
+		Status:     status,
 		Text:       text,
 		Timestamp:  timeNow,
 	})
@@ -617,11 +625,15 @@ func (db *DB) GetEventUpdates(incidentID uint) ([]IncidentStatus, error) {
 }
 
 func (db *DB) ModifyEventUpdate(update IncidentStatus) (IncidentStatus, error) {
+	now := time.Now().UTC()
 	var updated IncidentStatus
 	r := db.g.Model(&IncidentStatus{}).
 		Clauses(clause.Returning{}).
 		Where("id = ? AND incident_id = ?", update.ID, update.IncidentID).
-		Update("text", update.Text).
+		Updates(map[string]interface{}{
+			"text":        update.Text,
+			"modified_at": now,
+		}).
 		Scan(&updated)
 
 	if r.Error != nil {

@@ -153,12 +153,12 @@ func TestV2PostIncidentsHandlerNegative(t *testing.T) {
 	testCases := map[string]*testCase{
 		"negative testcase, incident is not a maintenance and end_date is present": {
 			JSON:         jsEndPresent,
-			Expected:     `{"errMsg":"incident end_date should be empty"}`,
+			Expected:     `{"errMsg":"event end_date should be empty"}`,
 			ExpectedCode: 400,
 		},
 		"negative testcase, updates are present": {
 			JSON:         jsUpdatesPresent,
-			Expected:     `{"errMsg":"incident updates should be empty"}`,
+			Expected:     `{"errMsg":"event updates should be empty"}`,
 			ExpectedCode: 400,
 		},
 		"negative testcase, wrong components ids": {
@@ -261,7 +261,7 @@ func TestV2PostIncidentsHandler(t *testing.T) {
 	t.Logf("STATUS updates: %v", oldIncident.Updates)
 	assert.Equal(t, event.IncidentDetected, oldIncident.Updates[0].Status)
 	assert.Equal(t, event.OutDatedSystem, oldIncident.Updates[1].Status)
-	assert.Equal(t, event.OutDatedSystem, oldIncident.Updates[2].Status)
+	assert.Equal(t, event.IncidentResolved, oldIncident.Updates[2].Status)
 	assert.Equal(t, "The incident is detected.", oldIncident.Updates[0].Text)
 	assert.Equal(t, fmt.Sprintf("Cloud Container Engine (Container, EU-DE, cce) moved to <a href='/incidents/%d'>Test incident creation for api V2 for components: 1, 2. Test should close previous and move components to the new.</a>", result.Result[0].IncidentID), oldIncident.Updates[1].Text)
 	assert.Equal(t, fmt.Sprintf("Cloud Container Engine (Container, EU-NL, cce) moved to <a href='/incidents/%d'>Test incident creation for api V2 for components: 1, 2. Test should close previous and move components to the new.</a>, Incident closed by system", result.Result[0].IncidentID), oldIncident.Updates[2].Text)
