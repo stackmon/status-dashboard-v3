@@ -14,9 +14,9 @@ type Component struct {
 	Name       string          `json:"name,omitempty"`
 	Attrs      []ComponentAttr `json:"attributes,omitempty"`
 	Incidents  []*Incident     `json:"incidents,omitempty" gorm:"many2many:incident_component_relation"`
-	CreatedAt  *time.Time      `json:"created_at,omitempty"`
-	ModifiedAt *time.Time      `json:"modified_at,omitempty"`
-	DeletedAt  *time.Time      `json:"deleted_at,omitempty"`
+	CreatedAt  *time.Time      `json:"-"`
+	ModifiedAt *time.Time      `json:"-"`
+	DeletedAt  *time.Time      `json:"-"`
 }
 
 func (c *Component) TableName() string {
