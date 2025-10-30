@@ -4,18 +4,42 @@ import (
 	"fmt"
 	"time"
 
+	"gorm.io/gorm"
+
 	"github.com/stackmon/otc-status-dashboard/internal/event"
 )
 
 type Component struct {
-	ID        uint            `json:"id"`
-	Name      string          `json:"name,omitempty"`
-	Attrs     []ComponentAttr `json:"attributes,omitempty"`
-	Incidents []*Incident     `json:"incidents,omitempty" gorm:"many2many:incident_component_relation"`
+	ID         uint            `json:"id"`
+	Name       string          `json:"name,omitempty"`
+	Attrs      []ComponentAttr `json:"attributes,omitempty"`
+	Incidents  []*Incident     `json:"incidents,omitempty" gorm:"many2many:incident_component_relation"`
+	CreatedAt  *time.Time      `json:"-"`
+	ModifiedAt *time.Time      `json:"-"`
+	DeletedAt  *time.Time      `json:"-"`
 }
 
 func (c *Component) TableName() string {
 	return "component"
+}
+
+// BeforeCreate GORM hook to set created_at and modified_at.
+func (c *Component) BeforeCreate(_ *gorm.DB) error {
+	now := time.Now().UTC()
+	if c.CreatedAt == nil {
+		c.CreatedAt = &now
+	}
+	if c.ModifiedAt == nil {
+		c.ModifiedAt = &now
+	}
+	return nil
+}
+
+// BeforeUpdate GORM hook to set modified_at.
+func (c *Component) BeforeUpdate(_ *gorm.DB) error {
+	now := time.Now().UTC()
+	c.ModifiedAt = &now
+	return nil
 }
 
 func (c *Component) PrintAttrs() string {
@@ -81,6 +105,9 @@ type Incident struct {
 	System      bool             `json:"system" gorm:"not null"`
 	Type        string           `json:"type" gorm:"not null"`
 	Components  []Component      `json:"components" gorm:"many2many:incident_component_relation"`
+	CreatedAt   *time.Time       `json:"created_at,omitempty"`
+	ModifiedAt  *time.Time       `json:"modified_at,omitempty"`
+	DeletedAt   *time.Time       `json:"deleted_at,omitempty"`
 }
 
 func (in *Incident) TableName() string {
@@ -91,6 +118,25 @@ func (in *Incident) Link() string {
 	return fmt.Sprintf("<a href='/incidents/%d'>%s</a>", in.ID, *in.Text)
 }
 
+// BeforeSave GORM hook to set created_at and modified_at.
+func (in *Incident) BeforeSave(_ *gorm.DB) error {
+	now := time.Now().UTC()
+	if in.CreatedAt == nil {
+		in.CreatedAt = &now
+	}
+	if in.ModifiedAt == nil {
+		in.ModifiedAt = &now
+	}
+	return nil
+}
+
+// BeforeUpdate GORM hook to set modified_at.
+func (in *Incident) BeforeUpdate(_ *gorm.DB) error {
+	now := time.Now().UTC()
+	in.ModifiedAt = &now
+	return nil
+}
+
 // IncidentStatus is a db table representation.
 type IncidentStatus struct {
 	ID         uint         `json:"-" gorm:"primaryKey;autoIncrement:true;"`
@@ -98,8 +144,30 @@ type IncidentStatus struct {
 	Status     event.Status `json:"status"`
 	Text       string       `json:"text"`
 	Timestamp  time.Time    `json:"timestamp"`
+	CreatedAt  *time.Time   `json:"created_at,omitempty"`
+	ModifiedAt *time.Time   `json:"modified_at,omitempty"`
+	DeletedAt  *time.Time   `json:"deleted_at,omitempty"`
 }
 
 func (is *IncidentStatus) TableName() string {
 	return "incident_status"
+}
+
+// BeforeSave GORM hook to set created_at and modified_at.
+func (is *IncidentStatus) BeforeSave(_ *gorm.DB) error {
+	now := time.Now().UTC()
+	if is.CreatedAt == nil {
+		is.CreatedAt = &now
+	}
+	if is.ModifiedAt == nil {
+		is.ModifiedAt = &now
+	}
+	return nil
+}
+
+// BeforeUpdate GORM hook to set modified_at.
+func (is *IncidentStatus) BeforeUpdate(_ *gorm.DB) error {
+	now := time.Now().UTC()
+	is.ModifiedAt = &now
+	return nil
 }

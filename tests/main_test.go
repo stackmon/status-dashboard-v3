@@ -2,12 +2,17 @@ package tests
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
+	"github.com/golang-migrate/migrate/v4"
+	_ "github.com/golang-migrate/migrate/v4/database/postgres"
+	_ "github.com/golang-migrate/migrate/v4/source/file"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 	"github.com/testcontainers/testcontainers-go/wait"
@@ -20,7 +25,7 @@ import (
 
 	"github.com/stackmon/otc-status-dashboard/internal/api"
 	"github.com/stackmon/otc-status-dashboard/internal/api/auth"
-	"github.com/stackmon/otc-status-dashboard/internal/api/errors"
+	apiErrors "github.com/stackmon/otc-status-dashboard/internal/api/errors"
 	v1 "github.com/stackmon/otc-status-dashboard/internal/api/v1"
 	v2 "github.com/stackmon/otc-status-dashboard/internal/api/v2"
 	"github.com/stackmon/otc-status-dashboard/internal/conf"
@@ -52,21 +57,53 @@ func TestMain(m *testing.M) {
 				WithOccurrence(2).
 				WithStartupTimeout(5*time.Second)),
 	)
+
+	if err != nil {
+		log.Printf("failed to start container: %s", err)
+		os.Exit(1)
+	}
+
+	// Only set up cleanup if container was created successfully
 	defer func() {
 		if err = testcontainers.TerminateContainer(container); err != nil {
 			log.Printf("failed to terminate container: %s", err)
 		}
 	}()
-	if err != nil {
-		log.Printf("failed to start container: %s", err)
-		return
-	}
 
 	ports, _ := container.Ports(ctx)
 	port := ports["5432/tcp"][0].HostPort
 	databaseURL = fmt.Sprintf(databaseURL, dbUser, dbPassword, port, dbName)
 
+	// Apply migrations (add sslmode=disable for test container)
+	migrationURL := databaseURL + "?sslmode=disable"
+	if errMigr := applyMigrations(migrationURL); errMigr != nil {
+		log.Printf("failed to apply migrations: %s", err)
+		return
+	}
+
 	m.Run()
+}
+
+func applyMigrations(dbURL string) error {
+	// Get the project root directory
+	migrationsPath := filepath.Join("..", "db", "migrations")
+
+	m, err := migrate.New(
+		fmt.Sprintf("file://%s", migrationsPath),
+		dbURL,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to create migrate instance: %w", err)
+	}
+	defer m.Close()
+
+	// Apply all migrations
+	if errMig := m.Up(); errMig != nil && !errors.Is(errMig, migrate.ErrNoChange) {
+		return fmt.Errorf("failed to run migrations: %w", err)
+	}
+
+	log.Println("migrations applied successfully")
+	return nil
 }
 
 func initTests(t *testing.T) (*gin.Engine, *db.DB, *auth.Provider) {
@@ -82,7 +119,7 @@ func initTests(t *testing.T) (*gin.Engine, *db.DB, *auth.Provider) {
 
 	gin.SetMode(gin.TestMode)
 	r := gin.Default()
-	r.NoRoute(errors.Return404)
+	r.NoRoute(apiErrors.Return404)
 	r.Use(api.ErrorHandle())
 
 	logger, _ := zap.NewDevelopment()
