@@ -302,7 +302,7 @@ func toAPIEvent(inc *db.Incident) *Incident {
 }
 
 // PostIncidentHandler creates an incident.
-func PostIncidentHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc { //nolint:gocognit,funlen
+func PostIncidentHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var incData IncidentData
 		if err := c.ShouldBindBodyWithJSON(&incData); err != nil {
@@ -323,100 +323,148 @@ func PostIncidentHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc { //
 		log := logger.With(zap.Any("incidentData", incData))
 		log.Info("start to prepare for an incident creation")
 
-		components := make([]db.Component, len(incData.Components))
-		for i, comp := range incData.Components {
-			components[i] = db.Component{ID: uint(comp)}
-		}
-
 		if incData.System == nil {
 			var system bool
 			incData.System = &system
 		}
 
-		incIn := db.Incident{
-			Text:        &incData.Title,
-			Description: &incData.Description,
-			StartDate:   &incData.StartDate,
-			EndDate:     incData.EndDate,
-			Impact:      incData.Impact,
-			System:      *incData.System,
-			Type:        incData.Type,
-			Components:  components,
+		// Route to appropriate handler based on system field
+		if *incData.System {
+			log.Info("system incident detected, using system incident creation logic")
+			handleSystemIncidentCreation(c, dbInst, log, incData)
+		} else {
+			log.Info("regular incident detected, using regular incident creation logic")
+			handleRegularIncidentCreation(c, dbInst, log, incData)
 		}
+	}
+}
 
-		log.Info("get active events from the database")
-		isActive := true
-		openedIncidents, err := dbInst.GetEvents(&db.IncidentsParams{IsActive: &isActive})
-		if err != nil {
-			apiErrors.RaiseInternalErr(c, err)
-			return
+// handleSystemIncidentCreation handles creation of system incidents
+func handleSystemIncidentCreation(c *gin.Context, dbInst *db.DB, log *zap.Logger, incData IncidentData) {
+	components := make([]db.Component, len(incData.Components))
+	for i, comp := range incData.Components {
+		components[i] = db.Component{ID: uint(comp)}
+	}
+
+	incIn := db.Incident{
+		Text:        &incData.Title,
+		Description: &incData.Description,
+		StartDate:   &incData.StartDate,
+		EndDate:     incData.EndDate,
+		Impact:      incData.Impact,
+		System:      *incData.System,
+		Type:        incData.Type,
+		Components:  components,
+	}
+
+	log.Info("creating system incident")
+	if err := createEvent(dbInst, log, &incIn); err != nil {
+		apiErrors.RaiseInternalErr(c, err)
+		return
+	}
+
+	result := make([]*ProcessComponentResp, len(incIn.Components))
+	for i, comp := range incIn.Components {
+		result[i] = &ProcessComponentResp{
+			ComponentID: int(comp.ID),
+			IncidentID:  int(incIn.ID),
 		}
+	}
 
-		log.Info("opened incidents and maintenances retrieved", zap.Any("openedIncidents", openedIncidents))
+	log.Info("system incident created successfully", zap.Int("incidentID", int(incIn.ID)))
+	c.JSON(http.StatusOK, PostIncidentResp{Result: result})
+}
 
-		if err = createEvent(dbInst, log, &incIn); err != nil {
-			apiErrors.RaiseInternalErr(c, err)
-			return
+// handleRegularIncidentCreation handles creation of regular incidents with component movement logic
+func handleRegularIncidentCreation(c *gin.Context, dbInst *db.DB, log *zap.Logger, incData IncidentData) { //nolint:gocognit,funlen
+	components := make([]db.Component, len(incData.Components))
+	for i, comp := range incData.Components {
+		components[i] = db.Component{ID: uint(comp)}
+	}
+
+	incIn := db.Incident{
+		Text:        &incData.Title,
+		Description: &incData.Description,
+		StartDate:   &incData.StartDate,
+		EndDate:     incData.EndDate,
+		Impact:      incData.Impact,
+		System:      *incData.System,
+		Type:        incData.Type,
+		Components:  components,
+	}
+
+	log.Info("get active events from the database")
+	isActive := true
+	openedIncidents, err := dbInst.GetEvents(&db.IncidentsParams{IsActive: &isActive})
+	if err != nil {
+		apiErrors.RaiseInternalErr(c, err)
+		return
+	}
+
+	log.Info("opened incidents and maintenances retrieved", zap.Any("openedIncidents", openedIncidents))
+
+	if err = createEvent(dbInst, log, &incIn); err != nil {
+		apiErrors.RaiseInternalErr(c, err)
+		return
+	}
+
+	if len(openedIncidents) == 0 || *incData.Impact == 0 || incData.Type == event.TypeInformation {
+		if *incData.Impact == 0 {
+			log.Info("the event is maintenance or info, finish the incident creation")
+		} else {
+			log.Info("no opened incidents, finish the incident creation")
 		}
-
-		if len(openedIncidents) == 0 || *incData.Impact == 0 || incData.Type == event.TypeInformation {
-			if *incData.Impact == 0 {
-				log.Info("the event is maintenance or info, finish the incident creation")
-			} else {
-				log.Info("no opened incidents, finish the incident creation")
-			}
-			result := make([]*ProcessComponentResp, len(incIn.Components))
-			for i, comp := range incIn.Components {
-				result[i] = &ProcessComponentResp{
-					ComponentID: int(comp.ID),
-					IncidentID:  int(incIn.ID),
-				}
-			}
-
-			c.JSON(http.StatusOK, PostIncidentResp{Result: result})
-			return
-		}
-
-		log.Info("start to analyse component movement")
-		result := make([]*ProcessComponentResp, 0)
-		// It moved from original logic
-		for _, comp := range incIn.Components {
-			compResult := &ProcessComponentResp{
+		result := make([]*ProcessComponentResp, len(incIn.Components))
+		for i, comp := range incIn.Components {
+			result[i] = &ProcessComponentResp{
 				ComponentID: int(comp.ID),
+				IncidentID:  int(incIn.ID),
 			}
-			for _, inc := range openedIncidents {
-				if inc.Type == event.TypeInformation || inc.Type == event.TypeMaintenance {
-					log.Info(
-						"skip the component movement for maintenance or info incident",
-						zap.Any("componentID", comp.ID), zap.Any("incident_opened", inc),
-					)
-					continue
-				}
-				for _, incComp := range inc.Components {
-					if comp.ID == incComp.ID {
-						log.Info("found the component in the opened incident", zap.Any("component", comp), zap.Any("incident", inc))
-						var closeInc bool
-						if len(inc.Components) == 1 {
-							closeInc = true
-						}
-						incident, errRes := dbInst.MoveComponentFromOldToAnotherIncident(&comp, inc, &incIn, closeInc)
-						if errRes != nil {
-							apiErrors.RaiseInternalErr(c, err)
-							return
-						}
-						compResult.IncidentID = int(incident.ID)
-					}
-				}
-			}
-			if compResult.IncidentID == 0 {
-				log.Info("there are no any opened incidents for given component, return created incident")
-				compResult.IncidentID = int(incIn.ID)
-			}
-			result = append(result, compResult)
 		}
 
 		c.JSON(http.StatusOK, PostIncidentResp{Result: result})
+		return
 	}
+
+	log.Info("start to analyse component movement")
+	result := make([]*ProcessComponentResp, 0)
+	// It moved from original logic
+	for _, comp := range incIn.Components {
+		compResult := &ProcessComponentResp{
+			ComponentID: int(comp.ID),
+		}
+		for _, inc := range openedIncidents {
+			if inc.Type == event.TypeInformation || inc.Type == event.TypeMaintenance {
+				log.Info(
+					"skip the component movement for maintenance or info incident",
+					zap.Any("componentID", comp.ID), zap.Any("incident_opened", inc),
+				)
+				continue
+			}
+			for _, incComp := range inc.Components {
+				if comp.ID == incComp.ID {
+					log.Info("found the component in the opened incident", zap.Any("component", comp), zap.Any("incident", inc))
+					var closeInc bool
+					if len(inc.Components) == 1 {
+						closeInc = true
+					}
+					incident, errRes := dbInst.MoveComponentFromOldToAnotherIncident(&comp, inc, &incIn, closeInc)
+					if errRes != nil {
+						apiErrors.RaiseInternalErr(c, errRes)
+						return
+					}
+					compResult.IncidentID = int(incident.ID)
+				}
+			}
+		}
+		if compResult.IncidentID == 0 {
+			log.Info("there are no any opened incidents for given component, return created incident")
+			compResult.IncidentID = int(incIn.ID)
+		}
+		result = append(result, compResult)
+	}
+
+	c.JSON(http.StatusOK, PostIncidentResp{Result: result})
 }
 
 type PostIncidentResp struct {
