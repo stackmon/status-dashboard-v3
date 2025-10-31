@@ -194,8 +194,8 @@ func (db *DB) GetEventsWithCount(params ...*IncidentsParams) ([]*Incident, int64
 // GetEvents retrieves events based on the provided parameters.
 // This is a wrapper around GetIncidentsWithCount for backward compatibility.
 func (db *DB) GetEvents(params ...*IncidentsParams) ([]*Incident, error) {
-	incidents, _, err := db.GetEventsWithCount(params...)
-	return incidents, err
+	events, _, err := db.GetEventsWithCount(params...)
+	return events, err
 }
 
 func (db *DB) GetIncident(id int) (*Incident, error) {
@@ -254,7 +254,9 @@ func (db *DB) ReOpenIncident(inc *Incident) error {
 	return nil
 }
 
-func (db *DB) GetIncidentsByComponentID(componentID uint, params ...*IncidentsParams) ([]*Incident, error) {
+// GetEventsByComponentID retrieves all events associated with a specific component ID.
+// Supports optional filtering parameters: isActive, Types, LastCount.
+func (db *DB) GetEventsByComponentID(componentID uint, params ...*IncidentsParams) ([]*Incident, error) {
 	// Get all incidents for this component
 	var incidents []*Incident
 	var param IncidentsParams
@@ -273,6 +275,16 @@ func (db *DB) GetIncidentsByComponentID(componentID uint, params ...*IncidentsPa
 
 	if param.LastCount != 0 {
 		r.Order("incident.id desc").Limit(param.LastCount)
+	}
+
+	if param.IsActive != nil && *param.IsActive {
+		r.Where("incident.status in ?", []event.Status{
+			event.IncidentResolved, event.MaintenanceCompleted, event.MaintenanceCancelled,
+			event.InfoCompleted, event.InfoCancelled})
+	}
+
+	if len(param.Types) > 0 {
+		r.Where("incident.type IN (?)", param.Types)
 	}
 
 	r.Find(&incidents)

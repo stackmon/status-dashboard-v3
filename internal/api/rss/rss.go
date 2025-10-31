@@ -121,7 +121,7 @@ func getIncidents(dbInstance *db.DB, log *zap.Logger, params feedParams, maxInci
 			return nil, err
 		}
 
-		incidents, err = dbInstance.GetIncidentsByComponentID(component.ID, incParams)
+		incidents, err = dbInstance.GetEventsByComponentID(component.ID, incParams)
 		if err != nil {
 			return nil, err
 		}

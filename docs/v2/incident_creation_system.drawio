@@ -1,0 +1,93 @@
+<mxfile host="Electron" agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) draw.io/26.0.9 Chrome/128.0.6613.186 Electron/32.2.5 Safari/537.36" version="26.0.9">
+  <diagram id="23iRSUPoRavnBvh4doch" name="Page-1">
+    <mxGraphModel dx="2901" dy="1214" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="827" pageHeight="1169" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="Gg7pWfB9Hn6mfg136wM4-23" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" parent="1" source="Gg7pWfB9Hn6mfg136wM4-20" target="Gg7pWfB9Hn6mfg136wM4-22" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="Gg7pWfB9Hn6mfg136wM4-20" value="" style="ellipse;" parent="1" vertex="1">
+          <mxGeometry x="360" y="300" width="30" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="Gg7pWfB9Hn6mfg136wM4-21" value="create a system incident" style="text;html=1;align=center;verticalAlign=middle;resizable=0;points=[];autosize=1;strokeColor=none;fillColor=none;" parent="1" vertex="1">
+          <mxGeometry x="30" y="290" width="150" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="270vdTzZN6ndXn6HyqXx-73" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="Gg7pWfB9Hn6mfg136wM4-22" target="270vdTzZN6ndXn6HyqXx-72">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="Gg7pWfB9Hn6mfg136wM4-22" value="get active maintenances&lt;span style=&quot;background-color: transparent; color: light-dark(rgb(0, 0, 0), rgb(255, 255, 255));&quot;&gt;&amp;nbsp;for target component&lt;/span&gt;" style="html=1;whiteSpace=wrap;" parent="1" vertex="1">
+          <mxGeometry x="320" y="460" width="110" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="Gg7pWfB9Hn6mfg136wM4-32" value="&lt;div&gt;{&lt;/div&gt;&lt;div&gt;&amp;nbsp; &quot;title&quot;: &quot;Incident&quot;,&lt;/div&gt;&lt;div&gt;&amp;nbsp; &quot;description&quot;: &quot;System-wide incident affecting multiple components. Created automatically.&lt;span style=&quot;background-color: initial;&quot;&gt;&quot;,&lt;/span&gt;&lt;br&gt;&lt;/div&gt;&lt;div&gt;&amp;nbsp; &quot;components&quot;: [1,2],&lt;/div&gt;&lt;div&gt;&amp;nbsp; &quot;impact&quot;: 0,&lt;/div&gt;&lt;div&gt;&amp;nbsp; &quot;start_date&quot;: &quot;2006-01-01T12:00:00Z&quot;,&lt;/div&gt;&lt;div&gt;&lt;span style=&quot;background-color: initial;&quot;&gt;&amp;nbsp; &quot;system&quot;: true&lt;/span&gt;&lt;br&gt;&lt;/div&gt;&lt;div&gt;}&lt;/div&gt;" style="text;html=1;align=left;verticalAlign=middle;resizable=0;points=[];autosize=1;strokeColor=none;fillColor=none;" parent="1" vertex="1">
+          <mxGeometry x="-210" y="320" width="520" height="130" as="geometry" />
+        </mxCell>
+        <mxCell id="3" value="Potentially we can have 2 different cases:&amp;nbsp;&lt;br&gt;1. We have opened system incident.&lt;br&gt;2. We have opened user incident.&lt;br&gt;&lt;br&gt;We ignore user&#39;s created incidents and focus only on system created." style="text;html=1;align=left;verticalAlign=middle;resizable=0;points=[];autosize=1;strokeColor=none;fillColor=none;" parent="1" vertex="1">
+          <mxGeometry x="427" y="200" width="390" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="270vdTzZN6ndXn6HyqXx-75" value="YES" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="270vdTzZN6ndXn6HyqXx-72" target="270vdTzZN6ndXn6HyqXx-74">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="270vdTzZN6ndXn6HyqXx-77" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="270vdTzZN6ndXn6HyqXx-72" target="270vdTzZN6ndXn6HyqXx-76">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="270vdTzZN6ndXn6HyqXx-72" value="Is the maintenance exist?" style="rhombus;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="335" y="575" width="80" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="270vdTzZN6ndXn6HyqXx-74" value="skip creation" style="whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="475" y="585" width="120" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="270vdTzZN6ndXn6HyqXx-79" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="270vdTzZN6ndXn6HyqXx-76" target="270vdTzZN6ndXn6HyqXx-78">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="270vdTzZN6ndXn6HyqXx-76" value="get active system incident for the target component" style="whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="315" y="745" width="120" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="270vdTzZN6ndXn6HyqXx-81" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="270vdTzZN6ndXn6HyqXx-78" target="270vdTzZN6ndXn6HyqXx-82">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="475" y="915" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="270vdTzZN6ndXn6HyqXx-83" value="YES" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];" vertex="1" connectable="0" parent="270vdTzZN6ndXn6HyqXx-81">
+          <mxGeometry x="-0.3905" relative="1" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="270vdTzZN6ndXn6HyqXx-88" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="270vdTzZN6ndXn6HyqXx-78" target="270vdTzZN6ndXn6HyqXx-87">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="270vdTzZN6ndXn6HyqXx-89" value="NO" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];" vertex="1" connectable="0" parent="270vdTzZN6ndXn6HyqXx-88">
+          <mxGeometry x="-0.1545" y="3" relative="1" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="270vdTzZN6ndXn6HyqXx-78" value="is it exist?" style="rhombus;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="335" y="875" width="80" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="270vdTzZN6ndXn6HyqXx-85" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="270vdTzZN6ndXn6HyqXx-82" target="270vdTzZN6ndXn6HyqXx-84">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="270vdTzZN6ndXn6HyqXx-86" value="YES" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];" vertex="1" connectable="0" parent="270vdTzZN6ndXn6HyqXx-85">
+          <mxGeometry x="-0.1175" y="1" relative="1" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="270vdTzZN6ndXn6HyqXx-93" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="270vdTzZN6ndXn6HyqXx-82" target="270vdTzZN6ndXn6HyqXx-92">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="270vdTzZN6ndXn6HyqXx-82" value="is impact equal" style="rhombus;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="495" y="875" width="80" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="270vdTzZN6ndXn6HyqXx-84" value="skip creation" style="whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="635" y="885" width="120" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="270vdTzZN6ndXn6HyqXx-87" value="add component to the incident with the target impact" style="whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="315" y="1045" width="120" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="270vdTzZN6ndXn6HyqXx-92" value="move component from the less impact to higher" style="whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="475" y="1045" width="120" height="60" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
