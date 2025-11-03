@@ -1187,7 +1187,7 @@ func TestV2GetComponentsAvailability(t *testing.T) {
 	impact := 3
 	title := "Test incident for dns N1"
 	startDate := time.Date(2025, 7, 1, 0, 0, 0, 0, time.UTC)
-	system := true
+	system := false
 
 	// Incident N1
 	incidentCreateDataN1 := v2.IncidentData{
