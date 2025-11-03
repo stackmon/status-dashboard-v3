@@ -278,7 +278,7 @@ func (db *DB) GetEventsByComponentID(componentID uint, params ...*IncidentsParam
 	}
 
 	if param.IsActive != nil && *param.IsActive {
-		r.Where("incident.status in ?", []event.Status{
+		r.Where("incident.status not in ?", []event.Status{
 			event.IncidentResolved, event.MaintenanceCompleted, event.MaintenanceCancelled,
 			event.InfoCompleted, event.InfoCancelled})
 	}
@@ -561,27 +561,36 @@ func (db *DB) ExtractComponentsToNewIncident(
 		})
 	}
 
-	err = db.ModifyIncident(inc)
-	if err != nil {
-		return nil, err
-	}
-
 	for _, c := range comp {
-		err = db.g.Model(incOld).Association("Components").Delete(c)
-		if err != nil {
-			return nil, err
-		}
-
 		incText := fmt.Sprintf("%s moved to %s", c.PrintAttrs(), inc.Link())
 		incOld.Statuses = append(incOld.Statuses, IncidentStatus{
-			IncidentID: inc.ID,
+			IncidentID: incOld.ID,
 			Status:     event.OutDatedSystem,
 			Text:       incText,
 			Timestamp:  timeNow,
 		})
 	}
 
-	err = db.ModifyIncident(incOld)
+	// Use a transaction to save both incidents with their statuses and update associations
+	err = db.g.Transaction(func(tx *gorm.DB) error {
+		// Remove component from old incident
+		for _, c := range comp {
+			if err := tx.Model(incOld).Association("Components").Delete(c); err != nil {
+				return err
+			}
+		}
+
+		// Save both incidents with their new statuses (Save() saves associated records)
+		if r := tx.Save(inc); r.Error != nil {
+			return r.Error
+		}
+		if r := tx.Save(incOld); r.Error != nil {
+			return r.Error
+		}
+
+		return nil
+	})
+
 	if err != nil {
 		return nil, err
 	}

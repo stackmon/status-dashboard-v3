@@ -347,11 +347,6 @@ func PostIncidentHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 			log.Info("regular incident detected, using regular incident creation logic")
 			result, err = handleRegularIncidentCreation(dbInst, log, incData)
 			if err != nil {
-				if errors.Is(err, apiErrors.ErrIncidentSystemCreationWrongType) {
-					apiErrors.RaiseBadRequestErr(c, err)
-					return
-				}
-
 				apiErrors.RaiseInternalErr(c, err)
 				return
 			}
@@ -440,7 +435,7 @@ CompLoop:
 					ComponentID: int(comp.ID),
 					IncidentID:  int(evnt.ID),
 				})
-				continue
+				continue CompLoop
 			}
 
 			log.Info(
@@ -607,22 +602,24 @@ func moveComponentFromToSystemIncidents(
 		zap.Int("impact", *incData.Impact),
 	)
 
-	incIn := db.Incident{
-		Text:        &incData.Title,
-		Description: &incData.Description,
-		StartDate:   &incData.StartDate,
-		EndDate:     incData.EndDate,
-		Impact:      incData.Impact,
-		System:      *incData.System,
-		Type:        incData.Type,
-		Components:  []db.Component{*comp},
-	}
-
-	if err := createEvent(dbInst, log, &incIn); err != nil {
+	inc, err := dbInst.ExtractComponentsToNewIncident(
+		[]db.Component{*comp},
+		oldInc,
+		*incData.Impact,
+		incData.Title,
+		&incData.Description,
+	)
+	if err != nil {
 		return nil, err
 	}
 
-	return &incIn, nil
+	// Update the new incident to mark it as a system incident
+	inc.System = true
+	if err := dbInst.ModifyIncident(inc); err != nil {
+		return nil, err
+	}
+
+	return inc, nil
 }
 
 // handleRegularIncidentCreation handles creation of regular incidents with component movement logic.
