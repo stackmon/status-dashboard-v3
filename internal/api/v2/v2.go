@@ -651,61 +651,118 @@ func handleRegularIncidentCreation(
 		return nil, err
 	}
 
-	result := make([]*ProcessComponentResp, 0)
-
-	if len(openedIncidents) == 0 || *incData.Impact == 0 || incData.Type == event.TypeInformation {
-		if *incData.Impact == 0 {
-			log.Info("the event is maintenance or info, finish the incident creation")
-		} else {
-			log.Info("no opened incidents, finish the incident creation")
-		}
-		for _, comp := range incIn.Components {
-			result = append(result, &ProcessComponentResp{
-				ComponentID: int(comp.ID),
-				IncidentID:  int(incIn.ID),
-			})
-		}
-
-		return result, nil
+	// Handle simple cases where no component movement is needed
+	if shouldSkipComponentMovement(openedIncidents, incData) {
+		return createSimpleIncidentResult(log, &incIn, incData), nil
 	}
 
-	log.Info("start to analyse component movement")
-	// It moved from original logic
+	// Process component movement for complex cases
+	return processComponentMovement(dbInst, log, &incIn, openedIncidents)
+}
+
+// shouldSkipComponentMovement determines if component movement logic should be skipped.
+func shouldSkipComponentMovement(openedIncidents []*db.Incident, incData IncidentData) bool {
+	return len(openedIncidents) == 0 || *incData.Impact == 0 || incData.Type == event.TypeInformation
+}
+
+// createSimpleIncidentResult creates a result for incidents that don't require component movement.
+func createSimpleIncidentResult(log *zap.Logger, incIn *db.Incident, incData IncidentData) []*ProcessComponentResp {
+	if *incData.Impact == 0 {
+		log.Info("the event is maintenance or info, finish the incident creation")
+	} else {
+		log.Info("no opened incidents, finish the incident creation")
+	}
+
+	result := make([]*ProcessComponentResp, 0, len(incIn.Components))
 	for _, comp := range incIn.Components {
-		compResult := &ProcessComponentResp{
+		result = append(result, &ProcessComponentResp{
 			ComponentID: int(comp.ID),
-		}
-		for _, inc := range openedIncidents {
-			if inc.Type == event.TypeInformation || inc.Type == event.TypeMaintenance {
-				log.Info(
-					"skip the component movement for maintenance or info incident",
-					zap.Any("componentID", comp.ID), zap.Any("incident_opened", inc),
-				)
-				continue
-			}
-			for _, incComp := range inc.Components {
-				if comp.ID == incComp.ID {
-					log.Info("found the component in the opened incident", zap.Any("component", comp), zap.Any("incident", inc))
-					var closeInc bool
-					if len(inc.Components) == 1 {
-						closeInc = true
-					}
-					incident, errRes := dbInst.MoveComponentFromOldToAnotherIncident(&comp, inc, &incIn, closeInc)
-					if errRes != nil {
-						return nil, errRes
-					}
-					compResult.IncidentID = int(incident.ID)
-				}
-			}
-		}
-		if compResult.IncidentID == 0 {
-			log.Info("there are no any opened incidents for given component, return created incident")
-			compResult.IncidentID = int(incIn.ID)
+			IncidentID:  int(incIn.ID),
+		})
+	}
+	return result
+}
+
+// processComponentMovement handles the complex logic of moving components between incidents.
+func processComponentMovement(
+	dbInst *db.DB, log *zap.Logger, incIn *db.Incident, openedIncidents []*db.Incident,
+) ([]*ProcessComponentResp, error) {
+	log.Info("start to analyse component movement")
+	result := make([]*ProcessComponentResp, 0, len(incIn.Components))
+
+	for _, comp := range incIn.Components {
+		compResult, err := processComponentInOpenedIncidents(dbInst, log, &comp, incIn, openedIncidents)
+		if err != nil {
+			return nil, err
 		}
 		result = append(result, compResult)
 	}
 
 	return result, nil
+}
+
+// processComponentInOpenedIncidents processes a single component against all opened incidents.
+func processComponentInOpenedIncidents(
+	dbInst *db.DB, log *zap.Logger, comp *db.Component, incIn *db.Incident, openedIncidents []*db.Incident,
+) (*ProcessComponentResp, error) {
+	compResult := &ProcessComponentResp{
+		ComponentID: int(comp.ID),
+	}
+
+	for _, inc := range openedIncidents {
+		if shouldSkipIncident(inc) {
+			log.Info(
+				"skip the component movement for maintenance or info incident",
+				zap.Any("componentID", comp.ID), zap.Any("incident_opened", inc),
+			)
+			continue
+		}
+
+		moved, err := tryMoveComponentIfFound(dbInst, log, comp, inc, incIn, compResult)
+		if err != nil {
+			return nil, err
+		}
+		if moved {
+			break
+		}
+	}
+
+	if compResult.IncidentID == 0 {
+		log.Info("there are no any opened incidents for given component, return created incident")
+		compResult.IncidentID = int(incIn.ID)
+	}
+
+	return compResult, nil
+}
+
+// shouldSkipIncident determines if an incident should be skipped for component movement.
+func shouldSkipIncident(inc *db.Incident) bool {
+	return inc.Type == event.TypeInformation || inc.Type == event.TypeMaintenance
+}
+
+// tryMoveComponentIfFound attempts to move a component if it's found in the given incident.
+func tryMoveComponentIfFound(
+	dbInst *db.DB,
+	log *zap.Logger,
+	comp *db.Component,
+	inc *db.Incident,
+	incIn *db.Incident,
+	compResult *ProcessComponentResp,
+) (bool, error) {
+	for _, incComp := range inc.Components {
+		if comp.ID == incComp.ID {
+			log.Info("found the component in the opened incident", zap.Any("component", comp), zap.Any("incident", inc))
+
+			closeInc := len(inc.Components) == 1
+			incident, err := dbInst.MoveComponentFromOldToAnotherIncident(comp, inc, incIn, closeInc)
+			if err != nil {
+				return false, err
+			}
+			compResult.IncidentID = int(incident.ID)
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 type PostIncidentResp struct {
