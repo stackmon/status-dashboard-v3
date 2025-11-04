@@ -353,8 +353,9 @@ func PostIncidentHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 }
 
 // handleSystemIncidentCreation handles creation of system incidents.
-func handleSystemIncidentCreation(dbInst *db.DB, log *zap.Logger, incData IncidentData) ([]*ProcessComponentResp, error) {
-
+func handleSystemIncidentCreation(
+	dbInst *db.DB, log *zap.Logger, incData IncidentData,
+) ([]*ProcessComponentResp, error) {
 	if incData.Type != event.TypeIncident {
 		log.Info("system incident must be of type 'incident'")
 		return nil, apiErrors.ErrIncidentSystemCreationWrongType
@@ -365,113 +366,172 @@ func handleSystemIncidentCreation(dbInst *db.DB, log *zap.Logger, incData Incide
 		incData.Description = "System-wide incident affecting multiple components. Created automatically."
 	}
 
-	components := make([]db.Component, len(incData.Components))
-	for i, comp := range incData.Components {
-		component, err := dbInst.GetComponent(comp)
-		if err != nil {
-			return nil, err
-		}
-
-		components[i] = *component
+	components, err := fetchComponents(dbInst, incData.Components)
+	if err != nil {
+		return nil, err
 	}
 
-	var result []*ProcessComponentResp
-
-CompLoop:
+	result := make([]*ProcessComponentResp, 0, len(components))
 	for _, comp := range components {
-		log.Info("start to process component", zap.Any("component", comp))
-		log.Info("find events with target component", zap.Uint("componentID", comp.ID))
-		active := true
-		params := &db.IncidentsParams{
-			IsActive: &active,
-			Types:    []string{event.TypeIncident, event.TypeMaintenance},
+		compResult, errProc := processSystemIncidentComponent(dbInst, log, comp, incData)
+		if errProc != nil {
+			return nil, errProc
 		}
-		events, err := dbInst.GetEventsByComponentID(comp.ID, params)
-		if err != nil {
-			return nil, err
-		}
-		log.Info("found events for component", zap.Uint("componentID", comp.ID), zap.Int("eventsCount", len(events)))
-
-		if len(events) == 0 {
-			log.Info("no events found for component, check and process all system incidents", zap.Uint("componentID", comp.ID))
-			sysInc, errAdd := addComponentToSystemIncident(dbInst, log, &comp, incData)
-			if errAdd != nil {
-				return nil, errAdd
-			}
-			log.Info(
-				"component added to system incident",
-				zap.Uint("componentID", comp.ID), zap.Uint("incidentID", sysInc.ID),
-			)
-			result = append(result, &ProcessComponentResp{
-				ComponentID: int(comp.ID),
-				IncidentID:  int(sysInc.ID),
-			})
-			continue
-		}
-
-		// check existing maintenance events first
-		log.Info("checking maintenance for the component", zap.Uint("componentID", comp.ID))
-		for _, evnt := range events {
-			if evnt.Type == event.TypeMaintenance {
-				log.Info("we have maintenance event for the component, skip creation", zap.Uint("eventID", evnt.ID))
-				result = append(result, &ProcessComponentResp{
-					ComponentID: int(comp.ID),
-					IncidentID:  int(evnt.ID),
-					Error:       apiErrors.ErrIncidentCreationMaintenanceExists.Error(),
-				})
-				continue CompLoop
-			}
-
-			if !evnt.System {
-				log.Info(
-					"found non-system incident for the component, return it",
-					zap.Uint("componentID", comp.ID), zap.Uint("incidentID", evnt.ID),
-				)
-				result = append(result, &ProcessComponentResp{
-					ComponentID: int(comp.ID),
-					IncidentID:  int(evnt.ID),
-				})
-				continue CompLoop
-			}
-
-			log.Info(
-				"found system incident for the component, compare impact",
-				zap.Uint("componentID", comp.ID), zap.Uint("incidentID", evnt.ID),
-			)
-			if *evnt.Impact >= *incData.Impact {
-				log.Info(
-					"existing system incident has equal or higher impact, return the existed incident",
-					zap.Uint("componentID", comp.ID), zap.Uint("incidentID", evnt.ID),
-				)
-				result = append(result, &ProcessComponentResp{
-					ComponentID: int(comp.ID),
-					IncidentID:  int(evnt.ID),
-				})
-				continue CompLoop
-			}
-
-			// existing system incident has lower impact, move component to the new system incident
-			log.Info(
-				"found system incident has lower impact, move component to the system incident with the target impact",
-				zap.Uint("componentID", comp.ID), zap.Uint("fromIncidentID", evnt.ID),
-			)
-
-			sysInc, errAdd := moveComponentFromToSystemIncidents(dbInst, log, &comp, incData, evnt)
-			if errAdd != nil {
-				return nil, errAdd
-			}
-			log.Info(
-				"component added to system incident",
-				zap.Uint("componentID", comp.ID), zap.Uint("incidentID", sysInc.ID),
-			)
-			result = append(result, &ProcessComponentResp{
-				ComponentID: int(comp.ID),
-				IncidentID:  int(sysInc.ID),
-			})
-		}
+		result = append(result, compResult)
 	}
 
 	return result, nil
+}
+
+// fetchComponents retrieves all components from the database based on the provided IDs.
+func fetchComponents(dbInst *db.DB, componentIDs []int) ([]db.Component, error) {
+	components := make([]db.Component, len(componentIDs))
+	for i, compID := range componentIDs {
+		component, err := dbInst.GetComponent(compID)
+		if err != nil {
+			return nil, err
+		}
+		components[i] = *component
+	}
+	return components, nil
+}
+
+// processSystemIncidentComponent processes a single component for system incident creation.
+func processSystemIncidentComponent(
+	dbInst *db.DB, log *zap.Logger, comp db.Component, incData IncidentData,
+) (*ProcessComponentResp, error) {
+	log.Info("start to process component", zap.Any("component", comp))
+	log.Info("find events with target component", zap.Uint("componentID", comp.ID))
+
+	events, err := getActiveEventsForComponent(dbInst, comp.ID)
+	if err != nil {
+		return nil, err
+	}
+	log.Info("found events for component", zap.Uint("componentID", comp.ID), zap.Int("eventsCount", len(events)))
+
+	if len(events) == 0 {
+		return handleComponentWithNoEvents(dbInst, log, &comp, incData)
+	}
+
+	return handleComponentWithExistingEvents(dbInst, log, &comp, incData, events)
+}
+
+// getActiveEventsForComponent retrieves active incidents and maintenances for a component.
+func getActiveEventsForComponent(dbInst *db.DB, componentID uint) ([]*db.Incident, error) {
+	active := true
+	params := &db.IncidentsParams{
+		IsActive: &active,
+		Types:    []string{event.TypeIncident, event.TypeMaintenance},
+	}
+	return dbInst.GetEventsByComponentID(componentID, params)
+}
+
+// handleComponentWithNoEvents handles a component that has no existing events.
+func handleComponentWithNoEvents(
+	dbInst *db.DB, log *zap.Logger, comp *db.Component, incData IncidentData,
+) (*ProcessComponentResp, error) {
+	log.Info("no events found for component, check and process all system incidents", zap.Uint("componentID", comp.ID))
+	sysInc, err := addComponentToSystemIncident(dbInst, log, comp, incData)
+	if err != nil {
+		return nil, err
+	}
+	log.Info(
+		"component added to system incident",
+		zap.Uint("componentID", comp.ID), zap.Uint("incidentID", sysInc.ID),
+	)
+	return &ProcessComponentResp{
+		ComponentID: int(comp.ID),
+		IncidentID:  int(sysInc.ID),
+	}, nil
+}
+
+// handleComponentWithExistingEvents processes a component that has existing events.
+func handleComponentWithExistingEvents(
+	dbInst *db.DB, log *zap.Logger, comp *db.Component, incData IncidentData, events []*db.Incident,
+) (*ProcessComponentResp, error) {
+	log.Info("checking events for the component", zap.Uint("componentID", comp.ID), zap.Int("eventsCount", len(events)))
+
+	// Process events to find maintenance, non-system incidents, or system incidents
+	// Priority: maintenance (highest) > non-system > system (lowest)
+	var firstSystemIncident *db.Incident
+
+	for _, evnt := range events {
+		// Check for maintenance event - highest priority, return immediately
+		if evnt.Type == event.TypeMaintenance {
+			log.Info("we have maintenance event for the component, skip creation", zap.Uint("eventID", evnt.ID))
+			return &ProcessComponentResp{
+				ComponentID: int(comp.ID),
+				IncidentID:  int(evnt.ID),
+				Error:       apiErrors.ErrIncidentCreationMaintenanceExists.Error(),
+			}, nil
+		}
+
+		// Check for non-system incident - second priority, return immediately
+		if !evnt.System {
+			log.Info(
+				"found non-system incident for the component, return it",
+				zap.Uint("componentID", comp.ID), zap.Uint("incidentID", evnt.ID),
+			)
+			return &ProcessComponentResp{
+				ComponentID: int(comp.ID),
+				IncidentID:  int(evnt.ID),
+			}, nil
+		}
+
+		// Track the first system incident (lowest priority)
+		if evnt.System && firstSystemIncident == nil {
+			firstSystemIncident = evnt
+		}
+	}
+
+	// If we found a system incident, handle it
+	if firstSystemIncident != nil {
+		return handleSystemIncidentWithImpactComparison(dbInst, log, comp, incData, firstSystemIncident)
+	}
+
+	// This should not be reached - if we have events, one of the conditions above should handle it
+	log.Error("unexpected: no events matched any condition", zap.Uint("componentID", comp.ID))
+	return nil, fmt.Errorf("no matching event condition for component %d", comp.ID)
+}
+
+// handleSystemIncidentWithImpactComparison handles impact comparison for system incidents.
+func handleSystemIncidentWithImpactComparison(
+	dbInst *db.DB, log *zap.Logger, comp *db.Component, incData IncidentData, evnt *db.Incident,
+) (*ProcessComponentResp, error) {
+	log.Info(
+		"found system incident for the component, compare impact",
+		zap.Uint("componentID", comp.ID), zap.Uint("incidentID", evnt.ID),
+	)
+
+	if *evnt.Impact >= *incData.Impact {
+		log.Info(
+			"existing system incident has equal or higher impact, return the existed incident",
+			zap.Uint("componentID", comp.ID), zap.Uint("incidentID", evnt.ID),
+		)
+		return &ProcessComponentResp{
+			ComponentID: int(comp.ID),
+			IncidentID:  int(evnt.ID),
+		}, nil
+	}
+
+	// existing system incident has lower impact, move component to new system incident
+	log.Info(
+		"found system incident has lower impact, move component to the system incident with the target impact",
+		zap.Uint("componentID", comp.ID), zap.Uint("fromIncidentID", evnt.ID),
+	)
+
+	sysInc, err := moveComponentFromToSystemIncidents(dbInst, log, comp, incData, evnt)
+	if err != nil {
+		return nil, err
+	}
+	log.Info(
+		"component added to system incident",
+		zap.Uint("componentID", comp.ID), zap.Uint("incidentID", sysInc.ID),
+	)
+	return &ProcessComponentResp{
+		ComponentID: int(comp.ID),
+		IncidentID:  int(sysInc.ID),
+	}, nil
 }
 
 func addComponentToSystemIncident(
