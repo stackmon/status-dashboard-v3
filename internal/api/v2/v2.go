@@ -615,7 +615,7 @@ func moveComponentFromToSystemIncidents(
 
 	// Update the new incident to mark it as a system incident
 	inc.System = true
-	if err := dbInst.ModifyIncident(inc); err != nil {
+	if err = dbInst.ModifyIncident(inc); err != nil {
 		return nil, err
 	}
 

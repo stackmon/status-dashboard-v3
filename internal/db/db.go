@@ -575,8 +575,8 @@ func (db *DB) ExtractComponentsToNewIncident(
 	err = db.g.Transaction(func(tx *gorm.DB) error {
 		// Remove component from old incident
 		for _, c := range comp {
-			if err := tx.Model(incOld).Association("Components").Delete(c); err != nil {
-				return err
+			if errDel := tx.Model(incOld).Association("Components").Delete(c); err != nil {
+				return errDel
 			}
 		}
 

@@ -227,6 +227,7 @@ func TestV2PostIncidentsHandler(t *testing.T) {
 	}
 
 	result := v2CreateIncident(t, r, &incidentCreateData)
+	require.NotNil(t, result, "v2CreateIncident returned nil")
 
 	assert.Len(t, result.Result, len(incidentCreateData.Components))
 	assert.Empty(t, result.Result[0].Error)
@@ -250,6 +251,7 @@ func TestV2PostIncidentsHandler(t *testing.T) {
 	t.Log("current time:", time.Now().UTC())
 	incidentCreateData.Title = "Test incident creation for api V2 for components: 1, 2. Test should close previous and move components to the new."
 	result = v2CreateIncident(t, r, &incidentCreateData)
+	require.NotNil(t, result, "v2CreateIncident returned nil")
 	assert.Equal(t, len(incidents)+2, result.Result[0].IncidentID)
 	assert.Equal(t, len(incidents)+2, result.Result[1].IncidentID)
 
@@ -289,6 +291,7 @@ func TestV2PostIncidentsHandler(t *testing.T) {
 	incidentCreateData.Type = event.TypeMaintenance
 
 	result = v2CreateIncident(t, r, &incidentCreateData)
+	require.NotNil(t, result, "v2CreateIncident returned nil")
 	assert.Equal(t, len(incidents)+3, result.Result[0].IncidentID)
 	assert.Equal(t, len(incidents)+3, result.Result[1].IncidentID)
 
@@ -333,6 +336,7 @@ func TestV2PostIncidentsHandler(t *testing.T) {
 		Type:        event.TypeIncident,
 	}
 	result = v2CreateIncident(t, r, &incidentCreateData)
+	require.NotNil(t, result, "v2CreateIncident returned nil")
 	assert.Equal(t, 23, result.Result[0].IncidentID)
 	assert.Equal(t, 3, result.Result[0].ComponentID)
 }
@@ -358,6 +362,7 @@ func TestV2PatchIncidentHandlerNegative(t *testing.T) {
 	}
 
 	resp := v2CreateIncident(t, r, &incidentCreateData)
+	require.NotNil(t, resp, "v2CreateIncident returned nil")
 	incID10 := resp.Result[0].IncidentID
 
 	type testCase struct {
@@ -474,6 +479,7 @@ func TestV2PatchIncidentHandler(t *testing.T) {
 	}
 
 	resp := v2CreateIncident(t, r, &incidentCreateData)
+	require.NotNil(t, resp, "v2CreateIncident returned nil")
 	incID := resp.Result[0].IncidentID
 
 	newTitle := "patched incident title"
@@ -577,6 +583,7 @@ func TestV2PostIncidentExtractHandler(t *testing.T) {
 
 	t.Log("create a initial incident", incidentCreateData)
 	result := v2CreateIncident(t, r, &incidentCreateData)
+	require.NotNil(t, result, "v2CreateIncident returned nil")
 
 	t.Logf("prepare to extract components: %d from incident %d", 2, result.Result[0].IncidentID)
 	type IncidentData struct {
@@ -699,25 +706,6 @@ func v2PatchIncident(t *testing.T, r *gin.Engine, inc *v2.Incident, status ...ev
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, 200, w.Code)
-}
-
-func Testv2GetComponents(t *testing.T, r *gin.Engine) []v2.Component {
-	t.Helper()
-
-	url := "/v2/components"
-	w := httptest.NewRecorder()
-	req, err := http.NewRequest(http.MethodGet, url, nil)
-	require.NoError(t, err, "failed to create HTTP request")
-
-	r.ServeHTTP(w, req)
-
-	assert.Equal(t, http.StatusOK, w.Code, "unexpected HTTP status code")
-
-	var components []v2.Component
-	err = json.Unmarshal(w.Body.Bytes(), &components)
-	require.NoError(t, err, "failed to unmarshal response body")
-
-	return components
 }
 
 func TestV2CreateComponentAndList(t *testing.T) {
@@ -1040,6 +1028,7 @@ func TestV2PostMaintenanceHandler(t *testing.T) {
 	}
 
 	result := v2CreateIncident(t, r, &incidentCreateData)
+	require.NotNil(t, result, "v2CreateIncident returned nil")
 	assert.Len(t, incidentCreateData.Components, len(result.Result))
 
 	incident := v2GetIncident(t, r, result.Result[0].IncidentID)
@@ -1206,6 +1195,7 @@ func TestV2GetComponentsAvailability(t *testing.T) {
 	}
 
 	resultN1 := v2CreateIncident(t, r, &incidentCreateDataN1)
+	require.NotNil(t, resultN1, "v2CreateIncident returned nil")
 
 	assert.Len(t, resultN1.Result, len(incidentCreateDataN1.Components))
 
@@ -1234,6 +1224,7 @@ func TestV2GetComponentsAvailability(t *testing.T) {
 	}
 
 	resultN2 := v2CreateIncident(t, r, &incidentCreateDataN2)
+	require.NotNil(t, resultN2, "v2CreateIncident returned nil")
 
 	assert.Len(t, resultN2.Result, len(incidentCreateDataN2.Components))
 
