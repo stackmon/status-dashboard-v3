@@ -334,22 +334,18 @@ func PostIncidentHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 		if *incData.System {
 			log.Info("system incident detected, using system incident creation logic")
 			result, err = handleSystemIncidentCreation(dbInst, log, incData)
-			if err != nil {
-				if errors.Is(err, apiErrors.ErrIncidentSystemCreationWrongType) {
-					apiErrors.RaiseBadRequestErr(c, err)
-					return
-				}
-
-				apiErrors.RaiseInternalErr(c, err)
-				return
-			}
 		} else {
 			log.Info("regular incident detected, using regular incident creation logic")
 			result, err = handleRegularIncidentCreation(dbInst, log, incData)
-			if err != nil {
-				apiErrors.RaiseInternalErr(c, err)
+		}
+
+		if err != nil {
+			if errors.Is(err, apiErrors.ErrIncidentSystemCreationWrongType) {
+				apiErrors.RaiseBadRequestErr(c, err)
 				return
 			}
+			apiErrors.RaiseInternalErr(c, err)
+			return
 		}
 
 		c.JSON(http.StatusOK, PostIncidentResp{Result: result})
