@@ -142,7 +142,7 @@ func TestV2PostIncidentsHandlerNegative(t *testing.T) {
 }`
 
 	jsWrongIncidentImpact := `{
-  "title":"Incident with maintenance impact",
+  "title":"event with maintenance impact",
   "impact":0,
   "components":[1],
   "start_date":"2024-11-25T09:32:14.075Z",
@@ -151,7 +151,7 @@ func TestV2PostIncidentsHandlerNegative(t *testing.T) {
 }`
 
 	testCases := map[string]*testCase{
-		"negative testcase, incident is not a maintenance and end_date is present": {
+		"negative testcase, event is not a maintenance and end_date is present": {
 			JSON:         jsEndPresent,
 			Expected:     `{"errMsg":"event end_date should be empty"}`,
 			ExpectedCode: 400,
@@ -171,7 +171,7 @@ func TestV2PostIncidentsHandlerNegative(t *testing.T) {
 			Expected:     `{"errMsg":"impact must be 0 for type 'maintenance' or 'info' and gt 0 for 'incident'"}`,
 			ExpectedCode: 400,
 		},
-		"negative testcase, incident with zero impact": {
+		"negative testcase, event with zero impact": {
 			JSON:         jsWrongIncidentImpact,
 			Expected:     `{"errMsg":"impact must be 0 for type 'maintenance' or 'info' and gt 0 for 'incident'"}`,
 			ExpectedCode: 400,
@@ -391,14 +391,14 @@ func TestV2PatchIncidentHandlerNegative(t *testing.T) {
 	}`
 	jsWrongOpenedStatusForChangingImpact := `{
 	"impact": 0,
-	"message": "Any message why the incident was updated.",
+	"message": "Any message why the event was updated.",
 	"status": "analysing",
 	"update_date": "2024-12-11T14:46:03.877Z",
 	"type": "maintenance"
 	}`
 	jsWrongOpenedMaintenanceImpact := `{
 	 "impact": 0,
-	 "message": "Any message why the incident was updated.",
+	 "message": "Any message why the event was updated.",
 	 "status": "impact changed",
 	 "update_date": "2024-12-11T14:46:03.877Z",
 	 "type": "maintenance"
