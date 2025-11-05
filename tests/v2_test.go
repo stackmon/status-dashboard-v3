@@ -20,9 +20,9 @@ import (
 )
 
 const (
-	v2Incidents    = "/v2/incidents"
-	v2Availability = "/v2/availability"
-	v2Events       = "/v2/events"
+	v2IncidentsEndpoint    = "/v2/incidents"
+	v2AvailabilityEndpoint = "/v2/availability"
+	v2EventsEndpoint       = "/v2/events"
 )
 
 // V2IncidentsListResponse defines the expected structure for the GET /v2/incidents endpoint.
@@ -32,13 +32,13 @@ type V2IncidentsListResponse struct {
 }
 
 func TestV2GetIncidentsHandler(t *testing.T) {
-	t.Logf("start to test GET %s", v2Incidents)
+	t.Logf("start to test GET %s", v2IncidentsEndpoint)
 	r, _, _ := initTests(t)
 
 	incidentStr := `{"id":1,"title":"Closed incident without any update","impact":1,"components":[1],"start_date":"2025-05-22T10:12:42Z","end_date":"2025-05-22T11:12:42Z","system":true,"type":"incident","updates":[{"id":0,"status":"resolved","text":"close incident","timestamp":"2025-05-22T11:12:42.559346Z"}],"status":"resolved"}`
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest(http.MethodGet, v2Incidents, nil)
+	req, _ := http.NewRequest(http.MethodGet, v2IncidentsEndpoint, nil)
 
 	r.ServeHTTP(w, req)
 
@@ -182,7 +182,7 @@ func TestV2PostIncidentsHandlerNegative(t *testing.T) {
 		t.Logf("start test case: %s\n", title)
 
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest(http.MethodPost, v2Incidents, strings.NewReader(c.JSON))
+		req, _ := http.NewRequest(http.MethodPost, v2IncidentsEndpoint, strings.NewReader(c.JSON))
 		r.ServeHTTP(w, req)
 
 		assert.Equal(t, c.ExpectedCode, w.Code)
@@ -227,6 +227,7 @@ func TestV2PostIncidentsHandler(t *testing.T) {
 	}
 
 	result := v2CreateIncident(t, r, &incidentCreateData)
+	require.NotNil(t, result, "v2CreateIncident returned nil")
 
 	assert.Len(t, result.Result, len(incidentCreateData.Components))
 	assert.Empty(t, result.Result[0].Error)
@@ -250,6 +251,7 @@ func TestV2PostIncidentsHandler(t *testing.T) {
 	t.Log("current time:", time.Now().UTC())
 	incidentCreateData.Title = "Test incident creation for api V2 for components: 1, 2. Test should close previous and move components to the new."
 	result = v2CreateIncident(t, r, &incidentCreateData)
+	require.NotNil(t, result, "v2CreateIncident returned nil")
 	assert.Equal(t, len(incidents)+2, result.Result[0].IncidentID)
 	assert.Equal(t, len(incidents)+2, result.Result[1].IncidentID)
 
@@ -289,6 +291,7 @@ func TestV2PostIncidentsHandler(t *testing.T) {
 	incidentCreateData.Type = event.TypeMaintenance
 
 	result = v2CreateIncident(t, r, &incidentCreateData)
+	require.NotNil(t, result, "v2CreateIncident returned nil")
 	assert.Equal(t, len(incidents)+3, result.Result[0].IncidentID)
 	assert.Equal(t, len(incidents)+3, result.Result[1].IncidentID)
 
@@ -333,7 +336,8 @@ func TestV2PostIncidentsHandler(t *testing.T) {
 		Type:        event.TypeIncident,
 	}
 	result = v2CreateIncident(t, r, &incidentCreateData)
-	assert.Equal(t, 10, result.Result[0].IncidentID)
+	require.NotNil(t, result, "v2CreateIncident returned nil")
+	assert.Equal(t, 23, result.Result[0].IncidentID)
 	assert.Equal(t, 3, result.Result[0].ComponentID)
 }
 
@@ -358,6 +362,7 @@ func TestV2PatchIncidentHandlerNegative(t *testing.T) {
 	}
 
 	resp := v2CreateIncident(t, r, &incidentCreateData)
+	require.NotNil(t, resp, "v2CreateIncident returned nil")
 	incID10 := resp.Result[0].IncidentID
 
 	type testCase struct {
@@ -474,6 +479,7 @@ func TestV2PatchIncidentHandler(t *testing.T) {
 	}
 
 	resp := v2CreateIncident(t, r, &incidentCreateData)
+	require.NotNil(t, resp, "v2CreateIncident returned nil")
 	incID := resp.Result[0].IncidentID
 
 	newTitle := "patched incident title"
@@ -577,6 +583,7 @@ func TestV2PostIncidentExtractHandler(t *testing.T) {
 
 	t.Log("create a initial incident", incidentCreateData)
 	result := v2CreateIncident(t, r, &incidentCreateData)
+	require.NotNil(t, result, "v2CreateIncident returned nil")
 
 	t.Logf("prepare to extract components: %d from incident %d", 2, result.Result[0].IncidentID)
 	type IncidentData struct {
@@ -587,7 +594,7 @@ func TestV2PostIncidentExtractHandler(t *testing.T) {
 	require.NoError(t, err)
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest(http.MethodPost, v2Incidents+fmt.Sprintf("/%d/extract", result.Result[0].IncidentID), bytes.NewReader(data))
+	req, _ := http.NewRequest(http.MethodPost, v2IncidentsEndpoint+fmt.Sprintf("/%d/extract", result.Result[0].IncidentID), bytes.NewReader(data))
 	r.ServeHTTP(w, req)
 	require.Equal(t, http.StatusOK, w.Code)
 
@@ -612,7 +619,7 @@ func TestV2PostIncidentExtractHandler(t *testing.T) {
 	require.NoError(t, err)
 
 	w = httptest.NewRecorder()
-	req, _ = http.NewRequest(http.MethodPost, v2Incidents+fmt.Sprintf("/%d/extract", result.Result[0].IncidentID), bytes.NewReader(data))
+	req, _ = http.NewRequest(http.MethodPost, v2IncidentsEndpoint+fmt.Sprintf("/%d/extract", result.Result[0].IncidentID), bytes.NewReader(data))
 	r.ServeHTTP(w, req)
 	require.Equal(t, http.StatusBadRequest, w.Code)
 	assert.JSONEq(t, `{"errMsg":"can not move all components to the new incident, keep at least one"}`, w.Body.String())
@@ -625,7 +632,7 @@ func v2CreateIncident(t *testing.T, r *gin.Engine, inc *v2.IncidentData) *v2.Pos
 	require.NoError(t, err)
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest(http.MethodPost, v2Incidents, bytes.NewReader(data))
+	req, _ := http.NewRequest(http.MethodPost, v2IncidentsEndpoint, bytes.NewReader(data))
 	r.ServeHTTP(w, req)
 
 	if w.Code != http.StatusOK {
@@ -665,7 +672,7 @@ func v2GetIncidents(t *testing.T, r *gin.Engine) []*v2.Incident {
 
 	r.ServeHTTP(w, req)
 
-	assert.Equal(t, 200, w.Code)
+	assert.Equal(t, http.StatusOK, w.Code)
 
 	data := map[string][]*v2.Incident{}
 	err := json.Unmarshal(w.Body.Bytes(), &data)
@@ -699,25 +706,6 @@ func v2PatchIncident(t *testing.T, r *gin.Engine, inc *v2.Incident, status ...ev
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, 200, w.Code)
-}
-
-func Testv2GetComponents(t *testing.T, r *gin.Engine) []v2.Component {
-	t.Helper()
-
-	url := "/v2/components"
-	w := httptest.NewRecorder()
-	req, err := http.NewRequest(http.MethodGet, url, nil)
-	require.NoError(t, err, "failed to create HTTP request")
-
-	r.ServeHTTP(w, req)
-
-	assert.Equal(t, http.StatusOK, w.Code, "unexpected HTTP status code")
-
-	var components []v2.Component
-	err = json.Unmarshal(w.Body.Bytes(), &components)
-	require.NoError(t, err, "failed to unmarshal response body")
-
-	return components
 }
 
 func TestV2CreateComponentAndList(t *testing.T) {
@@ -791,15 +779,15 @@ func TestV2GetIncidentsFilteredHandler(t *testing.T) {
 		{
 			name:          "No filters",
 			queryParams:   nil,
-			expectedIDs:   []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14},
-			expectedCount: 14,
+			expectedIDs:   []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27},
+			expectedCount: 27,
 		},
 		{
 			name:        "Filter by start_date",
 			queryParams: map[string]string{"start_date": time.Date(2025, 2, 1, 0, 0, 0, 0, time.UTC).Format(time.RFC3339)},
 			// Incidents starting on or after 2025-02-01
-			expectedIDs:   []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14},
-			expectedCount: 14,
+			expectedIDs:   []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27},
+			expectedCount: 27,
 		},
 		{
 			name:        "Filter by end_date",
@@ -811,25 +799,25 @@ func TestV2GetIncidentsFilteredHandler(t *testing.T) {
 		{
 			name:          "Filter by impact minor (1)",
 			queryParams:   map[string]string{"impact": "1"},
-			expectedIDs:   []int{1, 7, 8, 10, 11, 13, 14},
-			expectedCount: 7,
+			expectedIDs:   []int{1, 13, 20, 21, 23, 24, 26, 27},
+			expectedCount: 8,
 		},
 		{
 			name:          "Filter by impact major (2)",
 			queryParams:   map[string]string{"impact": "2"},
-			expectedIDs:   []int{2, 4, 12},
-			expectedCount: 3,
+			expectedIDs:   []int{2, 4, 7, 9, 10, 15, 16, 19, 25},
+			expectedCount: 9,
 		},
 		{
 			name:          "Filter by impact maintenance (0)",
 			queryParams:   map[string]string{"impact": "0"},
-			expectedIDs:   []int{6, 9},
-			expectedCount: 2,
+			expectedIDs:   []int{6, 8, 17, 22},
+			expectedCount: 4,
 		},
 		{
 			name:          "Filter by component_id 1",
 			queryParams:   map[string]string{"components": "1"},
-			expectedIDs:   []int{1, 5, 9, 11, 12, 13},
+			expectedIDs:   []int{1, 5, 22, 24, 25, 26},
 			expectedCount: 6,
 		},
 		{
@@ -841,32 +829,32 @@ func TestV2GetIncidentsFilteredHandler(t *testing.T) {
 		{
 			name:          "Filter by system true",
 			queryParams:   map[string]string{"system": "true"},
-			expectedIDs:   []int{1},
-			expectedCount: 1,
+			expectedIDs:   []int{1, 7, 10, 11, 12, 13, 14, 15, 16, 18},
+			expectedCount: 10,
 		},
 		{
 			name:          "Filter by system false",
 			queryParams:   map[string]string{"system": "false"},
-			expectedIDs:   []int{2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14},
-			expectedCount: 13,
+			expectedIDs:   []int{2, 3, 4, 5, 6, 8, 9, 17, 19, 20, 21, 22, 23, 24, 25, 26, 27},
+			expectedCount: 17,
 		},
 		{
 			name:          "Filter by active true",
 			queryParams:   map[string]string{"active": "true"},
-			expectedIDs:   []int{13, 14},
+			expectedIDs:   []int{26, 27},
 			expectedCount: 2,
 		},
 		{
 			name:          "Combination: active true and impact 1",
 			queryParams:   map[string]string{"active": "true", "impact": "1"},
-			expectedIDs:   []int{13, 14},
+			expectedIDs:   []int{26, 27},
 			expectedCount: 2,
 		},
 		{
 			name:          "Combination: component_id 3 and system true",
 			queryParams:   map[string]string{"components": "3", "system": "true"},
-			expectedIDs:   []int{},
-			expectedCount: 0,
+			expectedIDs:   []int{7, 12, 14, 16},
+			expectedCount: 4,
 		},
 		{
 			name:        "Date range: 2025-05-01 to 2025-05-24",
@@ -879,15 +867,15 @@ func TestV2GetIncidentsFilteredHandler(t *testing.T) {
 		{
 			name:          "Filter by impact 3 (outage)",
 			queryParams:   map[string]string{"impact": "3"},
-			expectedIDs:   []int{3, 5},
-			expectedCount: 2,
+			expectedIDs:   []int{3, 5, 11, 12, 14, 18},
+			expectedCount: 6,
 		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			w := httptest.NewRecorder()
-			req, _ := http.NewRequest(http.MethodGet, v2Incidents, nil)
+			req, _ := http.NewRequest(http.MethodGet, v2IncidentsEndpoint, nil)
 
 			q := req.URL.Query()
 			for k, v := range tc.queryParams {
@@ -919,28 +907,33 @@ func TestV2GetIncidentsFilteredHandler(t *testing.T) {
 }
 
 func TestV2GetEventsHandler(t *testing.T) {
-	t.Logf("start to test GET %s with pagination", v2Events)
+	t.Logf("start to test GET %s with pagination", v2EventsEndpoint)
 	r, _, _ := initTests(t)
 
 	type V2EventsListResponse struct {
 		Data       []*v2.Incident `json:"data"`
 		Pagination struct {
-			PageIndex      int   `json:"pageIndex"`
-			RecordsPerPage int   `json:"recordsPerPage"`
-			TotalRecords   int64 `json:"totalRecords"`
-			TotalPages     int   `json:"totalPages"`
+			PageIndex      int `json:"pageIndex"`
+			RecordsPerPage int `json:"recordsPerPage"`
+			TotalRecords   int `json:"totalRecords"`
+			TotalPages     int `json:"totalPages"`
 		} `json:"pagination"`
 	}
 
-	// Log all incidents for better debugging
+	// Get all incidents for better debugging from /v2/incidents endpoint
 	allIncidents := v2GetIncidents(t, r)
 	t.Logf("Initial incidents in DB: %+v", len(allIncidents))
+	totalIncidents := len(allIncidents)
+	expectedpages := totalIncidents / 10
+	if totalIncidents%10 != 0 {
+		expectedpages++
+	}
 
 	testCases := []struct {
 		name               string
 		queryParams        string
 		expectedStatusCode int
-		expectedTotal      int64
+		expectedTotal      int
 		expectedPages      int
 		expectedItemsCount int
 		expectedLimit      int
@@ -950,9 +943,9 @@ func TestV2GetEventsHandler(t *testing.T) {
 			name:               "Default pagination",
 			queryParams:        "",
 			expectedStatusCode: http.StatusOK,
-			expectedTotal:      14,
+			expectedTotal:      totalIncidents,
 			expectedPages:      1,
-			expectedItemsCount: 14,
+			expectedItemsCount: totalIncidents,
 			expectedLimit:      50, // default limit
 			expectedPage:       1,  // default page
 		},
@@ -960,8 +953,8 @@ func TestV2GetEventsHandler(t *testing.T) {
 			name:               "Pagination with limit 10, page 1",
 			queryParams:        "?limit=10&page=1",
 			expectedStatusCode: http.StatusOK,
-			expectedTotal:      14,
-			expectedPages:      2,
+			expectedTotal:      totalIncidents,
+			expectedPages:      expectedpages,
 			expectedItemsCount: 10,
 			expectedLimit:      10,
 			expectedPage:       1,
@@ -970,9 +963,9 @@ func TestV2GetEventsHandler(t *testing.T) {
 			name:               "Pagination with limit 10, page 2",
 			queryParams:        "?limit=10&page=2",
 			expectedStatusCode: http.StatusOK,
-			expectedTotal:      14,
-			expectedPages:      2,
-			expectedItemsCount: 4,
+			expectedTotal:      totalIncidents,
+			expectedPages:      expectedpages,
+			expectedItemsCount: 10,
 			expectedLimit:      10,
 			expectedPage:       2,
 		},
@@ -980,9 +973,9 @@ func TestV2GetEventsHandler(t *testing.T) {
 			name:               "Pagination with limit 20, page 1",
 			queryParams:        "?limit=20&page=1",
 			expectedStatusCode: http.StatusOK,
-			expectedTotal:      14,
-			expectedPages:      1,
-			expectedItemsCount: 14,
+			expectedTotal:      totalIncidents,
+			expectedPages:      2,
+			expectedItemsCount: 20,
 			expectedLimit:      20,
 			expectedPage:       1,
 		},
@@ -991,7 +984,7 @@ func TestV2GetEventsHandler(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			w := httptest.NewRecorder()
-			req, _ := http.NewRequest(http.MethodGet, v2Events+tc.queryParams, nil)
+			req, _ := http.NewRequest(http.MethodGet, v2EventsEndpoint+tc.queryParams, nil)
 			r.ServeHTTP(w, req)
 
 			assert.Equal(t, tc.expectedStatusCode, w.Code)
@@ -1035,6 +1028,7 @@ func TestV2PostMaintenanceHandler(t *testing.T) {
 	}
 
 	result := v2CreateIncident(t, r, &incidentCreateData)
+	require.NotNil(t, result, "v2CreateIncident returned nil")
 	assert.Len(t, incidentCreateData.Components, len(result.Result))
 
 	incident := v2GetIncident(t, r, result.Result[0].IncidentID)
@@ -1177,7 +1171,7 @@ func TestV2PostInfoWithExistingEventsHandler(t *testing.T) {
 
 func TestV2GetComponentsAvailability(t *testing.T) {
 	truncateIncidents(t)
-	t.Logf("start to test GET %s", v2Availability)
+	t.Logf("start to test GET %s", v2AvailabilityEndpoint)
 	r, _, _ := initTests(t)
 
 	// Incident preparation
@@ -1187,7 +1181,7 @@ func TestV2GetComponentsAvailability(t *testing.T) {
 	impact := 3
 	title := "Test incident for dns N1"
 	startDate := time.Date(2025, 7, 1, 0, 0, 0, 0, time.UTC)
-	system := true
+	system := false
 
 	// Incident N1
 	incidentCreateDataN1 := v2.IncidentData{
@@ -1201,6 +1195,7 @@ func TestV2GetComponentsAvailability(t *testing.T) {
 	}
 
 	resultN1 := v2CreateIncident(t, r, &incidentCreateDataN1)
+	require.NotNil(t, resultN1, "v2CreateIncident returned nil")
 
 	assert.Len(t, resultN1.Result, len(incidentCreateDataN1.Components))
 
@@ -1229,6 +1224,7 @@ func TestV2GetComponentsAvailability(t *testing.T) {
 	}
 
 	resultN2 := v2CreateIncident(t, r, &incidentCreateDataN2)
+	require.NotNil(t, resultN2, "v2CreateIncident returned nil")
 
 	assert.Len(t, resultN2.Result, len(incidentCreateDataN2.Components))
 
@@ -1243,7 +1239,7 @@ func TestV2GetComponentsAvailability(t *testing.T) {
 	// Test case 1: Successful availability listing
 	t.Log("Test case 1: List availability successfully")
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest(http.MethodGet, v2Availability, nil)
+	req, _ := http.NewRequest(http.MethodGet, v2AvailabilityEndpoint, nil)
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)

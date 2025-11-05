@@ -11,10 +11,14 @@ var ErrIncidentTypeImpactMismatch = errors.New(
 )
 var ErrIncidentInvalidType = errors.New("event type is invalid, must be 'maintenance' 'info' or 'incident'")
 
+// Errors for creating incident
+
+var ErrIncidentSystemCreationWrongType = errors.New("system incident must be of type 'incident'")
 var ErrIncidentCreationMaintenanceExists = errors.New("event creation failed, component in maintenance")
 var ErrIncidentCreationLowImpact = errors.New(
 	"incident creation failed, exists the incident with higher impact for component",
 )
+
 var ErrIncidentFQueryInvalidFormat = errors.New("filter query parameter has an invalid format or value")
 
 // Errors for patching incident

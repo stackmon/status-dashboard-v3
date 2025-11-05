@@ -194,8 +194,8 @@ func (db *DB) GetEventsWithCount(params ...*IncidentsParams) ([]*Incident, int64
 // GetEvents retrieves events based on the provided parameters.
 // This is a wrapper around GetIncidentsWithCount for backward compatibility.
 func (db *DB) GetEvents(params ...*IncidentsParams) ([]*Incident, error) {
-	incidents, _, err := db.GetEventsWithCount(params...)
-	return incidents, err
+	events, _, err := db.GetEventsWithCount(params...)
+	return events, err
 }
 
 func (db *DB) GetIncident(id int) (*Incident, error) {
@@ -254,7 +254,9 @@ func (db *DB) ReOpenIncident(inc *Incident) error {
 	return nil
 }
 
-func (db *DB) GetIncidentsByComponentID(componentID uint, params ...*IncidentsParams) ([]*Incident, error) {
+// GetEventsByComponentID retrieves all events associated with a specific component ID.
+// Supports optional filtering parameters: isActive, Types, LastCount.
+func (db *DB) GetEventsByComponentID(componentID uint, params ...*IncidentsParams) ([]*Incident, error) {
 	// Get all incidents for this component
 	var incidents []*Incident
 	var param IncidentsParams
@@ -273,6 +275,16 @@ func (db *DB) GetIncidentsByComponentID(componentID uint, params ...*IncidentsPa
 
 	if param.LastCount != 0 {
 		r.Order("incident.id desc").Limit(param.LastCount)
+	}
+
+	if param.IsActive != nil && *param.IsActive {
+		r.Where("incident.status not in ?", []event.Status{
+			event.IncidentResolved, event.MaintenanceCompleted, event.MaintenanceCancelled,
+			event.InfoCompleted, event.InfoCancelled})
+	}
+
+	if len(param.Types) > 0 {
+		r.Where("incident.type IN (?)", param.Types)
 	}
 
 	r.Find(&incidents)
@@ -549,27 +561,36 @@ func (db *DB) ExtractComponentsToNewIncident(
 		})
 	}
 
-	err = db.ModifyIncident(inc)
-	if err != nil {
-		return nil, err
-	}
-
 	for _, c := range comp {
-		err = db.g.Model(incOld).Association("Components").Delete(c)
-		if err != nil {
-			return nil, err
-		}
-
 		incText := fmt.Sprintf("%s moved to %s", c.PrintAttrs(), inc.Link())
 		incOld.Statuses = append(incOld.Statuses, IncidentStatus{
-			IncidentID: inc.ID,
+			IncidentID: incOld.ID,
 			Status:     event.OutDatedSystem,
 			Text:       incText,
 			Timestamp:  timeNow,
 		})
 	}
 
-	err = db.ModifyIncident(incOld)
+	// Use a transaction to save both incidents with their statuses and update associations
+	err = db.g.Transaction(func(tx *gorm.DB) error {
+		// Remove component from old incident
+		for _, c := range comp {
+			if errDel := tx.Model(incOld).Association("Components").Delete(c); err != nil {
+				return errDel
+			}
+		}
+
+		// Save both incidents with their new statuses (Save() saves associated records)
+		if r := tx.Save(inc); r.Error != nil {
+			return r.Error
+		}
+		if r := tx.Save(incOld); r.Error != nil {
+			return r.Error
+		}
+
+		return nil
+	})
+
 	if err != nil {
 		return nil, err
 	}

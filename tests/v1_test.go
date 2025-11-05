@@ -343,6 +343,7 @@ func closeIncidentV1(t *testing.T, r *gin.Engine, dbIns *db.DB, id int) {
 	inc := &db.Incident{
 		ID:      uint(id),
 		EndDate: &tNow,
+		Status:  event.IncidentResolved,
 		Statuses: []db.IncidentStatus{
 			{
 				IncidentID: uint(id),
