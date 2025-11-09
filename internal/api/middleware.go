@@ -144,6 +144,39 @@ func AuthenticationV1DeprecatedMW(prov *auth.Provider, logger *zap.Logger, secre
 	}
 }
 
+func AuthenticationSelector(prov *auth.Provider, logger *zap.Logger, secretKeyV1 string) gin.HandlerFunc {
+	v1Auth := AuthenticationV1DeprecatedMW(prov, logger, secretKeyV1)
+	v2Auth := AuthenticationMW(prov, logger)
+
+	return func(c *gin.Context) {
+		if secretKeyV1 == "" {
+			logger.Info("V1 secret key is not configured, using V2 authentication")
+			v2Auth(c)
+			return
+		}
+
+		authHeader := c.GetHeader("Authorization")
+		if authHeader == "" {
+			v2Auth(c)
+			return
+		}
+
+		rawToken := strings.TrimPrefix(authHeader, "Bearer ")
+
+		// Defining the token type
+		token, _, err := new(jwt.Parser).ParseUnverified(rawToken, jwt.MapClaims{})
+		if err == nil {
+			if _, ok := token.Method.(*jwt.SigningMethodHMAC); ok {
+				logger.Info("V1 token (HMAC) detected, using AuthenticationV1DeprecatedMW")
+				v1Auth(c)
+				return
+			}
+		}
+		logger.Info("V2 token (non-HMAC) detected, using AuthenticationMW")
+		v2Auth(c)
+	}
+}
+
 func CheckEventExistenceMW(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		logger.Debug("checking event existence")

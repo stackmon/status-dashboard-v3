@@ -43,7 +43,7 @@ func (a *API) InitRoutes() {
 
 		v2API.GET("incidents", v2.GetIncidentsHandler(a.db, a.log))
 		v2API.POST("incidents",
-			AuthenticationMW(a.oa2Prov, a.log),
+			AuthenticationSelector(a.oa2Prov, a.log, a.secretKeyV1),
 			ValidateComponentsMW(a.db, a.log),
 			v2.PostIncidentHandler(a.db, a.log),
 		)
