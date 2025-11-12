@@ -53,7 +53,7 @@ func ValidateComponentsMW(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 	}
 }
 
-func AuthenticationMW(prov *auth.Provider, logger *zap.Logger) gin.HandlerFunc {
+func AuthenticationMW(prov *auth.Provider, logger *zap.Logger, secretKey string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if prov.Disabled {
 			logger.Info("authentication is disabled")
@@ -70,110 +70,37 @@ func AuthenticationMW(prov *auth.Provider, logger *zap.Logger) gin.HandlerFunc {
 		}
 
 		rawToken := strings.TrimPrefix(authHeader, "Bearer ")
-		// Parse the JWT token and validate it using the Keycloak public key
-		token, err := jwt.Parse(rawToken, func(token *jwt.Token) (interface{}, error) { //nolint:revive
-			// Validate the token's signing method
-			// if _, ok := token.Method.(*jwt.SigningMethodRSA); !ok {
-			//	return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
-			// }
 
-			key, err := prov.GetPublicKey()
-			if err != nil {
-				return nil, fmt.Errorf("error while getting public key: %w", err)
-			}
-
-			return key, nil
-		})
-
-		if err != nil {
-			logger.Error("failed to parse and validate a token", zap.Error(err))
-			apiErrors.RaiseNotAuthorizedErr(c, apiErrors.ErrAuthNotAuthenticated)
-			return
-		}
-
-		if !token.Valid {
-			apiErrors.RaiseNotAuthorizedErr(c, apiErrors.ErrAuthNotAuthenticated)
-			return
-		}
-
-		c.Next()
-	}
-}
-
-// AuthenticationV1DeprecatedMW is a middleware for handling authentication only for Metric Processor.
-// TODO: remove this middleware after migration to Keycloak.
-func AuthenticationV1DeprecatedMW(prov *auth.Provider, logger *zap.Logger, secretKey string) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		if prov.Disabled {
-			logger.Info("authentication is disabled")
-			c.Next()
-			return
-		}
-
-		logger.Info("start to process authentication request for V1")
-
-		authHeader := c.GetHeader("Authorization")
-		if authHeader == "" {
-			apiErrors.RaiseNotAuthorizedErr(c, apiErrors.ErrAuthNotAuthenticated)
-			return
-		}
-
-		rawToken := strings.TrimPrefix(authHeader, "Bearer ")
-		// Parse the JWT token and validate it using the Keycloak public key
 		token, err := jwt.Parse(rawToken, func(token *jwt.Token) (interface{}, error) {
-			// Validate the token's signing method
-			if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			switch token.Method.(type) {
+			// TODO: remove HMAC method after migration.
+			case *jwt.SigningMethodHMAC:
+				logger.Info("HMAC token deteced, using secret key for validation")
+				if secretKey == "" {
+					return nil, fmt.Errorf("secret key is not configured for HMAC token validation")
+				}
+				return []byte(secretKey), nil
+
+			case *jwt.SigningMethodRSA:
+				logger.Info("RSA token detected, using Keycloak public key for validation")
+				key, err := prov.GetPublicKey()
+				if err != nil {
+					return nil, fmt.Errorf("error while getting public key: %w", err)
+				}
+				return key, nil
+
+			default:
 				return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
 			}
-
-			return []byte(secretKey), nil
 		})
 
-		if err != nil {
-			logger.Error("failed to parse and validate a token", zap.Error(err))
-			apiErrors.RaiseNotAuthorizedErr(c, apiErrors.ErrAuthNotAuthenticated)
-			return
-		}
-
-		if !token.Valid {
+		if err != nil || !token.Valid {
+			logger.Error("failed to parse or validate a token", zap.Error(err))
 			apiErrors.RaiseNotAuthorizedErr(c, apiErrors.ErrAuthNotAuthenticated)
 			return
 		}
 
 		c.Next()
-	}
-}
-
-func AuthenticationSelector(prov *auth.Provider, logger *zap.Logger, secretKeyV1 string) gin.HandlerFunc {
-	v1Auth := AuthenticationV1DeprecatedMW(prov, logger, secretKeyV1)
-	v2Auth := AuthenticationMW(prov, logger)
-
-	return func(c *gin.Context) {
-		if secretKeyV1 == "" {
-			logger.Info("V1 secret key is not configured, using V2 authentication")
-			v2Auth(c)
-			return
-		}
-
-		authHeader := c.GetHeader("Authorization")
-		if authHeader == "" {
-			v2Auth(c)
-			return
-		}
-
-		rawToken := strings.TrimPrefix(authHeader, "Bearer ")
-
-		// Defining the token type
-		token, _, err := new(jwt.Parser).ParseUnverified(rawToken, jwt.MapClaims{})
-		if err == nil {
-			if _, ok := token.Method.(*jwt.SigningMethodHMAC); ok {
-				logger.Info("V1 token (HMAC) detected, using AuthenticationV1DeprecatedMW")
-				v1Auth(c)
-				return
-			}
-		}
-		logger.Info("V2 token (non-HMAC) detected, using AuthenticationMW")
-		v2Auth(c)
 	}
 }
 
