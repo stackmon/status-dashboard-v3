@@ -133,7 +133,9 @@ func TestIsAuthGroupInClaims_InvalidClaimsType(t *testing.T) {
 	assert.False(t, result) // Should fail because it's not MapClaims
 }
 
-// BenchmarkIsAuthGroupInClaims benchmarks the group checking function
+// BenchmarkIsAuthGroupInClaims benchmarks the group checking function.
+//
+//nolint:intrange
 func BenchmarkIsAuthGroupInClaims(b *testing.B) {
 	logger, _ := zap.NewDevelopment()
 
