@@ -38,27 +38,27 @@ func (a *API) InitRoutes() {
 	v2API := a.r.Group(v2Group)
 	{
 		v2API.GET("components", v2.GetComponentsHandler(a.db, a.log))
-		v2API.POST("components", AuthenticationMW(a.oa2Prov, a.log), v2.PostComponentHandler(a.db, a.log))
+		v2API.POST("components", AuthenticationMW(a.oa2Prov, a.log, a.authGroup), v2.PostComponentHandler(a.db, a.log))
 		v2API.GET("components/:id", v2.GetComponentHandler(a.db, a.log))
 
 		v2API.GET("incidents", v2.GetIncidentsHandler(a.db, a.log))
 		v2API.POST("incidents",
-			AuthenticationMW(a.oa2Prov, a.log),
+			AuthenticationMW(a.oa2Prov, a.log, a.authGroup),
 			ValidateComponentsMW(a.db, a.log),
 			v2.PostIncidentHandler(a.db, a.log),
 		)
 		v2API.GET("incidents/:incidentID", v2.GetIncidentHandler(a.db, a.log))
 		v2API.PATCH("incidents/:incidentID",
-			AuthenticationMW(a.oa2Prov, a.log),
+			AuthenticationMW(a.oa2Prov, a.log, a.authGroup),
 			CheckEventExistenceMW(a.db, a.log),
 			v2.PatchIncidentHandler(a.db, a.log))
 		v2API.POST("incidents/:incidentID/extract",
-			AuthenticationMW(a.oa2Prov, a.log),
+			AuthenticationMW(a.oa2Prov, a.log, a.authGroup),
 			CheckEventExistenceMW(a.db, a.log),
 			ValidateComponentsMW(a.db, a.log),
 			v2.PostIncidentExtractHandler(a.db, a.log))
 		v2API.PATCH("incidents/:incidentID/updates/:updateID",
-			AuthenticationMW(a.oa2Prov, a.log),
+			AuthenticationMW(a.oa2Prov, a.log, a.authGroup),
 			CheckEventExistenceMW(a.db, a.log),
 			v2.PatchEventUpdateTextHandler(a.db, a.log))
 		// Paginated events.

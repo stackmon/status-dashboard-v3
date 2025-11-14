@@ -18,6 +18,7 @@ type API struct {
 	log         *zap.Logger
 	oa2Prov     *auth.Provider
 	secretKeyV1 string
+	authGroup   string
 }
 
 func New(cfg *conf.Config, log *zap.Logger, database *db.DB) (*API, error) {
@@ -43,7 +44,7 @@ func New(cfg *conf.Config, log *zap.Logger, database *db.DB) (*API, error) {
 	r.Use(CORSMiddleware())
 	r.NoRoute(errors.Return404)
 
-	a := &API{r: r, db: database, log: log, oa2Prov: oa2Prov, secretKeyV1: cfg.SecretKeyV1}
+	a := &API{r: r, db: database, log: log, oa2Prov: oa2Prov, secretKeyV1: cfg.SecretKeyV1, authGroup: cfg.AuthGroup}
 	a.InitRoutes()
 	return a, nil
 }
