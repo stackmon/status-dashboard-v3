@@ -53,7 +53,7 @@ func ValidateComponentsMW(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 	}
 }
 
-func AuthenticationMW(prov *auth.Provider, logger *zap.Logger) gin.HandlerFunc {
+func AuthenticationMW(prov *auth.Provider, logger *zap.Logger, userAuthGroup string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if prov.Disabled {
 			logger.Info("authentication is disabled")
@@ -96,8 +96,55 @@ func AuthenticationMW(prov *auth.Provider, logger *zap.Logger) gin.HandlerFunc {
 			return
 		}
 
+		if !isAuthGroupInClaims(token, logger, userAuthGroup) {
+			apiErrors.RaiseNotAuthorizedErr(c, apiErrors.ErrAuthNotAuthenticated)
+		}
+
 		c.Next()
 	}
+}
+
+func isAuthGroupInClaims(token *jwt.Token, logger *zap.Logger, userAuthGroup string) bool {
+	// Check group authorization if authGroup is configured
+	claims, ok := token.Claims.(jwt.MapClaims)
+	if !ok {
+		logger.Error("failed to parse token claims")
+		return false
+	}
+
+	// Check if the "groups" claim exists
+	groupsClaim, exists := claims["groups"]
+	if !exists {
+		logger.Error("groups claim not found in token")
+		return false
+	}
+
+	// Convert groups claim to string slice
+	groups, ok := groupsClaim.([]interface{})
+	if !ok {
+		logger.Error("groups claim is not an array")
+		return false
+	}
+
+	// Check if the required group is present
+	hasGroup := false
+	for _, group := range groups {
+		if groupStr, okType := group.(string); okType && strings.TrimPrefix(groupStr, "/") == userAuthGroup {
+			hasGroup = true
+			break
+		}
+	}
+
+	if !hasGroup {
+		logger.Warn("user does not belong to required group",
+			zap.String("required_group", userAuthGroup))
+		return false
+	}
+
+	logger.Info("user authorized with group membership",
+		zap.String("group", userAuthGroup))
+
+	return true
 }
 
 // AuthenticationV1DeprecatedMW is a middleware for handling authentication only for Metric Processor.

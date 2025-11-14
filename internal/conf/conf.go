@@ -41,8 +41,10 @@ type Config struct {
 	WebURL string `envconfig:"WEB_URL"`
 	// Disable authentication for any reasons it doesn't work with hostname like "*prod*"
 	AuthenticationDisabled bool `envconfig:"AUTHENTICATION_DISABLED"`
-	// Disable authentication for any reasons it doesn't work with hostname like "*prod*"
+	// Secret key for V1 authentication (deprecated)
 	SecretKeyV1 string `envconfig:"SECRET_KEY"`
+	// Auth group name that users must belong to for authorization (optional)
+	AuthGroup string `envconfig:"AUTH_GROUP"`
 }
 
 type Keycloak struct {
