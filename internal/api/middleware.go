@@ -129,7 +129,7 @@ func isAuthGroupInClaims(token *jwt.Token, logger *zap.Logger, userAuthGroup str
 	// Check if the required group is present
 	hasGroup := false
 	for _, group := range groups {
-		if groupStr, okType := group.(string); okType && groupStr == userAuthGroup {
+		if groupStr, okType := group.(string); okType && strings.TrimPrefix(groupStr, "/") == userAuthGroup {
 			hasGroup = true
 			break
 		}
