@@ -102,8 +102,8 @@ func AuthenticationMW(prov *auth.Provider, logger *zap.Logger, secretKey string,
 			return
 		}
 
-		if _, ok := token.Method.(*jwt.SigningMethodRSA); ok {
-			if !isAuthGroupInClaims(token, logger, userAuthGroup) {
+		if userAuthGroup != "" {
+			if _, ok := token.Method.(*jwt.SigningMethodRSA); ok && !isAuthGroupInClaims(token, logger, userAuthGroup) {
 				apiErrors.RaiseNotAuthorizedErr(c, apiErrors.ErrAuthNotAuthenticated)
 				return
 			}
@@ -113,6 +113,11 @@ func AuthenticationMW(prov *auth.Provider, logger *zap.Logger, secretKey string,
 }
 
 func isAuthGroupInClaims(token *jwt.Token, logger *zap.Logger, userAuthGroup string) bool {
+	if userAuthGroup == "" {
+		logger.Info("auth group is not configured, skipping authorization check")
+		return true
+	}
+
 	// Check group authorization if authGroup is configured
 	claims, ok := token.Claims.(jwt.MapClaims)
 	if !ok {
