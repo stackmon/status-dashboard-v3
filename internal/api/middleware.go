@@ -53,7 +53,31 @@ func ValidateComponentsMW(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 	}
 }
 
-func AuthenticationMW(prov *auth.Provider, logger *zap.Logger, secretKey string) gin.HandlerFunc {
+func parseToken(tokenString string, secretKey string, prov *auth.Provider, logger *zap.Logger) (*jwt.Token, error) {
+	return jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
+		switch token.Method.(type) {
+		case *jwt.SigningMethodHMAC:
+			logger.Info("HMAC token detected, using secret key for validation")
+			if secretKey == "" {
+				return nil, fmt.Errorf("secret key is not configured for HMAC token validation")
+			}
+			return []byte(secretKey), nil
+
+		case *jwt.SigningMethodRSA:
+			logger.Info("RSA token detected, using Keycloak public key for validation")
+			key, err := prov.GetPublicKey()
+			if err != nil {
+				return nil, fmt.Errorf("error while getting public key: %w", err)
+			}
+			return key, nil
+
+		default:
+			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+		}
+	})
+}
+
+func AuthenticationMW(prov *auth.Provider, logger *zap.Logger, secretKey string, userAuthGroup string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if prov.Disabled {
 			logger.Info("authentication is disabled")
@@ -70,29 +94,7 @@ func AuthenticationMW(prov *auth.Provider, logger *zap.Logger, secretKey string)
 		}
 
 		rawToken := strings.TrimPrefix(authHeader, "Bearer ")
-
-		token, err := jwt.Parse(rawToken, func(token *jwt.Token) (interface{}, error) {
-			switch token.Method.(type) {
-			// TODO: remove HMAC method after migration.
-			case *jwt.SigningMethodHMAC:
-				logger.Info("HMAC token deteced, using secret key for validation")
-				if secretKey == "" {
-					return nil, fmt.Errorf("secret key is not configured for HMAC token validation")
-				}
-				return []byte(secretKey), nil
-
-			case *jwt.SigningMethodRSA:
-				logger.Info("RSA token detected, using Keycloak public key for validation")
-				key, err := prov.GetPublicKey()
-				if err != nil {
-					return nil, fmt.Errorf("error while getting public key: %w", err)
-				}
-				return key, nil
-
-			default:
-				return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
-			}
-		})
+		token, err := parseToken(rawToken, secretKey, prov, logger)
 
 		if err != nil || !token.Valid {
 			logger.Error("failed to parse or validate a token", zap.Error(err))
@@ -100,8 +102,57 @@ func AuthenticationMW(prov *auth.Provider, logger *zap.Logger, secretKey string)
 			return
 		}
 
+		if _, ok := token.Method.(*jwt.SigningMethodRSA); ok {
+			if !isAuthGroupInClaims(token, logger, userAuthGroup) {
+				apiErrors.RaiseNotAuthorizedErr(c, apiErrors.ErrAuthNotAuthenticated)
+				return
+			}
+		}
 		c.Next()
 	}
+}
+
+func isAuthGroupInClaims(token *jwt.Token, logger *zap.Logger, userAuthGroup string) bool {
+	// Check group authorization if authGroup is configured
+	claims, ok := token.Claims.(jwt.MapClaims)
+	if !ok {
+		logger.Error("failed to parse token claims")
+		return false
+	}
+
+	// Check if the "groups" claim exists
+	groupsClaim, exists := claims["groups"]
+	if !exists {
+		logger.Error("groups claim not found in token")
+		return false
+	}
+
+	// Convert groups claim to string slice
+	groups, ok := groupsClaim.([]interface{})
+	if !ok {
+		logger.Error("groups claim is not an array")
+		return false
+	}
+
+	// Check if the required group is present
+	hasGroup := false
+	for _, group := range groups {
+		if groupStr, okType := group.(string); okType && strings.TrimPrefix(groupStr, "/") == userAuthGroup {
+			hasGroup = true
+			break
+		}
+	}
+
+	if !hasGroup {
+		logger.Warn("user does not belong to required group",
+			zap.String("required_group", userAuthGroup))
+		return false
+	}
+
+	logger.Info("user authorized with group membership",
+		zap.String("group", userAuthGroup))
+
+	return true
 }
 
 func CheckEventExistenceMW(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
