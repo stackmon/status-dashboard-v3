@@ -96,8 +96,14 @@ func AuthenticationMW(prov *auth.Provider, logger *zap.Logger, secretKey string,
 		rawToken := strings.TrimPrefix(authHeader, "Bearer ")
 		token, err := parseToken(rawToken, secretKey, prov, logger)
 
-		if err != nil || !token.Valid {
-			logger.Error("failed to parse or validate a token", zap.Error(err))
+		if err != nil {
+			logger.Error("token parsing error", zap.Error(err))
+			apiErrors.RaiseNotAuthorizedErr(c, apiErrors.ErrAuthNotAuthenticated)
+			return
+		}
+
+		if !token.Valid {
+			logger.Error("token validation error", zap.Error(err))
 			apiErrors.RaiseNotAuthorizedErr(c, apiErrors.ErrAuthNotAuthenticated)
 			return
 		}
