@@ -22,7 +22,7 @@ func main() {
 	}
 
 	logger := conf.NewLogger(c.LogLevel)
-	logger.Info("app starting")
+	logConfig(logger, c)
 
 	s, err := app.New(c, logger)
 	if err != nil {
@@ -60,4 +60,25 @@ func main() {
 	}
 
 	logger.Info("app exited")
+}
+
+func logConfig(logger *zap.Logger, c *conf.Config) {
+	logger.Info("app starting", zap.String("log_level", c.LogLevel))
+
+	logger.Info("checking configuration parameters")
+	if c.DB != "" {
+		logger.Info("database connection string is set")
+	} else {
+		logger.Warn("database connection string is not set")
+	}
+
+	logger.Info("authentication status", zap.Bool("disabled", c.AuthenticationDisabled))
+	if !c.AuthenticationDisabled && c.AuthGroup == "" {
+		logger.Warn("Auth group is not set, which may cause authorization issues.")
+	}
+
+	logger.Debug("application endpoint configuration",
+		zap.String("hostname", c.Hostname),
+		zap.String("port", c.Port),
+		zap.String("web_url", c.WebURL))
 }
