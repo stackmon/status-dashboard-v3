@@ -1,11 +1,23 @@
 package api
 
 import (
+	"crypto/rand"
+	"crypto/rsa"
+	"reflect"
 	"testing"
+	"unsafe"
 
+	"net/http"
+	"net/http/httptest"
+
+	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zaptest"
+
+	"github.com/stackmon/otc-status-dashboard/internal/api/auth"
 )
 
 func TestIsAuthGroupInClaims(t *testing.T) {
@@ -152,4 +164,161 @@ func BenchmarkIsAuthGroupInClaims(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		_ = isAuthGroupInClaims(token, logger, "admin-group")
 	}
+}
+
+// helper to set unexported field realmPublicKey on auth.Provider using reflect+unsafe.
+func setRealmPublicKey(prov *auth.Provider, key *rsa.PublicKey) {
+	val := reflect.ValueOf(prov).Elem()
+	field := val.FieldByName("realmPublicKey")
+	ptrToField := reflect.NewAt(field.Type(), unsafe.Pointer(field.UnsafeAddr())).Elem()
+	ptrToField.Set(reflect.ValueOf(key))
+}
+
+func TestParseToken_HMAC_Success(t *testing.T) {
+	secret := "supersecret"
+	// create token signed with HS256
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{"sub": "123"})
+	signed, err := token.SignedString([]byte(secret))
+	require.NoError(t, err, "failed to sign token")
+
+	logger := zaptest.NewLogger(t)
+
+	parsed, err := parseToken(signed, secret, nil, logger)
+	require.NoError(t, err, "unexpected parse error")
+	assert.True(t, parsed.Valid, "expected token to be valid")
+}
+
+func TestParseToken_HMAC_WrongSecret(t *testing.T) {
+	secret := "supersecret"
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{"sub": "123"})
+	signed, err := token.SignedString([]byte(secret))
+	require.NoError(t, err, "failed to sign token")
+
+	logger := zaptest.NewLogger(t)
+
+	_, err = parseToken(signed, "wrongsecret", nil, logger)
+	require.Error(t, err, "expected error when using wrong secret")
+}
+
+func TestParseToken_RSA_Success(t *testing.T) {
+	// generate RSA key pair
+	priv, err := rsa.GenerateKey(rand.Reader, 2048)
+	require.NoError(t, err, "failed to generate rsa key")
+
+	// sign token with private key
+	token := jwt.NewWithClaims(jwt.SigningMethodRS256, jwt.MapClaims{"sub": "rsa-user"})
+	signed, err := token.SignedString(priv)
+	require.NoError(t, err, "failed to sign rsa token")
+
+	// provider with matching public key (set via helper)
+	prov := &auth.Provider{}
+	setRealmPublicKey(prov, &priv.PublicKey)
+
+	logger := zaptest.NewLogger(t)
+
+	parsed, err := parseToken(signed, "", prov, logger)
+	require.NoError(t, err, "unexpected parse error for rsa token")
+	assert.True(t, parsed.Valid, "expected rsa token to be valid")
+}
+
+func TestParseToken_RSA_WrongPublicKey(t *testing.T) {
+	// generate two distinct RSA key pairs
+	priv1, err := rsa.GenerateKey(rand.Reader, 2048)
+	require.NoError(t, err, "failed to generate rsa key1")
+	priv2, err := rsa.GenerateKey(rand.Reader, 2048)
+	require.NoError(t, err, "failed to generate rsa key2")
+
+	// sign with priv1 but provide pub2 to parser
+	token := jwt.NewWithClaims(jwt.SigningMethodRS256, jwt.MapClaims{"sub": "rsa-user"})
+	signed, err := token.SignedString(priv1)
+	require.NoError(t, err, "failed to sign rsa token")
+
+	prov := &auth.Provider{}
+	setRealmPublicKey(prov, &priv2.PublicKey)
+
+	logger := zaptest.NewLogger(t)
+
+	_, err = parseToken(signed, "", prov, logger)
+	require.Error(t, err, "expected error when public key does not match signature")
+}
+
+// performRequestWithAuth runs a small router with the provided middleware and an endpoint.
+func performRequestWithAuth(mw gin.HandlerFunc, authHeader string) *httptest.ResponseRecorder {
+	router := gin.New()
+	router.Use(mw)
+	router.GET("/test", func(c *gin.Context) {
+		c.Status(http.StatusOK)
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	if authHeader != "" {
+		req.Header.Set("Authorization", authHeader)
+	}
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	return w
+}
+
+func TestAuthenticationMW_HMAC_SuccessAndFailures(t *testing.T) {
+	secret := "supersecret"
+	// create token signed with HS256
+	tkn := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{"sub": "123"})
+	signed, err := tkn.SignedString([]byte(secret))
+	require.NoError(t, err, "failed to sign token")
+
+	logger := zaptest.NewLogger(t)
+
+	prov := &auth.Provider{}
+	mw := AuthenticationMW(prov, logger, secret, "") // no group requirement for HMAC
+	w := performRequestWithAuth(mw, "Bearer "+signed)
+	assert.Equal(t, http.StatusOK, w.Code, "expected middleware to allow valid HMAC token")
+
+	// failure: missing header
+	w = performRequestWithAuth(mw, "")
+	assert.Equal(t, http.StatusUnauthorized, w.Code, "expected 401 when no Authorization header")
+
+	// failure: wrong secret configured
+	mwWrong := AuthenticationMW(prov, logger, "wrong-secret", "")
+	w = performRequestWithAuth(mwWrong, "Bearer "+signed)
+	assert.Equal(t, http.StatusUnauthorized, w.Code, "expected 401 when secret does not match")
+}
+
+func TestAuthenticationMW_RSA_WithAndWithoutGroup(t *testing.T) {
+	// generate RSA key pair
+	priv, err := rsa.GenerateKey(rand.Reader, 2048)
+	require.NoError(t, err, "failed to generate rsa key")
+
+	// success case: token signed with private key and contains required group "/admin-group"
+	claimsWithGroup := jwt.MapClaims{
+		"sub":    "rsa-user",
+		"groups": []interface{}{"/admin-group"},
+	}
+	tokenWithGroup := jwt.NewWithClaims(jwt.SigningMethodRS256, claimsWithGroup)
+	signedWithGroup, err := tokenWithGroup.SignedString(priv)
+	require.NoError(t, err, "failed to sign rsa token")
+
+	prov := &auth.Provider{}
+	// set unexported realmPublicKey so prov.GetPublicKey() returns immediately
+	val := reflect.ValueOf(prov).Elem()
+	field := val.FieldByName("realmPublicKey")
+	ptrToField := reflect.NewAt(field.Type(), unsafe.Pointer(field.UnsafeAddr())).Elem()
+	ptrToField.Set(reflect.ValueOf(&priv.PublicKey))
+
+	logger := zaptest.NewLogger(t)
+
+	mw := AuthenticationMW(prov, logger, "", "admin-group") // require "admin-group"
+	w := performRequestWithAuth(mw, "Bearer "+signedWithGroup)
+	assert.Equal(t, http.StatusOK, w.Code, "expected middleware to allow RSA token when group present")
+
+	// failure case: token signed with same key but missing required group
+	claimsWithoutGroup := jwt.MapClaims{
+		"sub":    "rsa-user",
+		"groups": []interface{}{"other-group"},
+	}
+	tokenWithoutGroup := jwt.NewWithClaims(jwt.SigningMethodRS256, claimsWithoutGroup)
+	signedWithoutGroup, err := tokenWithoutGroup.SignedString(priv)
+	require.NoError(t, err, "failed to sign rsa token")
+
+	w = performRequestWithAuth(mw, "Bearer "+signedWithoutGroup)
+	assert.Equal(t, http.StatusUnauthorized, w.Code, "expected 401 when RSA token lacks required group")
 }
