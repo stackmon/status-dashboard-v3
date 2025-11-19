@@ -3,12 +3,14 @@ package conf
 import (
 	"errors"
 	"fmt"
+	"net/url"
 	"reflect"
 	"strconv"
 	"strings"
 
 	"github.com/joho/godotenv"
 	"github.com/kelseyhightower/envconfig"
+	"go.uber.org/zap"
 )
 
 const osPref = "SD"
@@ -168,4 +170,57 @@ func mergeConfigs(env map[string]string, obj any, prefix string) error { //nolin
 	}
 
 	return nil
+}
+
+func maskSecret(s string) string {
+	if s == "" {
+		return ""
+	}
+	return "<hidden>"
+}
+
+func sanitizeDBString(dbURL string) string {
+	if dbURL == "" {
+		return ""
+	}
+	u, err := url.Parse(dbURL)
+	if err != nil {
+		return dbURL
+	}
+	return fmt.Sprintf("%s://%s%s",
+		u.Scheme,
+		u.Host,
+		u.Path,
+	)
+}
+
+func (c *Config) Log(logger *zap.Logger) {
+	logger.Info("Application starting with the following configuration:")
+
+	logger.Info("Endpoint configuration",
+		zap.String("hostname", c.Hostname),
+		zap.String("port", c.Port),
+		zap.String("web_url", c.WebURL),
+	)
+
+	logger.Info("Authentication configuration",
+		zap.Bool("authentication_disabled", c.AuthenticationDisabled),
+		zap.String("auth_group", c.AuthGroup),
+		zap.String("secret_key_v1", maskSecret(c.SecretKeyV1)),
+	)
+
+	logger.Info("Storage and logging configuration",
+		zap.String("db", sanitizeDBString(c.DB)),
+		// zap.String("cache", c.Cache),
+		zap.String("log_level", c.LogLevel),
+	)
+
+	if c.Keycloak != nil {
+		logger.Info("Keycloak configuration",
+			zap.String("url", c.Keycloak.URL),
+			zap.String("realm", c.Keycloak.Realm),
+			zap.String("client_id", c.Keycloak.ClientID),
+			zap.String("client_secret", maskSecret(c.Keycloak.ClientSecret)),
+		)
+	}
 }
