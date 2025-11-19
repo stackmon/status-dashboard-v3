@@ -13,6 +13,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest"
 
@@ -165,7 +166,7 @@ func BenchmarkIsAuthGroupInClaims(b *testing.B) {
 	}
 }
 
-// helper to set unexported field realmPublicKey on auth.Provider using reflect+unsafe
+// helper to set unexported field realmPublicKey on auth.Provider using reflect+unsafe.
 func setRealmPublicKey(prov *auth.Provider, key *rsa.PublicKey) {
 	val := reflect.ValueOf(prov).Elem()
 	field := val.FieldByName("realmPublicKey")
@@ -178,103 +179,67 @@ func TestParseToken_HMAC_Success(t *testing.T) {
 	// create token signed with HS256
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{"sub": "123"})
 	signed, err := token.SignedString([]byte(secret))
-	if err != nil {
-		t.Fatalf("failed to sign token: %v", err)
-	}
+	require.NoError(t, err, "failed to sign token")
 
 	logger := zaptest.NewLogger(t)
-	logger.Debug("HMAC success test - signed token", zap.String("token", signed))
 
 	parsed, err := parseToken(signed, secret, nil, logger)
-	if err != nil {
-		t.Fatalf("unexpected parse error: %v", err)
-	}
-	if !parsed.Valid {
-		t.Fatalf("expected token to be valid")
-	}
-	logger.Debug("HMAC success test - token valid")
+	require.NoError(t, err, "unexpected parse error")
+	assert.True(t, parsed.Valid, "expected token to be valid")
 }
 
 func TestParseToken_HMAC_WrongSecret(t *testing.T) {
 	secret := "supersecret"
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{"sub": "123"})
 	signed, err := token.SignedString([]byte(secret))
-	if err != nil {
-		t.Fatalf("failed to sign token: %v", err)
-	}
+	require.NoError(t, err, "failed to sign token")
 
 	logger := zaptest.NewLogger(t)
-	logger.Debug("HMAC wrong secret test - signed token", zap.String("token", signed))
 
 	_, err = parseToken(signed, "wrongsecret", nil, logger)
-	if err == nil {
-		t.Fatalf("expected error when using wrong secret")
-	}
-	logger.Debug("HMAC wrong secret test - expected failure observed")
+	require.Error(t, err, "expected error when using wrong secret")
 }
 
 func TestParseToken_RSA_Success(t *testing.T) {
 	// generate RSA key pair
 	priv, err := rsa.GenerateKey(rand.Reader, 2048)
-	if err != nil {
-		t.Fatalf("failed to generate rsa key: %v", err)
-	}
+	require.NoError(t, err, "failed to generate rsa key")
 
 	// sign token with private key
 	token := jwt.NewWithClaims(jwt.SigningMethodRS256, jwt.MapClaims{"sub": "rsa-user"})
 	signed, err := token.SignedString(priv)
-	if err != nil {
-		t.Fatalf("failed to sign rsa token: %v", err)
-	}
+	require.NoError(t, err, "failed to sign rsa token")
 
 	// provider with matching public key (set via helper)
 	prov := &auth.Provider{}
 	setRealmPublicKey(prov, &priv.PublicKey)
 
 	logger := zaptest.NewLogger(t)
-	logger.Debug("RSA success test - signed token", zap.String("token", signed))
-	logger.Debug("RSA success test - public key set on provider")
 
 	parsed, err := parseToken(signed, "", prov, logger)
-	if err != nil {
-		t.Fatalf("unexpected parse error for rsa token: %v", err)
-	}
-	if !parsed.Valid {
-		t.Fatalf("expected rsa token to be valid")
-	}
-	logger.Debug("RSA success test - token valid")
+	require.NoError(t, err, "unexpected parse error for rsa token")
+	assert.True(t, parsed.Valid, "expected rsa token to be valid")
 }
 
 func TestParseToken_RSA_WrongPublicKey(t *testing.T) {
 	// generate two distinct RSA key pairs
 	priv1, err := rsa.GenerateKey(rand.Reader, 2048)
-	if err != nil {
-		t.Fatalf("failed to generate rsa key1: %v", err)
-	}
+	require.NoError(t, err, "failed to generate rsa key1")
 	priv2, err := rsa.GenerateKey(rand.Reader, 2048)
-	if err != nil {
-		t.Fatalf("failed to generate rsa key2: %v", err)
-	}
+	require.NoError(t, err, "failed to generate rsa key2")
 
 	// sign with priv1 but provide pub2 to parser
 	token := jwt.NewWithClaims(jwt.SigningMethodRS256, jwt.MapClaims{"sub": "rsa-user"})
 	signed, err := token.SignedString(priv1)
-	if err != nil {
-		t.Fatalf("failed to sign rsa token: %v", err)
-	}
+	require.NoError(t, err, "failed to sign rsa token")
 
 	prov := &auth.Provider{}
 	setRealmPublicKey(prov, &priv2.PublicKey)
 
 	logger := zaptest.NewLogger(t)
-	logger.Debug("RSA wrong pubkey test - signed token", zap.String("token", signed))
-	logger.Debug("RSA wrong pubkey test - different public key set on provider")
 
 	_, err = parseToken(signed, "", prov, logger)
-	if err == nil {
-		t.Fatalf("expected error when public key does not match signature")
-	}
-	logger.Debug("RSA wrong pubkey test - expected failure observed")
+	require.Error(t, err, "expected error when public key does not match signature")
 }
 
 // performRequestWithAuth runs a small router with the provided middleware and an endpoint.
@@ -285,7 +250,7 @@ func performRequestWithAuth(mw gin.HandlerFunc, authHeader string) *httptest.Res
 		c.Status(http.StatusOK)
 	})
 
-	req := httptest.NewRequest("GET", "/test", nil)
+	req := httptest.NewRequest(http.MethodGet, "/test", nil)
 	if authHeader != "" {
 		req.Header.Set("Authorization", authHeader)
 	}
@@ -299,9 +264,7 @@ func TestAuthenticationMW_HMAC_SuccessAndFailures(t *testing.T) {
 	// create token signed with HS256
 	tkn := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{"sub": "123"})
 	signed, err := tkn.SignedString([]byte(secret))
-	if err != nil {
-		t.Fatalf("failed to sign token: %v", err)
-	}
+	require.NoError(t, err, "failed to sign token")
 
 	logger := zaptest.NewLogger(t)
 
@@ -323,9 +286,7 @@ func TestAuthenticationMW_HMAC_SuccessAndFailures(t *testing.T) {
 func TestAuthenticationMW_RSA_WithAndWithoutGroup(t *testing.T) {
 	// generate RSA key pair
 	priv, err := rsa.GenerateKey(rand.Reader, 2048)
-	if err != nil {
-		t.Fatalf("failed to generate rsa key: %v", err)
-	}
+	require.NoError(t, err, "failed to generate rsa key")
 
 	// success case: token signed with private key and contains required group "/admin-group"
 	claimsWithGroup := jwt.MapClaims{
@@ -334,9 +295,7 @@ func TestAuthenticationMW_RSA_WithAndWithoutGroup(t *testing.T) {
 	}
 	tokenWithGroup := jwt.NewWithClaims(jwt.SigningMethodRS256, claimsWithGroup)
 	signedWithGroup, err := tokenWithGroup.SignedString(priv)
-	if err != nil {
-		t.Fatalf("failed to sign rsa token: %v", err)
-	}
+	require.NoError(t, err, "failed to sign rsa token")
 
 	prov := &auth.Provider{}
 	// set unexported realmPublicKey so prov.GetPublicKey() returns immediately
@@ -358,9 +317,7 @@ func TestAuthenticationMW_RSA_WithAndWithoutGroup(t *testing.T) {
 	}
 	tokenWithoutGroup := jwt.NewWithClaims(jwt.SigningMethodRS256, claimsWithoutGroup)
 	signedWithoutGroup, err := tokenWithoutGroup.SignedString(priv)
-	if err != nil {
-		t.Fatalf("failed to sign rsa token: %v", err)
-	}
+	require.NoError(t, err, "failed to sign rsa token")
 
 	w = performRequestWithAuth(mw, "Bearer "+signedWithoutGroup)
 	assert.Equal(t, http.StatusUnauthorized, w.Code, "expected 401 when RSA token lacks required group")

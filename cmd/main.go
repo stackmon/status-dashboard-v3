@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log"
 	"net/http"
 	"os/signal"
@@ -64,21 +65,35 @@ func main() {
 
 func logConfig(logger *zap.Logger, c *conf.Config) {
 	logger.Info("app starting", zap.String("log_level", c.LogLevel))
-
 	logger.Info("checking configuration parameters")
-	if c.DB != "" {
-		logger.Info("database connection string is set")
-	} else {
-		logger.Warn("database connection string is not set")
+
+	status := map[string]bool{
+		"DB connection string":   c.DB != "",
+		"Caching parameter":      c.Cache != "",
+		"Keycloak URL":           c.Keycloak != nil && c.Keycloak.URL != "",
+		"Keycloak Realm":         c.Keycloak != nil && c.Keycloak.Realm != "",
+		"Keycloak ClientID":      c.Keycloak != nil && c.Keycloak.ClientID != "",
+		"Keycloak ClientSecret":  c.Keycloak != nil && c.Keycloak.ClientSecret != "",
+		"Log level":              c.LogLevel != "",
+		"Port":                   c.Port != "",
+		"Hostname":               c.Hostname != "",
+		"WebURL":                 c.WebURL != "",
+		"AuthenticationDisabled": c.AuthenticationDisabled,
+		"AuthGroup":              c.AuthGroup != "",
+		"SecretKeyV1":            c.SecretKeyV1 != "",
 	}
 
-	logger.Info("authentication status", zap.Bool("disabled", c.AuthenticationDisabled))
-	if !c.AuthenticationDisabled && c.AuthGroup == "" {
-		logger.Warn("Auth group is not set, which may cause authorization issues.")
+	for name, isSet := range status {
+		statusText := "[MISSING]"
+		if isSet {
+			statusText = "[OK]"
+		}
+		logger.Info(fmt.Sprintf("%s %s", statusText, name))
 	}
 
 	logger.Debug("application endpoint configuration",
 		zap.String("hostname", c.Hostname),
 		zap.String("port", c.Port),
-		zap.String("web_url", c.WebURL))
+		zap.String("web_url", c.WebURL),
+	)
 }
