@@ -53,7 +53,31 @@ func ValidateComponentsMW(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 	}
 }
 
-func AuthenticationMW(prov *auth.Provider, logger *zap.Logger, userAuthGroup string) gin.HandlerFunc {
+func parseToken(tokenString string, secretKey string, prov *auth.Provider, logger *zap.Logger) (*jwt.Token, error) {
+	return jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
+		switch token.Method.(type) {
+		case *jwt.SigningMethodHMAC:
+			logger.Info("HMAC token detected, using secret key for validation")
+			if secretKey == "" {
+				return nil, fmt.Errorf("secret key is not configured for HMAC token validation")
+			}
+			return []byte(secretKey), nil
+
+		case *jwt.SigningMethodRSA:
+			logger.Info("RSA token detected, using Keycloak public key for validation")
+			key, err := prov.GetPublicKey()
+			if err != nil {
+				return nil, fmt.Errorf("error while getting public key: %w", err)
+			}
+			return key, nil
+
+		default:
+			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+		}
+	})
+}
+
+func AuthenticationMW(prov *auth.Provider, logger *zap.Logger, secretKey string, userAuthGroup string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if prov.Disabled {
 			logger.Info("authentication is disabled")
@@ -70,36 +94,24 @@ func AuthenticationMW(prov *auth.Provider, logger *zap.Logger, userAuthGroup str
 		}
 
 		rawToken := strings.TrimPrefix(authHeader, "Bearer ")
-		// Parse the JWT token and validate it using the Keycloak public key
-		token, err := jwt.Parse(rawToken, func(token *jwt.Token) (interface{}, error) { //nolint:revive
-			// Validate the token's signing method
-			// if _, ok := token.Method.(*jwt.SigningMethodRSA); !ok {
-			//	return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
-			// }
-
-			key, err := prov.GetPublicKey()
-			if err != nil {
-				return nil, fmt.Errorf("error while getting public key: %w", err)
-			}
-
-			return key, nil
-		})
+		token, err := parseToken(rawToken, secretKey, prov, logger)
 
 		if err != nil {
-			logger.Error("failed to parse and validate a token", zap.Error(err))
+			logger.Error("token parsing error", zap.Error(err))
 			apiErrors.RaiseNotAuthorizedErr(c, apiErrors.ErrAuthNotAuthenticated)
 			return
 		}
 
 		if !token.Valid {
+			logger.Error("token validation error", zap.Error(err))
 			apiErrors.RaiseNotAuthorizedErr(c, apiErrors.ErrAuthNotAuthenticated)
 			return
 		}
 
-		if !isAuthGroupInClaims(token, logger, userAuthGroup) {
+		if _, ok := token.Method.(*jwt.SigningMethodRSA); ok && !isAuthGroupInClaims(token, logger, userAuthGroup) {
 			apiErrors.RaiseNotAuthorizedErr(c, apiErrors.ErrAuthNotAuthenticated)
+			return
 		}
-
 		c.Next()
 	}
 }
@@ -145,50 +157,6 @@ func isAuthGroupInClaims(token *jwt.Token, logger *zap.Logger, userAuthGroup str
 		zap.String("group", userAuthGroup))
 
 	return true
-}
-
-// AuthenticationV1DeprecatedMW is a middleware for handling authentication only for Metric Processor.
-// TODO: remove this middleware after migration to Keycloak.
-func AuthenticationV1DeprecatedMW(prov *auth.Provider, logger *zap.Logger, secretKey string) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		if prov.Disabled {
-			logger.Info("authentication is disabled")
-			c.Next()
-			return
-		}
-
-		logger.Info("start to process authentication request for V1")
-
-		authHeader := c.GetHeader("Authorization")
-		if authHeader == "" {
-			apiErrors.RaiseNotAuthorizedErr(c, apiErrors.ErrAuthNotAuthenticated)
-			return
-		}
-
-		rawToken := strings.TrimPrefix(authHeader, "Bearer ")
-		// Parse the JWT token and validate it using the Keycloak public key
-		token, err := jwt.Parse(rawToken, func(token *jwt.Token) (interface{}, error) {
-			// Validate the token's signing method
-			if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-				return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
-			}
-
-			return []byte(secretKey), nil
-		})
-
-		if err != nil {
-			logger.Error("failed to parse and validate a token", zap.Error(err))
-			apiErrors.RaiseNotAuthorizedErr(c, apiErrors.ErrAuthNotAuthenticated)
-			return
-		}
-
-		if !token.Valid {
-			apiErrors.RaiseNotAuthorizedErr(c, apiErrors.ErrAuthNotAuthenticated)
-			return
-		}
-
-		c.Next()
-	}
 }
 
 func CheckEventExistenceMW(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {

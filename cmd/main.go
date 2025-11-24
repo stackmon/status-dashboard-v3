@@ -22,7 +22,7 @@ func main() {
 	}
 
 	logger := conf.NewLogger(c.LogLevel)
-	logger.Info("app starting")
+	c.Log(logger)
 
 	s, err := app.New(c, logger)
 	if err != nil {
