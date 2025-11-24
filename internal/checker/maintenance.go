@@ -74,6 +74,7 @@ func (ch *Checker) CheckMaintenance() error {
 			ch.fixMntMissedStatuses(event.MaintenanceCancelled, sHistory, mn)
 		}
 
+		mn.Status = actualStatus
 		err = ch.db.ModifyIncident(mn)
 		if err != nil {
 			return err
