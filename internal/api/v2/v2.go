@@ -563,7 +563,8 @@ func addComponentToSystemIncident(
 			sysInc.Statuses = append(sysInc.Statuses, db.IncidentStatus{
 				IncidentID: sysInc.ID,
 				Status:     sysInc.Status,
-				Text:       fmt.Sprintf("%s  added to the incident by system.", comp.PrintAttrs()),
+				Text:       fmt.Sprintf("%s added to the incident by system.", comp.PrintAttrs()),
+				Timestamp:  time.Now().UTC(),
 			})
 			err := dbInst.ModifyIncident(sysInc)
 			if err != nil {
