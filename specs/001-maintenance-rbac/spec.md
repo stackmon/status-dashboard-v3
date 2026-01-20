@@ -14,6 +14,12 @@
 - Q: When a user has multiple roles (e.g., both sd_creators and sd_operators), how should the system determine which permissions apply? → A: Highest privilege role takes precedence (sd_admins > sd_operators > sd_creators)
 - Q: What is the JWT token claim structure for roles? How are sd_admins, sd_creators, and sd_operators represented in the token? → A: Single 'groups' claim with array of role names
 - Q: When sd_operators or sd_admins users create maintenance events (which go directly to 'planned' status), should the system still capture and display their user_id as the creator? → A: Always store creator user_id regardless of role
+- Q: How should IdP group names be mapped to application roles (sd_creators, sd_operators, sd_admins) to avoid hardcoding group names in the codebase? → A: Environment variables map IdP group names to application roles (e.g., SD_CREATORS_GROUP, SD_OPERATORS_GROUP, SD_ADMINS_GROUP). Application reads JWT 'groups' claim and checks against configured env var values.
+- Q: Role configuration mechanism: How are environment variables (SD_CREATORS_GROUP, SD_OPERATORS_GROUP, SD_ADMINS_GROUP) mapped to IdP groups? → A: Environment variables (SD_CREATORS_GROUP, SD_OPERATORS_GROUP, SD_ADMINS_GROUP) store IdP group names. Application reads JWT 'groups' claim and matches against these configured values.
+- Q: Status transition automation: Which component handles the "reviewed" → "planned" status change? → A: Internal checker goroutine in existing "checker" module performs the status transition from "reviewed" to "planned"
+- Q: Notification mechanism for pending reviews: How should sd_operators be notified about maintenance events in "pending review" status? → A: Badge count + status filter in list view - Operators see a count badge and can filter the maintenance list to show only "pending review" events (no separate notification endpoint)
+- Q: Contact email validation rules: What validation should apply to the contact email field? → A: Format + corporate domain whitelist - Email must pass RFC 5322 format validation AND match approved domains configured via ALLOWED_EMAIL_DOMAINS environment variable (comma-separated list)
+- Q: Concurrent approval handling: What happens when multiple sd_operators attempt to approve the same maintenance event simultaneously? → A: First approval wins, subsequent get error - Later approval requests receive 409 Conflict indicating the event is no longer in "pending review" status
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -45,9 +51,9 @@ A user with sd_operators role monitors pending maintenance requests. They see no
 
 **Acceptance Scenarios**:
 
-1. **Given** there are maintenance events in "pending review" status, **When** an sd_operators user views the dashboard, **Then** they see UI notifications indicating the number and details of pending reviews
+1. **Given** there are maintenance events in "pending review" status, **When** an sd_operators user views the dashboard, **Then** they see a badge count indicating the number of pending reviews and can filter the list to show only "pending review" events
 2. **Given** an sd_operators user is viewing a maintenance event with "pending review" status, **When** they click the "approve" button, **Then** the system changes the event status from "pending review" to "reviewed"
-3. **Given** a maintenance event is in "reviewed" status, **When** the external checker process validates it, **Then** the status changes from "reviewed" to "planned"
+3. **Given** a maintenance event is in "reviewed" status, **When** the internal checker goroutine in the "checker" module validates it, **Then** the status changes from "reviewed" to "planned"
 
 ---
 
@@ -72,14 +78,15 @@ The system enforces role-based permissions throughout the maintenance lifecycle.
 ### Edge Cases
 
 - What happens when a user's JWT token contains a user_id that doesn't exist in the system?
-- What happens when an sd_creators user provides an invalid email format during maintenance creation?
-- What happens when multiple sd_operators users attempt to approve the same maintenance event simultaneously?
+- When a sd_creators user provides an email with valid format but not in the ALLOWED_EMAIL_DOMAINS whitelist, the system rejects creation with a 400 Bad Request error
+- When multiple sd_operators users attempt to approve the same maintenance event simultaneously, the first approval succeeds (status → "reviewed") and subsequent attempts receive 409 Conflict error
 - How does the system handle a maintenance event that remains in "pending review" status for an extended period?
 - When a user has multiple roles (sd_creators, sd_operators, sd_admins), the system applies the highest privilege role (sd_admins > sd_operators > sd_creators)
 - What happens when a user has sd_admins role along with sd_creators or sd_operators roles?
 - How does the system behave when a user transitions from admin-group to explicit sd_admins role assignment?
-- How does the system behave if the external checker process fails to change status from "reviewed" to "planned"?
+- How does the system behave if the internal checker goroutine in the "checker" module fails to change status from "reviewed" to "planned"?
 - What happens when a user's role is revoked while they have active maintenance events?
+- What happens when the ALLOWED_EMAIL_DOMAINS environment variable is empty or misconfigured?
 
 ## Requirements *(mandatory)*
 
@@ -89,8 +96,10 @@ The system enforces role-based permissions throughout the maintenance lifecycle.
 
 - **FR-001**: System MUST support three distinct roles: sd_admins (backward compatible with existing admin-group), sd_creators, and sd_operators
 - **FR-002**: System MUST extract user roles from the 'groups' claim in the JWT token, which contains an array of role names (e.g., ["admin-group", "sd_creators"])
+- **FR-002a**: System MUST map IdP group names to application roles using environment variables (SD_CREATORS_GROUP, SD_OPERATORS_GROUP, SD_ADMINS_GROUP). The application reads the JWT 'groups' claim and checks if any value matches the configured environment variable values to determine role membership.
+- **FR-002b**: System MUST support dynamic IdP group name changes through environment variable updates without requiring code modifications
 - **FR-003**: System MUST extract user_id from JWT token and store it with maintenance events
-- **FR-003a**: System MUST recognize existing "admin-group" membership as equivalent to sd_admins role for backward compatibility
+- **FR-003a**: System MUST recognize existing "admin-group" membership as equivalent to sd_admins role for backward compatibility (configurable via SD_ADMINS_GROUP environment variable)
 - **FR-003b**: When a user has multiple roles, system MUST apply permissions from the highest privilege role using the precedence order: sd_admins > sd_operators > sd_creators
 
 #### sd_creators Role Permissions
@@ -102,16 +111,21 @@ The system enforces role-based permissions throughout the maintenance lifecycle.
 - **FR-006**: Users with sd_creators role MUST be able to modify maintenance events ONLY when the event status is "pending review"
 - **FR-007**: Users with sd_creators role MUST be able to delete maintenance events ONLY when the event status is "pending review"
 - **FR-008**: System MUST require a valid email address during maintenance event creation
+- **FR-008a**: System MUST validate contact email against RFC 5322 format specifications
+- **FR-008b**: System MUST validate contact email domain against an approved domain whitelist configured via ALLOWED_EMAIL_DOMAINS environment variable (comma-separated list of allowed domains)
+- **FR-008c**: System MUST reject maintenance creation requests with emails that fail format or domain validation, returning a 400 Bad Request with a clear error message
 - **FR-009**: System MUST reject modification attempts by sd_creators users when event status is not "pending review"
 - **FR-010**: System MUST reject deletion attempts by sd_creators users when event status is not "pending review"
 
 #### sd_operators Role Permissions
 
-- **FR-011**: Users with sd_operators role MUST receive UI notifications about maintenance events in "pending review" status
+- **FR-011**: Users with sd_operators role MUST see a badge count in the UI indicating the number of maintenance events in "pending review" status
+- **FR-011a**: Users with sd_operators role MUST be able to filter the maintenance event list to show only events with "pending review" status
 - **FR-012**: Users with sd_operators role MUST be able to view all maintenance events regardless of status
 - **FR-013**: Users with sd_operators role MUST be able to approve maintenance events with "pending review" status
 - **FR-014**: When an sd_operators user approves a maintenance event, the system MUST change its status from "pending review" to "reviewed"
 - **FR-015**: System MUST prevent sd_operators users from approving events that are not in "pending review" status
+- **FR-015-1**: When multiple sd_operators users attempt to approve the same event simultaneously, the system MUST allow the first approval to succeed and return 409 Conflict for subsequent attempts with a message indicating the event is no longer in "pending review" status
 
 #### sd_admins Role Permissions
 
@@ -134,7 +148,7 @@ The system enforces role-based permissions throughout the maintenance lifecycle.
 
 - **FR-022**: System MUST support the following status flow for sd_creators: pending review → reviewed → planned → [existing statuses]
 - **FR-022a**: System MUST support direct "planned" status for events created by sd_operators and sd_admins users (bypassing pending review and reviewed statuses)
-- **FR-023**: System MUST allow external checker process to change status from "reviewed" to "planned"
+- **FR-023**: The internal checker goroutine in the existing "checker" module MUST automatically change status from "reviewed" to "planned" when validation completes
 - **FR-024**: System MUST prevent manual status changes that skip steps in the workflow, except for sd_admins users who can transition to any status
 - **FR-025**: System MUST maintain an audit trail of status changes including timestamp and user who initiated the change
 
@@ -144,7 +158,8 @@ The system enforces role-based permissions throughout the maintenance lifecycle.
 - **FR-027**: System MUST return 401 Unauthorized for requests without valid JWT tokens
 - **FR-028**: System MUST return 403 Forbidden when users attempt actions not permitted for their role
 - **FR-029**: System MUST validate that the user_id in the JWT token matches the creator's user_id when enforcing creator-specific permissions
-- **FR-030**: System MUST validate email format during maintenance event creation
+- **FR-030**: System MUST validate email format (RFC 5322) and domain (against ALLOWED_EMAIL_DOMAINS whitelist) during maintenance event creation
+- **FR-031**: System MUST return 409 Conflict when users attempt status transitions that conflict with the current state (e.g., approving an event not in "pending review" status)
 
 ### Key Entities
 
@@ -159,7 +174,7 @@ The system enforces role-based permissions throughout the maintenance lifecycle.
 ### Measurable Outcomes
 
 - **SC-001**: sd_creators users can successfully create a maintenance event and see it in "pending review" status within 2 seconds
-- **SC-002**: sd_operators users see real-time UI notifications when new maintenance events enter "pending review" status within 5 seconds of creation
+- **SC-002**: sd_operators users see the updated badge count when new maintenance events enter "pending review" status within 5 seconds of page refresh
 - **SC-003**: Unauthorized modification attempts (wrong role or wrong status) are rejected with appropriate error codes (401/403) 100% of the time
 - **SC-004**: The approval workflow (pending review → reviewed → planned) completes successfully for 100% of valid requests
 - **SC-005**: Creator information (user_id) and contact email are accurately captured and displayed for 100% of maintenance events
