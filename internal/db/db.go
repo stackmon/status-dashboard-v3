@@ -95,7 +95,8 @@ func applyEventsFilters(base *gorm.DB, params *IncidentsParams) (*gorm.DB, error
 			"incident.status NOT IN (?))",
 			currentTime,
 			currentTime,
-			[]event.Status{event.MaintenanceCompleted,
+			[]event.Status{event.IncidentResolved,
+				event.MaintenanceCompleted,
 				event.MaintenanceCancelled,
 				event.InfoCompleted,
 				event.InfoCancelled})
@@ -278,9 +279,18 @@ func (db *DB) GetEventsByComponentID(componentID uint, params ...*IncidentsParam
 	}
 
 	if param.IsActive != nil && *param.IsActive {
-		r.Where("incident.status not in ?", []event.Status{
-			event.IncidentResolved, event.MaintenanceCompleted, event.MaintenanceCancelled,
-			event.InfoCompleted, event.InfoCancelled})
+		currentTime := time.Now().UTC()
+		r.Where("(incident.end_date IS NULL) OR "+
+			"(incident.start_date <= ? AND "+
+			"incident.end_date >= ? AND "+
+			"incident.status NOT IN (?))",
+			currentTime,
+			currentTime,
+			[]event.Status{event.IncidentResolved,
+				event.MaintenanceCompleted,
+				event.MaintenanceCancelled,
+				event.InfoCompleted,
+				event.InfoCancelled})
 	}
 
 	if len(param.Types) > 0 {
