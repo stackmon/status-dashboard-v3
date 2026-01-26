@@ -945,7 +945,7 @@ type PatchIncidentData struct {
 	Type        string       `json:"type,omitempty" binding:"omitempty,oneof=maintenance info incident"`
 }
 
-func PatchIncidentHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
+func PatchEventHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		logger.Debug("update incident")
 

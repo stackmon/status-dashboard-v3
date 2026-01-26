@@ -20,6 +20,26 @@ import (
 
 const eventContextKey = "event"
 
+// EventIDToIncidentIDMW remaps :eventID parameter to work with handlers expecting :incidentID
+// This allows routes to use :eventID while keeping existing handler code unchanged
+// This helper will be removed in the next iteration.
+func EventIDToIncidentIDMW() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if eventID := c.Param("eventID"); eventID != "" {
+			newParams := make(gin.Params, 0, len(c.Params))
+			for _, param := range c.Params {
+				if param.Key == "eventID" {
+					newParams = append(newParams, gin.Param{Key: "incidentID", Value: param.Value})
+				} else {
+					newParams = append(newParams, param)
+				}
+			}
+			c.Params = newParams
+		}
+		c.Next()
+	}
+}
+
 func ValidateComponentsMW(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		logger.Info("start to validate given components")

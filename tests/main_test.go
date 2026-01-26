@@ -171,6 +171,8 @@ func initRoutesV2(t *testing.T, c *gin.Engine, dbInst *db.DB, logger *zap.Logger
 	v2Api.POST("components", v2.PostComponentHandler(dbInst, logger))
 	v2Api.GET("components/:id", v2.GetComponentHandler(dbInst, logger))
 
+	// Incidents routes are deprecated.
+	// They will be removed in the next iteration.
 	v2Api.GET("incidents", v2.GetIncidentsHandler(dbInst, logger))
 	v2Api.POST("incidents", api.ValidateComponentsMW(dbInst, logger), v2.PostIncidentHandler(dbInst, logger))
 	v2Api.GET("incidents/:incidentID",
@@ -178,14 +180,34 @@ func initRoutesV2(t *testing.T, c *gin.Engine, dbInst *db.DB, logger *zap.Logger
 		v2.GetIncidentHandler(dbInst, logger))
 	v2Api.PATCH("incidents/:incidentID",
 		api.CheckEventExistenceMW(dbInst, logger),
-		v2.PatchIncidentHandler(dbInst, logger))
+		v2.PatchEventHandler(dbInst, logger))
 	v2Api.POST("incidents/:incidentID/extract",
 		api.CheckEventExistenceMW(dbInst, logger),
 		v2.PostIncidentExtractHandler(dbInst, logger))
 	v2Api.PATCH("incidents/:incidentID/updates/:updateID",
 		api.CheckEventExistenceMW(dbInst, logger),
 		v2.PatchEventUpdateTextHandler(dbInst, logger))
+
+	// Events routes.
 	v2Api.GET("events", v2.GetEventsHandler(dbInst, logger))
+	v2Api.POST("events", api.ValidateComponentsMW(dbInst, logger), v2.PostIncidentHandler(dbInst, logger))
+	v2Api.GET("events/:eventID",
+		api.EventIDToIncidentIDMW(),
+		api.CheckEventExistenceMW(dbInst, logger),
+		v2.GetIncidentHandler(dbInst, logger))
+	v2Api.PATCH("events/:eventID",
+		api.EventIDToIncidentIDMW(),
+		api.CheckEventExistenceMW(dbInst, logger),
+		v2.PatchEventHandler(dbInst, logger))
+	v2Api.POST("events/:eventID/extract",
+		api.EventIDToIncidentIDMW(),
+		api.CheckEventExistenceMW(dbInst, logger),
+		v2.PostIncidentExtractHandler(dbInst, logger))
+	v2Api.PATCH("events/:eventID/updates/:updateID",
+		api.EventIDToIncidentIDMW(),
+		api.CheckEventExistenceMW(dbInst, logger),
+		v2.PatchEventUpdateTextHandler(dbInst, logger))
+
 	v2Api.GET("availability", v2.GetComponentsAvailabilityHandler(dbInst, logger))
 }
 
