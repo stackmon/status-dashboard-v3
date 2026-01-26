@@ -782,7 +782,7 @@ func TestV2CreateComponentAndList(t *testing.T) {
 	assert.Contains(t, w.Body.String(), "component attribute has invalid format")
 }
 
-func TestV2GetEventsFilteredHandler(t *testing.T) {
+func TestV2GetEventsFilteredHandler(t *testing.T) { //nolint:gocognit
 	t.Log("start to test GET /v2/events with filters and pagination")
 	r, _, _ := initTests(t)
 
