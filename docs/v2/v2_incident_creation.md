@@ -1,10 +1,12 @@
 # Incident management V2
 
-This document is described the business logic schema for incident management. All actions require authorisation.
+This document describes the business logic schema for incident management. All actions require authorisation.
 
 ## Incident creation
 
-For creation an incident, sent a POST request to endpoint `v2/incidents`.
+For creating an incident, send a POST request to endpoint `v2/events` (recommended) or `v2/incidents` (deprecated).
+
+> **Note**: The `/v2/incidents` endpoint is deprecated. Use `/v2/events` for all new integrations.
 
 The example:
 

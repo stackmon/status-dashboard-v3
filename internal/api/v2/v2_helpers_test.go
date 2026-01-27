@@ -42,6 +42,7 @@ func initRoutes(t *testing.T, c *gin.Engine, dbInst *db.DB, log *zap.Logger) {
 		v2Api.GET("component_status", GetComponentsHandler(dbInst, log))
 		v2Api.POST("component_status", PostComponentHandler(dbInst, log))
 
+		// Incidents routes (deprecated)
 		v2Api.GET("incidents", GetIncidentsHandler(dbInst, log))
 		v2Api.POST("incidents", PostIncidentHandler(dbInst, log))
 		v2Api.GET("incidents/:eventID", GetIncidentHandler(dbInst, log))
@@ -50,7 +51,17 @@ func initRoutes(t *testing.T, c *gin.Engine, dbInst *db.DB, log *zap.Logger) {
 			EventExistenceCheckForTests(dbInst, log),
 			PatchEventUpdateTextHandler(dbInst, log),
 		)
+
+		// Events routes (new endpoints)
 		v2Api.GET("events", GetEventsHandler(dbInst, log))
+		v2Api.POST("events", PostIncidentHandler(dbInst, log))
+		v2Api.GET("events/:eventID", GetIncidentHandler(dbInst, log))
+		v2Api.PATCH("events/:eventID", PatchIncidentHandler(dbInst, log))
+		v2Api.PATCH("events/:eventID/updates/:updateID",
+			EventExistenceCheckForTests(dbInst, log),
+			PatchEventUpdateTextHandler(dbInst, log),
+		)
+
 		v2Api.GET("availability", GetComponentsAvailabilityHandler(dbInst, log))
 	}
 }

@@ -931,8 +931,9 @@ func TestPatchEventUpdateHandler(t *testing.T) {
 		expectedStatus int
 		expectedBody   string
 	}{
+		// Tests for /v2/incidents endpoint (deprecated)
 		{
-			name: "Update incident update id=0",
+			name: "Update incident update id=0 via /v2/incidents",
 			url:  fmt.Sprintf("incidents/111/updates/%d", updateIndex1),
 			body: `{"text": "Updated: analysing"}`,
 			mockSetup: func(m sqlmock.Sqlmock) {
@@ -947,8 +948,39 @@ func TestPatchEventUpdateHandler(t *testing.T) {
 			expectedBody:   responseAfterFirst,
 		},
 		{
-			name: "Update incident update id=1",
+			name: "Update incident update id=1 via /v2/incidents",
 			url:  fmt.Sprintf("incidents/111/updates/%d", updateIndex2),
+			body: `{"text": "Updated: resolved"}`,
+			mockSetup: func(m sqlmock.Sqlmock) {
+				prepareMockForPatchEventUpdate(
+					t, m, &incidentA,
+					uint(updateID2),
+					"Updated: resolved",
+					updateIndex2,
+				)
+			},
+			expectedStatus: http.StatusOK,
+			expectedBody:   responseAfterSecond,
+		},
+		// Tests for /v2/events endpoint (new)
+		{
+			name: "Update event update id=0 via /v2/events",
+			url:  fmt.Sprintf("events/111/updates/%d", updateIndex1),
+			body: `{"text": "Updated: analysing"}`,
+			mockSetup: func(m sqlmock.Sqlmock) {
+				prepareMockForPatchEventUpdate(
+					t, m, &incidentA,
+					uint(updateID1),
+					"Updated: analysing",
+					updateIndex1,
+				)
+			},
+			expectedStatus: http.StatusOK,
+			expectedBody:   responseAfterFirst,
+		},
+		{
+			name: "Update event update id=1 via /v2/events",
+			url:  fmt.Sprintf("events/111/updates/%d", updateIndex2),
 			body: `{"text": "Updated: resolved"}`,
 			mockSetup: func(m sqlmock.Sqlmock) {
 				prepareMockForPatchEventUpdate(
