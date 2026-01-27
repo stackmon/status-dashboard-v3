@@ -312,7 +312,7 @@ func prepareMockForModifyEventUpdate(
 func EventExistenceCheckForTests(dbInst *db.DB, _ *zap.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var uri struct {
-			ID uint `uri:"incidentID" binding:"required"`
+			ID uint `uri:"eventID" binding:"required"`
 		}
 		if err := c.ShouldBindUri(&uri); err != nil {
 			apiErrors.RaiseBadRequestErr(c, err)
