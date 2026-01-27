@@ -59,7 +59,7 @@ func (a *API) InitRoutes() {
 		v2API.PATCH("incidents/:incidentID",
 			AuthenticationMW(a.oa2Prov, a.log, a.secretKeyV1, a.authGroup),
 			CheckEventExistenceMW(a.db, a.log),
-			v2.PatchEventHandler(a.db, a.log))
+			v2.PatchIncidentHandler(a.db, a.log))
 		v2API.POST("incidents/:incidentID/extract",
 			AuthenticationMW(a.oa2Prov, a.log, a.secretKeyV1, a.authGroup),
 			CheckEventExistenceMW(a.db, a.log),
@@ -84,7 +84,7 @@ func (a *API) InitRoutes() {
 			EventIDToIncidentIDMW(),
 			AuthenticationMW(a.oa2Prov, a.log, a.secretKeyV1, a.authGroup),
 			CheckEventExistenceMW(a.db, a.log),
-			v2.PatchEventHandler(a.db, a.log))
+			v2.PatchIncidentHandler(a.db, a.log))
 		v2API.POST("events/:eventID/extract",
 			EventIDToIncidentIDMW(),
 			AuthenticationMW(a.oa2Prov, a.log, a.secretKeyV1, a.authGroup),

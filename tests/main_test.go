@@ -180,7 +180,7 @@ func initRoutesV2(t *testing.T, c *gin.Engine, dbInst *db.DB, logger *zap.Logger
 		v2.GetIncidentHandler(dbInst, logger))
 	v2Api.PATCH("incidents/:incidentID",
 		api.CheckEventExistenceMW(dbInst, logger),
-		v2.PatchEventHandler(dbInst, logger))
+		v2.PatchIncidentHandler(dbInst, logger))
 	v2Api.POST("incidents/:incidentID/extract",
 		api.CheckEventExistenceMW(dbInst, logger),
 		v2.PostIncidentExtractHandler(dbInst, logger))
@@ -198,7 +198,7 @@ func initRoutesV2(t *testing.T, c *gin.Engine, dbInst *db.DB, logger *zap.Logger
 	v2Api.PATCH("events/:eventID",
 		api.EventIDToIncidentIDMW(),
 		api.CheckEventExistenceMW(dbInst, logger),
-		v2.PatchEventHandler(dbInst, logger))
+		v2.PatchIncidentHandler(dbInst, logger))
 	v2Api.POST("events/:eventID/extract",
 		api.EventIDToIncidentIDMW(),
 		api.CheckEventExistenceMW(dbInst, logger),
