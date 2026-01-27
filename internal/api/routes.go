@@ -55,17 +55,17 @@ func (a *API) InitRoutes() {
 			ValidateComponentsMW(a.db, a.log),
 			v2.PostIncidentHandler(a.db, a.log),
 		)
-		v2API.GET("incidents/:incidentID", v2.GetIncidentHandler(a.db, a.log))
-		v2API.PATCH("incidents/:incidentID",
+		v2API.GET("incidents/:eventID", v2.GetIncidentHandler(a.db, a.log))
+		v2API.PATCH("incidents/:eventID",
 			AuthenticationMW(a.oa2Prov, a.log, a.secretKeyV1, a.authGroup),
 			CheckEventExistenceMW(a.db, a.log),
 			v2.PatchIncidentHandler(a.db, a.log))
-		v2API.POST("incidents/:incidentID/extract",
+		v2API.POST("incidents/:eventID/extract",
 			AuthenticationMW(a.oa2Prov, a.log, a.secretKeyV1, a.authGroup),
 			CheckEventExistenceMW(a.db, a.log),
 			ValidateComponentsMW(a.db, a.log),
 			v2.PostIncidentExtractHandler(a.db, a.log))
-		v2API.PATCH("incidents/:incidentID/updates/:updateID",
+		v2API.PATCH("incidents/:eventID/updates/:updateID",
 			AuthenticationMW(a.oa2Prov, a.log, a.secretKeyV1, a.authGroup),
 			CheckEventExistenceMW(a.db, a.log),
 			v2.PatchEventUpdateTextHandler(a.db, a.log))
@@ -78,21 +78,17 @@ func (a *API) InitRoutes() {
 			ValidateComponentsMW(a.db, a.log),
 			v2.PostIncidentHandler(a.db, a.log))
 		v2API.GET("events/:eventID",
-			EventIDToIncidentIDMW(),
 			v2.GetIncidentHandler(a.db, a.log))
 		v2API.PATCH("events/:eventID",
-			EventIDToIncidentIDMW(),
 			AuthenticationMW(a.oa2Prov, a.log, a.secretKeyV1, a.authGroup),
 			CheckEventExistenceMW(a.db, a.log),
 			v2.PatchIncidentHandler(a.db, a.log))
 		v2API.POST("events/:eventID/extract",
-			EventIDToIncidentIDMW(),
 			AuthenticationMW(a.oa2Prov, a.log, a.secretKeyV1, a.authGroup),
 			CheckEventExistenceMW(a.db, a.log),
 			ValidateComponentsMW(a.db, a.log),
 			v2.PostIncidentExtractHandler(a.db, a.log))
 		v2API.PATCH("events/:eventID/updates/:updateID",
-			EventIDToIncidentIDMW(),
 			AuthenticationMW(a.oa2Prov, a.log, a.secretKeyV1, a.authGroup),
 			CheckEventExistenceMW(a.db, a.log),
 			v2.PatchEventUpdateTextHandler(a.db, a.log))

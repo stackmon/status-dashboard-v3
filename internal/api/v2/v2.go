@@ -22,7 +22,7 @@ const (
 
 // Event IDs and core data structures.
 type IncidentID struct {
-	ID int `json:"id" uri:"incidentID" binding:"required,gte=0"`
+	ID int `json:"id" uri:"eventID" binding:"required,gte=0"`
 }
 
 type IncidentData struct {
@@ -1546,7 +1546,7 @@ type EventUpdateData struct {
 
 func bindAndValidatePatchEventUpdate(c *gin.Context) (int, int, string, error) {
 	type updateData struct {
-		IncidentID int  `uri:"incidentID" binding:"required,gt=0"`
+		IncidentID int  `uri:"eventID" binding:"required,gt=0"`
 		UpdateID   *int `uri:"updateID" binding:"required,gte=0"`
 	}
 
@@ -1571,7 +1571,7 @@ func PatchEventUpdateTextHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerF
 	return func(c *gin.Context) {
 		logger.Debug(
 			"Patching text for event update",
-			zap.String("incidentID", c.Param("incidentID")),
+			zap.String("eventID", c.Param("eventID")),
 			zap.String("updateID", c.Param("updateID")),
 		)
 

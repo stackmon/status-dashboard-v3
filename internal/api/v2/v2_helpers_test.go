@@ -44,9 +44,9 @@ func initRoutes(t *testing.T, c *gin.Engine, dbInst *db.DB, log *zap.Logger) {
 
 		v2Api.GET("incidents", GetIncidentsHandler(dbInst, log))
 		v2Api.POST("incidents", PostIncidentHandler(dbInst, log))
-		v2Api.GET("incidents/:incidentID", GetIncidentHandler(dbInst, log))
-		v2Api.PATCH("incidents/:incidentID", PatchIncidentHandler(dbInst, log))
-		v2Api.PATCH("incidents/:incidentID/updates/:updateID",
+		v2Api.GET("incidents/:eventID", GetIncidentHandler(dbInst, log))
+		v2Api.PATCH("incidents/:eventID", PatchIncidentHandler(dbInst, log))
+		v2Api.PATCH("incidents/:eventID/updates/:updateID",
 			EventExistenceCheckForTests(dbInst, log),
 			PatchEventUpdateTextHandler(dbInst, log),
 		)

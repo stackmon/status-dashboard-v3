@@ -1287,7 +1287,7 @@ func checkComponentAvailability(t *testing.T, compAvail v2.ComponentAvailability
 }
 
 func TestV2PatchEventUpdateHandler(t *testing.T) {
-	t.Log("start to test PATCH /v2/events/:incidentID/updates/:updateID")
+	t.Log("start to test PATCH /v2/events/:eventID/updates/:updateID")
 	r, _, _ := initTests(t)
 
 	// Clean up database before test to ensure a clean state for this test case.

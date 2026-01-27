@@ -175,16 +175,16 @@ func initRoutesV2(t *testing.T, c *gin.Engine, dbInst *db.DB, logger *zap.Logger
 	// They will be removed in the next iteration.
 	v2Api.GET("incidents", v2.GetIncidentsHandler(dbInst, logger))
 	v2Api.POST("incidents", api.ValidateComponentsMW(dbInst, logger), v2.PostIncidentHandler(dbInst, logger))
-	v2Api.GET("incidents/:incidentID",
+	v2Api.GET("incidents/:eventID",
 		api.CheckEventExistenceMW(dbInst, logger),
 		v2.GetIncidentHandler(dbInst, logger))
-	v2Api.PATCH("incidents/:incidentID",
+	v2Api.PATCH("incidents/:eventID",
 		api.CheckEventExistenceMW(dbInst, logger),
 		v2.PatchIncidentHandler(dbInst, logger))
-	v2Api.POST("incidents/:incidentID/extract",
+	v2Api.POST("incidents/:eventID/extract",
 		api.CheckEventExistenceMW(dbInst, logger),
 		v2.PostIncidentExtractHandler(dbInst, logger))
-	v2Api.PATCH("incidents/:incidentID/updates/:updateID",
+	v2Api.PATCH("incidents/:eventID/updates/:updateID",
 		api.CheckEventExistenceMW(dbInst, logger),
 		v2.PatchEventUpdateTextHandler(dbInst, logger))
 
@@ -192,19 +192,15 @@ func initRoutesV2(t *testing.T, c *gin.Engine, dbInst *db.DB, logger *zap.Logger
 	v2Api.GET("events", v2.GetEventsHandler(dbInst, logger))
 	v2Api.POST("events", api.ValidateComponentsMW(dbInst, logger), v2.PostIncidentHandler(dbInst, logger))
 	v2Api.GET("events/:eventID",
-		api.EventIDToIncidentIDMW(),
 		api.CheckEventExistenceMW(dbInst, logger),
 		v2.GetIncidentHandler(dbInst, logger))
 	v2Api.PATCH("events/:eventID",
-		api.EventIDToIncidentIDMW(),
 		api.CheckEventExistenceMW(dbInst, logger),
 		v2.PatchIncidentHandler(dbInst, logger))
 	v2Api.POST("events/:eventID/extract",
-		api.EventIDToIncidentIDMW(),
 		api.CheckEventExistenceMW(dbInst, logger),
 		v2.PostIncidentExtractHandler(dbInst, logger))
 	v2Api.PATCH("events/:eventID/updates/:updateID",
-		api.EventIDToIncidentIDMW(),
 		api.CheckEventExistenceMW(dbInst, logger),
 		v2.PatchEventUpdateTextHandler(dbInst, logger))
 
