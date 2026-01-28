@@ -141,7 +141,7 @@ func TestV2SystemIncidentCreationNoActiveEvents(t *testing.T) {
 	assert.NotZero(t, result.IncidentID)
 
 	// Verify the created incident
-	incident := v2GetIncident(t, r, result.IncidentID)
+	incident := v2GetEvent(t, r, result.IncidentID)
 	assert.Equal(t, incData.Title, incident.Title)
 	assert.Equal(t, impact, *incident.Impact)
 	assert.True(t, *incident.System)
@@ -250,7 +250,7 @@ func TestV2SystemIncidentCreationWithNonSystemIncident(t *testing.T) {
 	assert.Empty(t, result.Error)
 
 	// Verify no new incident was created
-	incident := v2GetIncident(t, r, result.IncidentID)
+	incident := v2GetEvent(t, r, result.IncidentID)
 	assert.False(t, *incident.System)
 	assert.Equal(t, "Regular incident", incident.Title)
 }
@@ -354,7 +354,7 @@ func TestV2SystemIncidentHigherImpact(t *testing.T) {
 	assert.Empty(t, result.Error)
 
 	// Verify incident still has high impact
-	incident := v2GetIncident(t, r, result.IncidentID)
+	incident := v2GetEvent(t, r, result.IncidentID)
 	assert.Equal(t, highImpact, *incident.Impact)
 }
 
@@ -413,7 +413,7 @@ func TestV2SystemIncidentLowerImpactSingleComponent(t *testing.T) {
 	assert.Equal(t, lowImpactIncidentID, result.IncidentID)
 
 	// Verify incident impact was updated
-	incident := v2GetIncident(t, r, result.IncidentID)
+	incident := v2GetEvent(t, r, result.IncidentID)
 	assert.Equal(t, highImpact, *incident.Impact)
 	assert.True(t, *incident.System)
 	assert.Nil(t, incident.EndDate)
@@ -448,7 +448,7 @@ func TestV2SystemIncidentLowerImpactMultiComponent(t *testing.T) {
 	lowImpactIncidentID := respLow.Result[0].IncidentID
 
 	// Verify the low impact incident has 2 components
-	lowIncident := v2GetIncident(t, r, lowImpactIncidentID)
+	lowIncident := v2GetEvent(t, r, lowImpactIncidentID)
 	assert.Len(t, lowIncident.Components, 2)
 
 	// Create system incident with higher impact for component 3 only
@@ -476,7 +476,7 @@ func TestV2SystemIncidentLowerImpactMultiComponent(t *testing.T) {
 	assert.NotEqual(t, lowImpactIncidentID, result.IncidentID)
 
 	// Verify new incident was created with high impact
-	newIncident := v2GetIncident(t, r, result.IncidentID)
+	newIncident := v2GetEvent(t, r, result.IncidentID)
 	assert.Equal(t, highImpact, *newIncident.Impact)
 	assert.True(t, *newIncident.System)
 	assert.Len(t, newIncident.Components, 1)
@@ -484,7 +484,7 @@ func TestV2SystemIncidentLowerImpactMultiComponent(t *testing.T) {
 
 	// Verify old incident still exists with component 4
 	// Note: The extraction creates a new incident for component 3, leaving component 4 in old incident
-	oldIncident := v2GetIncident(t, r, lowImpactIncidentID)
+	oldIncident := v2GetEvent(t, r, lowImpactIncidentID)
 	assert.Equal(t, lowImpact, *oldIncident.Impact)
 	// The old incident may still have the moved component in the components list,
 	// but it should have an update status indicating the move
@@ -549,7 +549,7 @@ func TestV2SystemIncidentReuseExisting(t *testing.T) {
 	assert.Empty(t, result.Error)
 
 	// Verify both components are in the same incident
-	incident := v2GetIncident(t, r, firstIncidentID)
+	incident := v2GetEvent(t, r, firstIncidentID)
 	assert.Len(t, incident.Components, 2)
 	assert.Equal(t, impact, *incident.Impact)
 	assert.True(t, *incident.System)
@@ -590,7 +590,7 @@ func TestV2SystemIncidentMultipleComponents(t *testing.T) {
 	}
 
 	// Verify incident has all components
-	incident := v2GetIncident(t, r, incidentID)
+	incident := v2GetEvent(t, r, incidentID)
 	assert.Len(t, incident.Components, 3)
 	assert.Equal(t, impact, *incident.Impact)
 	assert.True(t, *incident.System)
@@ -697,7 +697,7 @@ func TestV2SystemIncidentMixedScenarios(t *testing.T) {
 	assert.Equal(t, resp.Result[1].IncidentID, resp.Result[3].IncidentID)
 
 	// Verify the new system incident
-	incident := v2GetIncident(t, r, resp.Result[1].IncidentID)
+	incident := v2GetEvent(t, r, resp.Result[1].IncidentID)
 	assert.Equal(t, impact3, *incident.Impact)
 	assert.True(t, *incident.System)
 	assert.Len(t, incident.Components, 2)
@@ -706,7 +706,7 @@ func TestV2SystemIncidentMixedScenarios(t *testing.T) {
 // Helper function to clean up open incidents before each test.
 func cleanupOpenIncidents(t *testing.T, r *gin.Engine) {
 	t.Helper()
-	incidents := v2GetIncidents(t, r)
+	incidents := v2GetEvents(t, r)
 	for _, inc := range incidents {
 		if inc.EndDate == nil {
 			// Close open incidents

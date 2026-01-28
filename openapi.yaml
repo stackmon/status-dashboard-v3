@@ -9,6 +9,8 @@ tags:
     description: Authentication operations
   - name: incidents
     description: Incident management
+  - name: events
+    description: Event management
   - name: components
     description: Operations about components
   - name: v1
@@ -232,6 +234,7 @@ paths:
                       $ref: '#/components/schemas/ComponentAvailability'
   /v2/incidents:
     get:
+      deprecated: true
       summary: Get all incidents.
       tags:
         - incidents
@@ -252,6 +255,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Incidents'
     post:
+      deprecated: true
       summary: Create an incident.
       tags:
         - incidents
@@ -272,7 +276,7 @@ paths:
     get:
       summary: Get all events with pagination.
       tags:
-        - incidents
+        - events
       parameters:
         - $ref: '#/components/parameters/IncidentFilterType'
         - $ref: '#/components/parameters/IncidentFilterActive'
@@ -291,9 +295,152 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/PaginatedEvents'
+    post:
+      summary: Create an event.
+      tags:
+        - events
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/IncidentPost'
+        required: true
+      responses:
+        '200':
+          description: Create an event.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IncidentPostResponse'
+
+  /v2/events/{event_id}:
+    get:
+      summary: Find an event by id.
+      description: Returns a single event.
+      tags:
+        - events
+      parameters:
+        - name: event_id
+          in: path
+          description: ID of event to return
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        '200':
+          description: successful operation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Incident'
+        '400':
+          description: Invalid ID supplied
+        '404':
+          description: Event not found.
+    patch:
+      summary: Update an event.
+      tags:
+        - events
+      parameters:
+        - name: event_id
+          in: path
+          description: ID of event to update
+          required: true
+          schema:
+            type: integer
+            format: int64
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/IncidentPatch'
+        required: true
+      responses:
+        '200':
+          description: successful operation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Incident'
+        '400':
+          description: Invalid ID supplied
+        '404':
+          description: Event not found.
+  /v2/events/{event_id}/extract:
+    post:
+      summary: Extract components to the new event
+      tags:
+        - events
+      parameters:
+        - name: event_id
+          in: path
+          description: ID of event
+          required: true
+          schema:
+            type: integer
+            format: int64
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/IncidentPostExtract'
+        required: true
+      responses:
+        '200':
+          description: successful operation, return the new event id
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Incident'
+        '400':
+          description: Invalid ID supplied
+        '404':
+          description: Event not found.
+  /v2/events/{event_id}/updates/{update_id}:
+    patch:
+      summary: Update the text of an event update.
+      tags:
+        - events
+      parameters:
+        - name: event_id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+        - name: update_id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                text:
+                  type: string
+                  example: "Updated status text"
+      responses:
+        '200':
+          description: Update successful.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/EventUpdateData'
+        '400':
+          description: Invalid input.
+        '404':
+          description: Not found.
 
   /v2/incidents/{incident_id}:
     get:
+      deprecated: true
       summary: Find an incident by id.
       description: Returns a single incident.
       tags:
@@ -318,6 +465,7 @@ paths:
         '404':
           description: Incident not found.
     patch:
+      deprecated: true
       summary: Update an incident.
       tags:
         - incidents
@@ -348,6 +496,7 @@ paths:
           description: Incident not found.
   /v2/incidents/{incident_id}/extract:
     post:
+      deprecated: true
       summary: extract components to the new incident
       tags:
         - incidents
@@ -378,6 +527,7 @@ paths:
           description: Incident not found.
   /v2/incidents/{incident_id}/updates/{update_id}:
     patch:
+      deprecated: true
       summary: Update the text of an incident update.
       tags:
         - incidents
