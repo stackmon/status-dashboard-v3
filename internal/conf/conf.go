@@ -47,6 +47,12 @@ type Config struct {
 	SecretKeyV1 string `envconfig:"SECRET_KEY"`
 	// Auth group name that users must belong to for authorization (optional)
 	AuthGroup string `envconfig:"AUTH_GROUP"`
+	// RBAC: Creators group name
+	CreatorsGroup string `envconfig:"GROUP_CREATORS"`
+	// RBAC: Operators group name
+	OperatorsGroup string `envconfig:"GROUP_OPERATORS"`
+	// RBAC: Admins group name
+	AdminsGroup string `envconfig:"GROUP_ADMINS"`
 }
 
 type Keycloak struct {
@@ -206,6 +212,9 @@ func (c *Config) Log(logger *zap.Logger) {
 	logger.Info("Authentication configuration",
 		zap.Bool("authentication_disabled", c.AuthenticationDisabled),
 		zap.String("auth_group", c.AuthGroup),
+		zap.String("creators_group", c.CreatorsGroup),
+		zap.String("operators_group", c.OperatorsGroup),
+		zap.String("admins_group", c.AdminsGroup),
 		zap.String("secret_key_v1", maskSecret(c.SecretKeyV1)),
 	)
 

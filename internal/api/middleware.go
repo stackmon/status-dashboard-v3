@@ -14,11 +14,17 @@ import (
 
 	"github.com/stackmon/otc-status-dashboard/internal/api/auth"
 	apiErrors "github.com/stackmon/otc-status-dashboard/internal/api/errors"
+	"github.com/stackmon/otc-status-dashboard/internal/api/rbac"
 	v2 "github.com/stackmon/otc-status-dashboard/internal/api/v2"
 	"github.com/stackmon/otc-status-dashboard/internal/db"
 )
 
-const eventContextKey = "event"
+const (
+	eventContextKey  = "event"
+	claimsContextKey = "claims"
+	roleContextKey   = "role"
+	userIDContextKey = "user_id"
+)
 
 func ValidateComponentsMW(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -108,10 +114,56 @@ func AuthenticationMW(prov *auth.Provider, logger *zap.Logger, secretKey string,
 			return
 		}
 
+		if claims, ok := token.Claims.(jwt.MapClaims); ok {
+			c.Set(claimsContextKey, claims)
+		}
+
 		if _, ok := token.Method.(*jwt.SigningMethodRSA); ok && !isAuthGroupInClaims(token, logger, userAuthGroup) {
 			apiErrors.RaiseNotAuthorizedErr(c, apiErrors.ErrAuthNotAuthenticated)
 			return
 		}
+		c.Next()
+	}
+}
+
+func RBACMiddleware(rbacService *rbac.Service, logger *zap.Logger) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		logger.Debug("attempting to resolve user role")
+
+		claimsVal, exists := c.Get(claimsContextKey)
+		if !exists {
+			logger.Debug("no claims found in context, assigning NoRole")
+			c.Set(roleContextKey, rbac.NoRole)
+			c.Next()
+			return
+		}
+
+		claims, ok := claimsVal.(jwt.MapClaims)
+		if !ok {
+			logger.Error("claims in context are not of type jwt.MapClaims")
+			c.Set(roleContextKey, rbac.NoRole)
+			c.Next()
+			return
+		}
+
+		var groups []string
+		if groupsClaim, ok := claims["groups"]; ok {
+			if groupInterface, ok := groupsClaim.([]interface{}); ok {
+				for _, g := range groupInterface {
+					if gStr, ok := g.(string); ok {
+						groups = append(groups, gStr)
+					}
+				}
+			}
+		}
+
+		role := rbacService.Resolve(groups)
+		c.Set(roleContextKey, role)
+
+		if sub, ok := claims["sub"].(string); ok {
+			c.Set(claimsContextKey, sub)
+		}
+
 		c.Next()
 	}
 }
