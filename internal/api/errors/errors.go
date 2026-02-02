@@ -43,3 +43,7 @@ func RaiseStatusNotFoundErr(c *gin.Context, err error) {
 func RaiseNotAuthorizedErr(c *gin.Context, err error) {
 	c.AbortWithStatusJSON(http.StatusUnauthorized, ReturnError(err))
 }
+
+func RaiseForbiddenErr(c *gin.Context, err error) {
+	c.AbortWithStatusJSON(http.StatusForbidden, ReturnError(err))
+}

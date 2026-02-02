@@ -4,6 +4,7 @@ import "errors"
 
 var ErrAuthNotAuthenticated = errors.New("not authenticated")
 var ErrAuthFailedLogout = errors.New("failed to logout")
+var ErrAuthForbidden = errors.New("access is denied")
 
 var ErrAuthMissedStateParam = errors.New("state is not present in the query parameters")
 var ErrAuthValidateBase64State = errors.New("failed to decode state")

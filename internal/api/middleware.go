@@ -161,7 +161,30 @@ func RBACMiddleware(rbacService *rbac.Service, logger *zap.Logger) gin.HandlerFu
 		c.Set(roleContextKey, role)
 
 		if sub, ok := claims["sub"].(string); ok {
-			c.Set(claimsContextKey, sub)
+			c.Set(userIDContextKey, sub)
+		}
+
+		c.Next()
+	}
+}
+
+func RequireRole(minimalRole rbac.Role) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		roleVal, exists := c.Get(roleContextKey)
+		if !exists {
+			apiErrors.RaiseForbiddenErr(c, apiErrors.ErrAuthForbidden)
+			return
+		}
+
+		userRole, ok := roleVal.(rbac.Role)
+		if !ok {
+			apiErrors.RaiseForbiddenErr(c, fmt.Errorf("user role in context is not of type rbac.Role"))
+			return
+		}
+
+		if userRole < minimalRole {
+			apiErrors.RaiseForbiddenErr(c, apiErrors.ErrAuthForbidden)
+			return
 		}
 
 		c.Next()
