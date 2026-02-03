@@ -192,28 +192,24 @@ func RequireRole(minimalRole rbac.Role) gin.HandlerFunc {
 }
 
 func isAuthGroupInClaims(token *jwt.Token, logger *zap.Logger, userAuthGroup string) bool {
-	// Check group authorization if authGroup is configured
 	claims, ok := token.Claims.(jwt.MapClaims)
 	if !ok {
 		logger.Error("failed to parse token claims")
 		return false
 	}
 
-	// Check if the "groups" claim exists
 	groupsClaim, exists := claims["groups"]
 	if !exists {
 		logger.Error("groups claim not found in token")
 		return false
 	}
 
-	// Convert groups claim to string slice
 	groups, ok := groupsClaim.([]interface{})
 	if !ok {
 		logger.Error("groups claim is not an array")
 		return false
 	}
 
-	// Check if the required group is present
 	hasGroup := false
 	for _, group := range groups {
 		if groupStr, okType := group.(string); okType && strings.TrimPrefix(groupStr, "/") == userAuthGroup {
