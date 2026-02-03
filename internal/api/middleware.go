@@ -147,10 +147,10 @@ func RBACMiddleware(rbacService *rbac.Service, logger *zap.Logger) gin.HandlerFu
 		}
 
 		var groups []string
-		if groupsClaim, ok := claims["groups"]; ok {
-			if groupInterface, ok := groupsClaim.([]interface{}); ok {
+		if groupsClaim, groupsOk := claims["groups"]; groupsOk {
+			if groupInterface, groupInterfaceOk := groupsClaim.([]interface{}); groupInterfaceOk {
 				for _, g := range groupInterface {
-					if gStr, ok := g.(string); ok {
+					if gStr, gStrOk := g.(string); gStrOk {
 						groups = append(groups, gStr)
 					}
 				}
@@ -162,29 +162,6 @@ func RBACMiddleware(rbacService *rbac.Service, logger *zap.Logger) gin.HandlerFu
 
 		if sub, ok := claims["sub"].(string); ok {
 			c.Set(userIDContextKey, sub)
-		}
-
-		c.Next()
-	}
-}
-
-func RequireRole(minimalRole rbac.Role) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		roleVal, exists := c.Get(roleContextKey)
-		if !exists {
-			apiErrors.RaiseForbiddenErr(c, apiErrors.ErrAuthForbidden)
-			return
-		}
-
-		userRole, ok := roleVal.(rbac.Role)
-		if !ok {
-			apiErrors.RaiseForbiddenErr(c, fmt.Errorf("user role in context is not of type rbac.Role"))
-			return
-		}
-
-		if userRole < minimalRole {
-			apiErrors.RaiseForbiddenErr(c, apiErrors.ErrAuthForbidden)
-			return
 		}
 
 		c.Next()

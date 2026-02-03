@@ -60,17 +60,24 @@ func IsIncidentClosedStatus(status Status) bool {
 // Maintenance section
 
 const (
-	MaintenancePlanned    Status = "planned"
-	MaintenanceInProgress Status = "in progress"
-	MaintenanceModified   Status = "modified"
-	MaintenanceCompleted  Status = "completed"
-	MaintenanceCancelled  Status = "cancelled"
+	MaintenancePendingReview Status = "pending review"
+	MaintenanceReviewed      Status = "reviewed"
+	MaintenancePlanned       Status = "planned"
+	MaintenanceInProgress    Status = "in progress"
+	MaintenanceModified      Status = "modified"
+	MaintenanceCompleted     Status = "completed"
+	MaintenanceCancelled     Status = "cancelled"
 )
 const (
-	maintenancePlannedText    = "Maintenance is planned."
-	maintenanceInProgressText = "Maintenance is in progress."
-	maintenanceCompletedText  = "Maintenance is completed."
+	maintenancePendingReviewText = "Maintenance is pending review."
+	maintenancePlannedText       = "Maintenance is planned."
+	maintenanceInProgressText    = "Maintenance is in progress."
+	maintenanceCompletedText     = "Maintenance is completed."
 )
+
+func MaintenancePendingReviewStatusText() string {
+	return maintenancePendingReviewText
+}
 
 func MaintenancePlannedStatusText() string {
 	return maintenancePlannedText
@@ -86,8 +93,13 @@ func MaintenanceCompletedStatusText() string {
 
 func IsMaintenanceStatus(status Status) bool {
 	switch status {
-	case MaintenancePlanned, MaintenanceInProgress, MaintenanceModified,
-		MaintenanceCompleted, MaintenanceCancelled:
+	case MaintenancePendingReview,
+		MaintenanceReviewed,
+		MaintenancePlanned,
+		MaintenanceInProgress,
+		MaintenanceModified,
+		MaintenanceCompleted,
+		MaintenanceCancelled:
 		return true
 	}
 

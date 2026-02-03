@@ -11,6 +11,7 @@ import (
 	"go.uber.org/zap"
 
 	apiErrors "github.com/stackmon/otc-status-dashboard/internal/api/errors"
+	"github.com/stackmon/otc-status-dashboard/internal/api/rbac"
 	"github.com/stackmon/otc-status-dashboard/internal/db"
 	"github.com/stackmon/otc-status-dashboard/internal/event"
 )
@@ -310,13 +311,7 @@ func PostIncidentHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 			return
 		}
 
-		incData.StartDate = incData.StartDate.UTC()
-		if incData.EndDate != nil {
-			*incData.EndDate = incData.EndDate.UTC()
-		}
-
-		if err := validateEventCreation(incData); err != nil {
-			apiErrors.RaiseBadRequestErr(c, err)
+		if !prepareIncidentCreate(c, logger, &incData) {
 			return
 		}
 
@@ -698,6 +693,9 @@ func handleRegularIncidentCreation(
 		Type:        incData.Type,
 		Components:  components,
 	}
+	if incData.Status != "" {
+		incIn.Status = incData.Status
+	}
 
 	log.Info("get active events from the database")
 	isActive := true
@@ -910,8 +908,13 @@ func createEvent(dbInst *db.DB, log *zap.Logger, inc *db.Incident) error {
 		statusText = event.InfoPlannedStatusText()
 		status = event.InfoPlanned
 	case event.TypeMaintenance:
-		statusText = event.MaintenancePlannedStatusText()
-		status = event.MaintenancePlanned
+		if inc.Status == event.MaintenancePendingReview {
+			statusText = event.MaintenancePendingReviewStatusText()
+			status = event.MaintenancePendingReview
+		} else {
+			statusText = event.MaintenancePlannedStatusText()
+			status = event.MaintenancePlanned
+		}
 	case event.TypeIncident:
 		statusText = event.IncidentDetectedStatusText()
 		status = event.IncidentDetected
@@ -957,16 +960,7 @@ func PatchIncidentHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 			return
 		}
 
-		incData.UpdateDate = incData.UpdateDate.UTC()
-		if incData.StartDate != nil {
-			*incData.StartDate = incData.StartDate.UTC()
-		}
-		if incData.EndDate != nil {
-			*incData.EndDate = incData.EndDate.UTC()
-		}
-
-		if err := checkPatchData(&incData, storedIncident); err != nil {
-			apiErrors.RaiseBadRequestErr(c, err)
+		if !prepareIncidentPatch(c, logger, storedIncident, &incData) {
 			return
 		}
 
@@ -1624,6 +1618,137 @@ func mapEventUpdates(statuses []db.IncidentStatus) []EventUpdateData {
 	}
 
 	return updates
+}
+
+func getRoleFromContext(c *gin.Context, logger *zap.Logger) (rbac.Role, bool) {
+	roleVal, exists := c.Get("role")
+	if !exists {
+		apiErrors.RaiseForbiddenErr(c, apiErrors.ErrAuthForbidden)
+		return rbac.NoRole, false
+	}
+
+	role, ok := roleVal.(rbac.Role)
+	if !ok {
+		logger.Error("role in context is not of type rbac.Role")
+		apiErrors.RaiseForbiddenErr(c, apiErrors.ErrAuthForbidden)
+		return rbac.NoRole, false
+	}
+
+	return role, true
+}
+
+func resolveMaintenanceCreateStatus(c *gin.Context, role rbac.Role) event.Status {
+	switch {
+	case role >= rbac.Admin, role >= rbac.Operator:
+		return event.MaintenancePlanned
+	case role >= rbac.Creator:
+		return event.MaintenancePendingReview
+	default:
+		apiErrors.RaiseForbiddenErr(c, apiErrors.ErrAuthForbidden)
+		return ""
+	}
+}
+
+func allowMaintenancePatch(c *gin.Context, role rbac.Role, stored *db.Incident, incoming *PatchIncidentData) bool {
+	switch {
+	case role >= rbac.Admin:
+		return true
+	case role >= rbac.Operator:
+		return allowMaintenancePatchAsOperator(c, stored, incoming)
+	case role >= rbac.Creator:
+		return allowMaintenancePatchAsCreator(c, stored, incoming)
+	default:
+		apiErrors.RaiseForbiddenErr(c, apiErrors.ErrAuthForbidden)
+		return false
+	}
+}
+
+func allowMaintenancePatchAsOperator(
+	c *gin.Context, stored *db.Incident, incoming *PatchIncidentData,
+) bool {
+	// sd_operators can only act on pending review maintenances.
+	if stored.Status == event.MaintenancePendingReview {
+		// Approve (pending review -> reviewed) or cancel while pending.
+		if incoming.Status == event.MaintenanceReviewed ||
+			incoming.Status == event.MaintenanceCancelled ||
+			incoming.Status == event.MaintenancePendingReview {
+			return true
+		}
+	}
+	// All other statuses (reviewed, planned, etc.) are forbidden for operators.
+	apiErrors.RaiseForbiddenErr(c, apiErrors.ErrAuthForbidden)
+	return false
+}
+
+func allowMaintenancePatchAsCreator(
+	c *gin.Context, stored *db.Incident, incoming *PatchIncidentData,
+) bool {
+	if stored.Status != event.MaintenancePendingReview {
+		apiErrors.RaiseForbiddenErr(c, apiErrors.ErrAuthForbidden)
+		return false
+	}
+
+	if incoming.Status == event.MaintenancePendingReview ||
+		incoming.Status == event.MaintenanceCancelled {
+		return true
+	}
+
+	apiErrors.RaiseForbiddenErr(c, apiErrors.ErrAuthForbidden)
+	return false
+}
+
+func prepareIncidentCreate(c *gin.Context, logger *zap.Logger, incData *IncidentData) bool {
+	incData.StartDate = incData.StartDate.UTC()
+	if incData.EndDate != nil {
+		*incData.EndDate = incData.EndDate.UTC()
+	}
+
+	if err := validateEventCreation(*incData); err != nil {
+		apiErrors.RaiseBadRequestErr(c, err)
+		return false
+	}
+
+	if incData.Type == event.TypeMaintenance {
+		role, ok := getRoleFromContext(c, logger)
+		if !ok {
+			return false
+		}
+		incData.Status = resolveMaintenanceCreateStatus(c, role)
+		if incData.Status == "" {
+			return false
+		}
+	}
+
+	return true
+}
+
+func prepareIncidentPatch(
+	c *gin.Context, logger *zap.Logger, storedIncident *db.Incident, incData *PatchIncidentData,
+) bool {
+	incData.UpdateDate = incData.UpdateDate.UTC()
+	if incData.StartDate != nil {
+		*incData.StartDate = incData.StartDate.UTC()
+	}
+	if incData.EndDate != nil {
+		*incData.EndDate = incData.EndDate.UTC()
+	}
+
+	if err := checkPatchData(incData, storedIncident); err != nil {
+		apiErrors.RaiseBadRequestErr(c, err)
+		return false
+	}
+
+	if storedIncident.Type == event.TypeMaintenance {
+		role, ok := getRoleFromContext(c, logger)
+		if !ok {
+			return false
+		}
+		if !allowMaintenancePatch(c, role, storedIncident, incData) {
+			return false
+		}
+	}
+
+	return true
 }
 
 func getEventFromContext(c *gin.Context, logger *zap.Logger) *db.Incident {
