@@ -47,8 +47,9 @@ type IncidentData struct {
 	//    2. info
 	//    3. incident
 	// Type field is mandatory.
-	Type    string            `json:"type" binding:"required,oneof=maintenance info incident"`
-	Updates []EventUpdateData `json:"updates,omitempty"`
+	Type         string            `json:"type" binding:"required,oneof=maintenance info incident"`
+	Updates      []EventUpdateData `json:"updates,omitempty"`
+	ContactEmail string            `json:"contact_email,omitempty"`
 	// Status does not take into account OutDatedSystem status.
 	Status event.Status `json:"status,omitempty"`
 }
@@ -323,17 +324,23 @@ func toAPIEvent(inc *db.Incident) *Incident {
 		description = *inc.Description
 	}
 
+	var contactEmail string
+	if inc.ContactEmail != nil {
+		contactEmail = *inc.ContactEmail
+	}
+
 	incData := IncidentData{
-		Title:       *inc.Text,
-		Description: description,
-		Impact:      inc.Impact,
-		Components:  components,
-		StartDate:   *inc.StartDate,
-		EndDate:     inc.EndDate,
-		System:      &inc.System,
-		Updates:     updates,
-		Status:      inc.Status,
-		Type:        inc.Type,
+		Title:        *inc.Text,
+		Description:  description,
+		Impact:       inc.Impact,
+		Components:   components,
+		StartDate:    *inc.StartDate,
+		EndDate:      inc.EndDate,
+		System:       &inc.System,
+		Updates:      updates,
+		Status:       inc.Status,
+		Type:         inc.Type,
+		ContactEmail: contactEmail,
 	}
 
 	return &Incident{IncidentID{ID: int(inc.ID)}, incData}
@@ -721,16 +728,22 @@ func handleRegularIncidentCreation(
 		components[i] = db.Component{ID: uint(comp)}
 	}
 
+	var contactEmail *string
+	if incData.ContactEmail != "" {
+		contactEmail = &incData.ContactEmail
+	}
+
 	incIn := db.Incident{
-		Text:        &incData.Title,
-		Description: &incData.Description,
-		StartDate:   &incData.StartDate,
-		EndDate:     incData.EndDate,
-		Impact:      incData.Impact,
-		System:      *incData.System,
-		Type:        incData.Type,
-		Components:  components,
-		CreatedBy:   userID,
+		Text:         &incData.Title,
+		Description:  &incData.Description,
+		StartDate:    &incData.StartDate,
+		EndDate:      incData.EndDate,
+		Impact:       incData.Impact,
+		System:       *incData.System,
+		Type:         incData.Type,
+		Components:   components,
+		CreatedBy:    userID,
+		ContactEmail: contactEmail,
 	}
 	if incData.Status != "" {
 		incIn.Status = incData.Status
@@ -1762,6 +1775,11 @@ func prepareIncidentCreate(c *gin.Context, logger *zap.Logger, incData *Incident
 	}
 
 	if incData.Type == event.TypeMaintenance {
+		if err := validateMaintenanceCreation(*incData); err != nil {
+			apiErrors.RaiseBadRequestErr(c, err)
+			return false
+		}
+
 		role, ok := getRoleFromContext(c, logger)
 		if !ok {
 			return false

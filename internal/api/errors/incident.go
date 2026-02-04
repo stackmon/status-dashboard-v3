@@ -37,3 +37,11 @@ var ErrMaintenanceEndDateEmpty = errors.New("maintenance end_date is empty")
 
 var ErrUpdateTextEmpty = errors.New("text field is required")
 var ErrUpdateDSNotExist = errors.New("update does not exist")
+
+// Errors for maintenance validation
+
+var ErrMaintenanceContactEmailRequired = errors.New("contact_email is required for maintenance")
+var ErrMaintenanceContactEmailInvalid = errors.New("contact_email has invalid format")
+var ErrMaintenanceStartDateInPast = errors.New("start_date must be in the future for maintenance")
+var ErrMaintenanceEndDateBeforeStart = errors.New("end_date must be after start_date")
+var ErrMaintenanceDescriptionRequired = errors.New("description is required for maintenance")
