@@ -1667,11 +1667,12 @@ func allowMaintenancePatchAsOperator(
 	c *gin.Context, stored *db.Incident, incoming *PatchIncidentData,
 ) bool {
 	// sd_operators can only act on pending review maintenances.
+	// Approve (pending review -> reviewed) or cancel while pending.
 	if stored.Status == event.MaintenancePendingReview {
-		// Approve (pending review -> reviewed) or cancel while pending.
-		if incoming.Status == event.MaintenanceReviewed ||
-			incoming.Status == event.MaintenanceCancelled ||
-			incoming.Status == event.MaintenancePendingReview {
+		switch incoming.Status { //nolint:exhaustive
+		case event.MaintenanceReviewed,
+			event.MaintenanceCancelled,
+			event.MaintenancePendingReview:
 			return true
 		}
 	}

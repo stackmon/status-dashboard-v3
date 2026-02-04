@@ -138,8 +138,8 @@ func RBACMiddleware(rbacService *rbac.Service, logger *zap.Logger) gin.HandlerFu
 			return
 		}
 
-		claims, ok := claimsVal.(jwt.MapClaims)
-		if !ok {
+		claims, okClaims := claimsVal.(jwt.MapClaims)
+		if !okClaims {
 			logger.Error("claims in context are not of type jwt.MapClaims")
 			c.Set(roleContextKey, rbac.NoRole)
 			c.Next()
@@ -147,20 +147,17 @@ func RBACMiddleware(rbacService *rbac.Service, logger *zap.Logger) gin.HandlerFu
 		}
 
 		var groups []string
-		if groupsClaim, groupsOk := claims["groups"]; groupsOk {
-			if groupInterface, groupInterfaceOk := groupsClaim.([]interface{}); groupInterfaceOk {
-				for _, g := range groupInterface {
-					if gStr, gStrOk := g.(string); gStrOk {
-						groups = append(groups, gStr)
-					}
+		if groupsClaim, okCast := claims["groups"].([]interface{}); okCast {
+			for _, g := range groupsClaim {
+				if gStr, okStr := g.(string); okStr {
+					groups = append(groups, gStr)
 				}
 			}
 		}
 
-		role := rbacService.Resolve(groups)
-		c.Set(roleContextKey, role)
+		c.Set(roleContextKey, rbacService.Resolve(groups))
 
-		if sub, ok := claims["sub"].(string); ok {
+		if sub, okSub := claims["sub"].(string); okSub {
 			c.Set(userIDContextKey, sub)
 		}
 

@@ -63,11 +63,11 @@ func TestResolveMaintenanceCreateStatus(t *testing.T) {
 
 func TestAllowMaintenancePatch(t *testing.T) {
 	tests := []struct {
-		name         string
-		role         rbac.Role
-		storedStatus event.Status
+		name           string
+		role           rbac.Role
+		storedStatus   event.Status
 		incomingStatus event.Status
-		expectAllow  bool
+		expectAllow    bool
 	}{
 		// Admin tests - always allowed
 		{

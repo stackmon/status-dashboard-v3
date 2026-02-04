@@ -197,6 +197,12 @@ linters:
           - testpackage
           - wrapcheck
         path: _test\.go
+      - linters:
+          - revive
+        text: "var-naming: avoid meaningless package names"
+      - linters:
+          - revive
+        text: "var-naming: avoid package names that conflict with Go standard library package names"
     paths:
       - third_party$
       - builtin$
