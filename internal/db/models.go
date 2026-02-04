@@ -108,6 +108,7 @@ type Incident struct {
 	CreatedAt   *time.Time       `json:"created_at,omitempty"`
 	ModifiedAt  *time.Time       `json:"modified_at,omitempty"`
 	DeletedAt   *time.Time       `json:"deleted_at,omitempty"`
+	CreatedBy   *string          `json:"created_by,omitempty" gorm:"type:varchar(255)"`
 }
 
 func (in *Incident) TableName() string {
@@ -147,6 +148,8 @@ type IncidentStatus struct {
 	CreatedAt  *time.Time   `json:"created_at,omitempty"`
 	ModifiedAt *time.Time   `json:"modified_at,omitempty"`
 	DeletedAt  *time.Time   `json:"deleted_at,omitempty"`
+	CreatedBy  *string      `json:"created_by,omitempty" gorm:"type:varchar(255)"`
+	ModifiedBy *string      `json:"modified_by,omitempty" gorm:"type:varchar(255)"`
 }
 
 func (is *IncidentStatus) TableName() string {

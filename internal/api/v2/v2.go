@@ -331,7 +331,8 @@ func PostIncidentHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 			result, err = handleSystemIncidentCreation(dbInst, log, incData)
 		} else {
 			log.Info("regular incident detected, using regular incident creation logic")
-			result, err = handleRegularIncidentCreation(dbInst, log, incData)
+			userID := getUserIDFromContext(c)
+			result, err = handleRegularIncidentCreation(dbInst, log, incData, userID)
 		}
 
 		if err != nil {
@@ -586,7 +587,7 @@ func addComponentToSystemIncident(
 		Components:  []db.Component{*comp},
 	}
 
-	if err := createEvent(dbInst, log, &incIn); err != nil {
+	if err := createEvent(dbInst, log, &incIn, nil); err != nil {
 		return nil, err
 	}
 
@@ -676,7 +677,7 @@ func moveComponentFromToSystemIncidents(
 
 // handleRegularIncidentCreation handles creation of regular incidents with component movement logic.
 func handleRegularIncidentCreation(
-	dbInst *db.DB, log *zap.Logger, incData IncidentData,
+	dbInst *db.DB, log *zap.Logger, incData IncidentData, userID *string,
 ) ([]*ProcessComponentResp, error) {
 	components := make([]db.Component, len(incData.Components))
 	for i, comp := range incData.Components {
@@ -692,6 +693,7 @@ func handleRegularIncidentCreation(
 		System:      *incData.System,
 		Type:        incData.Type,
 		Components:  components,
+		CreatedBy:   userID,
 	}
 	if incData.Status != "" {
 		incIn.Status = incData.Status
@@ -706,7 +708,7 @@ func handleRegularIncidentCreation(
 
 	log.Info("opened incidents and maintenances retrieved", zap.Any("openedIncidents", openedIncidents))
 
-	if err = createEvent(dbInst, log, &incIn); err != nil {
+	if err = createEvent(dbInst, log, &incIn, userID); err != nil {
 		return nil, err
 	}
 
@@ -880,7 +882,7 @@ func validateEventCreationTimes(incData IncidentData) error {
 	return nil
 }
 
-func createEvent(dbInst *db.DB, log *zap.Logger, inc *db.Incident) error {
+func createEvent(dbInst *db.DB, log *zap.Logger, inc *db.Incident, userID *string) error {
 	log.Info("start to save an event to the database")
 	id, err := dbInst.SaveIncident(inc)
 	if err != nil {
@@ -925,6 +927,7 @@ func createEvent(dbInst *db.DB, log *zap.Logger, inc *db.Incident) error {
 		Status:     status,
 		Text:       statusText,
 		Timestamp:  timestamp,
+		CreatedBy:  userID,
 	})
 	inc.Status = status
 
@@ -965,12 +968,14 @@ func PatchIncidentHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 		}
 
 		updateFields(&incData, storedIncident)
+		userID := getUserIDFromContext(c)
 
 		status := db.IncidentStatus{
 			IncidentID: storedIncident.ID,
 			Status:     incData.Status,
 			Text:       incData.Message,
 			Timestamp:  incData.UpdateDate,
+			CreatedBy:  userID,
 		}
 
 		storedIncident.Statuses = append(storedIncident.Statuses, status)
@@ -1589,6 +1594,7 @@ func PatchEventUpdateTextHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerF
 
 		targetUPD := updates[updID]
 		targetUPD.Text = text
+		targetUPD.ModifiedBy = getUserIDFromContext(c)
 
 		updated, err := dbInst.ModifyEventUpdate(targetUPD)
 
@@ -1635,6 +1641,15 @@ func getRoleFromContext(c *gin.Context, logger *zap.Logger) (rbac.Role, bool) {
 	}
 
 	return role, true
+}
+
+func getUserIDFromContext(c *gin.Context) *string {
+	if userID, exists := c.Get("user_id"); exists {
+		if uid, ok := userID.(string); ok && uid != "" {
+			return &uid
+		}
+	}
+	return nil
 }
 
 func resolveMaintenanceCreateStatus(c *gin.Context, role rbac.Role) event.Status {
