@@ -151,6 +151,32 @@ func parsePaginationParams(c *gin.Context, params *db.IncidentsParams) error {
 	return nil
 }
 
+// isAuthenticated checks if user has any role set in context (authenticated via JWT).
+func isAuthenticated(c *gin.Context) bool {
+	roleVal, exists := c.Get("role")
+	if !exists {
+		return false
+	}
+	role, ok := roleVal.(rbac.Role)
+	return ok && role > rbac.NoRole
+}
+
+// filterPendingReviewForNonAuth removes pending review maintenance events for non-authenticated users.
+func filterPendingReviewForNonAuth(c *gin.Context, incidents []*db.Incident) []*db.Incident {
+	if isAuthenticated(c) {
+		return incidents
+	}
+
+	filtered := make([]*db.Incident, 0, len(incidents))
+	for _, inc := range incidents {
+		if inc.Type == event.TypeMaintenance && inc.Status == event.MaintenancePendingReview {
+			continue
+		}
+		filtered = append(filtered, inc)
+	}
+	return filtered
+}
+
 func GetIncidentsHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		logger.Debug("retrieve and parse incidents params from query")
@@ -167,6 +193,8 @@ func GetIncidentsHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 			apiErrors.RaiseInternalErr(c, err)
 			return
 		}
+
+		r = filterPendingReviewForNonAuth(c, r)
 
 		if len(r) == 0 {
 			logger.Debug("no incidents found matching the specific criteria", zap.Any("params", params))
@@ -204,6 +232,9 @@ func GetEventsHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 			apiErrors.RaiseInternalErr(c, err)
 			return
 		}
+
+		// Filter pending review maintenance for non-authenticated users
+		r = filterPendingReviewForNonAuth(c, r)
 
 		if total == 0 {
 			logger.Debug(
@@ -266,6 +297,12 @@ func GetIncidentHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 				return
 			}
 			apiErrors.RaiseInternalErr(c, err)
+			return
+		}
+
+		// Hide pending review maintenance from non-authenticated users
+		if !isAuthenticated(c) && r.Type == event.TypeMaintenance && r.Status == event.MaintenancePendingReview {
+			apiErrors.RaiseStatusNotFoundErr(c, apiErrors.ErrIncidentDSNotExist)
 			return
 		}
 
