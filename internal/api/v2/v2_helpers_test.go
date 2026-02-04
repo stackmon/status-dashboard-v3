@@ -72,9 +72,9 @@ func prepareIncident(t *testing.T, mock sqlmock.Sqlmock, testTime time.Time) {
 	mock.ExpectQuery(`^SELECT count\(\*\) FROM "incident"$`).
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(2))
 
-	rowsInc := sqlmock.NewRows([]string{"id", "text", "description", "start_date", "end_date", "impact", "system", "type"}).
-		AddRow(1, "Incident title A", "Description A", testTime, testTime.Add(time.Hour*72), 0, false, "maintenance").
-		AddRow(2, "Incident title B", "Description B", testTime, testTime.Add(time.Hour*72), 3, false, "incident")
+	rowsInc := sqlmock.NewRows([]string{"id", "text", "description", "start_date", "end_date", "impact", "system", "type", "created_by", "contact_email"}).
+		AddRow(1, "Incident title A", "Description A", testTime, testTime.Add(time.Hour*72), 0, false, "maintenance", nil, nil).
+		AddRow(2, "Incident title B", "Description B", testTime, testTime.Add(time.Hour*72), 3, false, "incident", nil, nil)
 	mock.ExpectQuery("^SELECT (.+) FROM \"incident\" ORDER BY incident.start_date DESC$").WillReturnRows(rowsInc)
 
 	rowsIncComp := sqlmock.NewRows([]string{"incident_id", "component_id"}).
@@ -109,7 +109,7 @@ func prepareIncident(t *testing.T, mock sqlmock.Sqlmock, testTime time.Time) {
 func prepareIncidentRows(result []*db.Incident) (*sqlmock.Rows, []driver.Value, []driver.Value) {
 	incidentIDs := make([]driver.Value, len(result))
 	componentIDs := make([]driver.Value, 0)
-	rowsInc := sqlmock.NewRows([]string{"id", "text", "description", "start_date", "end_date", "impact", "system", "type"})
+	rowsInc := sqlmock.NewRows([]string{"id", "text", "description", "start_date", "end_date", "impact", "system", "type", "created_by", "contact_email"})
 
 	for i, inc := range result {
 		incidentIDs[i] = inc.ID
@@ -117,7 +117,7 @@ func prepareIncidentRows(result []*db.Incident) (*sqlmock.Rows, []driver.Value, 
 		if inc.Description != nil {
 			descriptionVal = *inc.Description
 		}
-		rowsInc.AddRow(inc.ID, *inc.Text, descriptionVal, *inc.StartDate, inc.EndDate, *inc.Impact, inc.System, inc.Type)
+		rowsInc.AddRow(inc.ID, *inc.Text, descriptionVal, *inc.StartDate, inc.EndDate, *inc.Impact, inc.System, inc.Type, inc.CreatedBy, inc.ContactEmail)
 		for _, comp := range inc.Components {
 			componentIDs = append(componentIDs, comp.ID)
 		}
@@ -153,7 +153,7 @@ func prepareMockForIncidents(t *testing.T, mock sqlmock.Sqlmock, result []*db.In
 		mock.ExpectQuery(`^SELECT count\(\*\) FROM "incident"`).
 			WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
 		mock.ExpectQuery(`^SELECT (.+) FROM "incident"`).
-			WillReturnRows(sqlmock.NewRows([]string{"id", "text", "description", "start_date", "end_date", "impact", "system", "type"}))
+			WillReturnRows(sqlmock.NewRows([]string{"id", "text", "description", "start_date", "end_date", "impact", "system", "type", "created_by", "contact_email"}))
 		return
 	}
 
@@ -180,7 +180,7 @@ func prepareMockForEvents(t *testing.T, mock sqlmock.Sqlmock, result []*db.Incid
 
 	if len(result) == 0 {
 		mock.ExpectQuery(`^SELECT (.+) FROM "incident"`).
-			WillReturnRows(sqlmock.NewRows([]string{"id", "text", "description", "start_date", "end_date", "impact", "system", "type"}))
+			WillReturnRows(sqlmock.NewRows([]string{"id", "text", "description", "start_date", "end_date", "impact", "system", "type", "created_by", "contact_email"}))
 		return
 	}
 
@@ -228,8 +228,8 @@ func prepareAvailability(t *testing.T, mock sqlmock.Sqlmock, testTime time.Time)
 	startOfMonth := time.Date(testTime.Year(), testTime.Month(), 1, 0, 0, 0, 0, time.UTC)
 	startOfNextMonth := startOfMonth.AddDate(0, 1, 0)
 
-	rowsInc := sqlmock.NewRows([]string{"id", "text", "description", "start_date", "end_date", "impact", "system", "type"}).
-		AddRow(2, "Incident title B", "Description B for Availability", startOfMonth, startOfNextMonth, 3, false, "incident")
+	rowsInc := sqlmock.NewRows([]string{"id", "text", "description", "start_date", "end_date", "impact", "system", "type", "created_by", "contact_email"}).
+		AddRow(2, "Incident title B", "Description B for Availability", startOfMonth, startOfNextMonth, 3, false, "incident", nil, nil)
 	mock.ExpectQuery("^SELECT (.+) FROM \"incident\" WHERE \"incident\".\"id\" = \\$1$").WillReturnRows(rowsInc)
 
 	rowsStatus := sqlmock.NewRows([]string{"id", "incident_id", "timestamp", "text", "status"}).

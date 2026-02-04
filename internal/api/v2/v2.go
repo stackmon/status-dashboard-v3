@@ -50,6 +50,7 @@ type IncidentData struct {
 	Type         string            `json:"type" binding:"required,oneof=maintenance info incident"`
 	Updates      []EventUpdateData `json:"updates,omitempty"`
 	ContactEmail string            `json:"contact_email,omitempty"`
+	CreatedBy    string            `json:"creator,omitempty"`
 	// Status does not take into account OutDatedSystem status.
 	Status event.Status `json:"status,omitempty"`
 }
@@ -162,9 +163,9 @@ func isAuthenticated(c *gin.Context) bool {
 	return ok && role > rbac.NoRole
 }
 
-// filterPendingReviewForNonAuth removes pending review maintenance events for non-authenticated users.
-func filterPendingReviewForNonAuth(c *gin.Context, incidents []*db.Incident) []*db.Incident {
-	if isAuthenticated(c) {
+// filterPendingReview removes pending review maintenance events for non-authenticated users.
+func filterPendingReview(incidents []*db.Incident, isAuth bool) []*db.Incident {
+	if isAuth {
 		return incidents
 	}
 
@@ -195,7 +196,8 @@ func GetIncidentsHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 			return
 		}
 
-		r = filterPendingReviewForNonAuth(c, r)
+		isAuth := isAuthenticated(c)
+		r = filterPendingReview(r, isAuth)
 
 		if len(r) == 0 {
 			logger.Debug("no incidents found matching the specific criteria", zap.Any("params", params))
@@ -205,7 +207,7 @@ func GetIncidentsHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 
 		incidents := make([]*Incident, len(r))
 		for i, inc := range r {
-			incidents[i] = toAPIEvent(inc)
+			incidents[i] = toAPIEvent(inc, isAuth)
 		}
 
 		c.JSON(http.StatusOK, gin.H{"data": incidents})
@@ -235,7 +237,8 @@ func GetEventsHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 		}
 
 		// Filter pending review maintenance for non-authenticated users
-		r = filterPendingReviewForNonAuth(c, r)
+		isAuth := isAuthenticated(c)
+		r = filterPendingReview(r, isAuth)
 
 		if total == 0 {
 			logger.Debug(
@@ -248,7 +251,7 @@ func GetEventsHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 
 		events := make([]*Incident, len(r))
 		for i, inc := range r {
-			events[i] = toAPIEvent(inc)
+			events[i] = toAPIEvent(inc, isAuth)
 		}
 
 		page := 1
@@ -307,11 +310,11 @@ func GetIncidentHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 			return
 		}
 
-		c.JSON(http.StatusOK, toAPIEvent(r))
+		c.JSON(http.StatusOK, toAPIEvent(r, isAuthenticated(c)))
 	}
 }
 
-func toAPIEvent(inc *db.Incident) *Incident {
+func toAPIEvent(inc *db.Incident, isAuthenticated bool) *Incident {
 	components := make([]int, len(inc.Components))
 	for i, comp := range inc.Components {
 		components[i] = int(comp.ID)
@@ -325,8 +328,13 @@ func toAPIEvent(inc *db.Incident) *Incident {
 	}
 
 	var contactEmail string
-	if inc.ContactEmail != nil {
+	if isAuthenticated && inc.ContactEmail != nil {
 		contactEmail = *inc.ContactEmail
+	}
+
+	var createdBy string
+	if isAuthenticated && inc.CreatedBy != nil {
+		createdBy = *inc.CreatedBy
 	}
 
 	incData := IncidentData{
@@ -341,6 +349,7 @@ func toAPIEvent(inc *db.Incident) *Incident {
 		Status:       inc.Status,
 		Type:         inc.Type,
 		ContactEmail: contactEmail,
+		CreatedBy:    createdBy,
 	}
 
 	return &Incident{IncidentID{ID: int(inc.ID)}, incData}
@@ -1051,7 +1060,7 @@ func PatchIncidentHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 			return
 		}
 
-		c.JSON(http.StatusOK, toAPIEvent(inc))
+		c.JSON(http.StatusOK, toAPIEvent(inc, isAuthenticated(c)))
 	}
 }
 
@@ -1231,7 +1240,7 @@ func PostIncidentExtractHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFu
 			return
 		}
 
-		c.JSON(http.StatusOK, toAPIEvent(inc))
+		c.JSON(http.StatusOK, toAPIEvent(inc, isAuthenticated(c)))
 	}
 }
 

@@ -95,7 +95,7 @@ func TestValidateMaintenanceCreation(t *testing.T) {
 			err := validateMaintenanceCreation(tc.incData)
 
 			if tc.expectError {
-				assert.Error(t, err)
+				require.Error(t, err)
 				assert.Contains(t, err.Error(), tc.errorMsg)
 			} else {
 				assert.NoError(t, err)

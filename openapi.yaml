@@ -2,6 +2,16 @@ openapi: 3.0.3
 info:
   title: Status Dashboard API
   version: 1.0.0
+  description: |
+    Status Dashboard API for managing incidents, maintenance events, and components.
+    
+    ## Authentication & Field Visibility
+    
+    Some fields are only visible to authenticated users:
+    - `creator` - User ID of the event creator
+    - `contact_email` - Contact email for maintenance events
+    
+    Maintenance events with status `pending_review` are only visible to authenticated users.
 servers:
   - url: http://localhost:8000
 tags:
@@ -817,7 +827,18 @@ components:
             - "planned"
             - "active"
             - "cancelled"
+            - "pending_review"
+            - "reviewed"
           example: "in progress"
+        creator:
+          type: string
+          description: "User ID of the event creator. Only visible to authenticated users."
+          example: "user-123-uuid"
+        contact_email:
+          type: string
+          format: email
+          description: "Contact email for maintenance events. Only visible to authenticated users."
+          example: "maintainer@example.com"
     IncidentPost:
       type: object
       required:
@@ -857,6 +878,11 @@ components:
             - "incident"
             - "maintenance"
           example: "incident"
+        contact_email:
+          type: string
+          format: email
+          description: "Required for maintenance events. Contact email for the maintenance."
+          example: "maintainer@example.com"
     IncidentPostResponse:
       type: object
       properties:
@@ -907,6 +933,9 @@ components:
             - "resolved"
             - "reopened"
             - "changed"
+            - "planned"
+            - "cancelled"
+            - "reviewed"
         update_date:
           type: string
           format: date-time
