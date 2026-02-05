@@ -46,7 +46,9 @@ func initRoutes(t *testing.T, c *gin.Engine, dbInst *db.DB, log *zap.Logger) {
 		v2Api.GET("incidents", GetIncidentsHandler(dbInst, log))
 		v2Api.POST("incidents", PostIncidentHandler(dbInst, log))
 		v2Api.GET("incidents/:eventID", GetIncidentHandler(dbInst, log))
-		v2Api.PATCH("incidents/:eventID", PatchIncidentHandler(dbInst, log))
+		v2Api.PATCH("incidents/:eventID",
+			EventExistenceCheckForTests(dbInst, log),
+			PatchIncidentHandler(dbInst, log))
 		v2Api.PATCH("incidents/:eventID/updates/:updateID",
 			EventExistenceCheckForTests(dbInst, log),
 			PatchEventUpdateTextHandler(dbInst, log),
@@ -56,7 +58,9 @@ func initRoutes(t *testing.T, c *gin.Engine, dbInst *db.DB, log *zap.Logger) {
 		v2Api.GET("events", GetEventsHandler(dbInst, log))
 		v2Api.POST("events", PostIncidentHandler(dbInst, log))
 		v2Api.GET("events/:eventID", GetIncidentHandler(dbInst, log))
-		v2Api.PATCH("events/:eventID", PatchIncidentHandler(dbInst, log))
+		v2Api.PATCH("events/:eventID",
+			EventExistenceCheckForTests(dbInst, log),
+			PatchIncidentHandler(dbInst, log))
 		v2Api.PATCH("events/:eventID/updates/:updateID",
 			EventExistenceCheckForTests(dbInst, log),
 			PatchEventUpdateTextHandler(dbInst, log),
@@ -109,7 +113,7 @@ func prepareIncident(t *testing.T, mock sqlmock.Sqlmock, testTime time.Time) {
 func prepareIncidentRows(result []*db.Incident) (*sqlmock.Rows, []driver.Value, []driver.Value) {
 	incidentIDs := make([]driver.Value, len(result))
 	componentIDs := make([]driver.Value, 0)
-	rowsInc := sqlmock.NewRows([]string{"id", "text", "description", "start_date", "end_date", "impact", "system", "type", "created_by", "contact_email"})
+	rowsInc := sqlmock.NewRows([]string{"id", "text", "description", "start_date", "end_date", "impact", "system", "type", "created_by", "contact_email", "version"})
 
 	for i, inc := range result {
 		incidentIDs[i] = inc.ID
@@ -117,7 +121,13 @@ func prepareIncidentRows(result []*db.Incident) (*sqlmock.Rows, []driver.Value, 
 		if inc.Description != nil {
 			descriptionVal = *inc.Description
 		}
-		rowsInc.AddRow(inc.ID, *inc.Text, descriptionVal, *inc.StartDate, inc.EndDate, *inc.Impact, inc.System, inc.Type, inc.CreatedBy, inc.ContactEmail)
+		var versionVal interface{}
+		if inc.Version != nil {
+			versionVal = *inc.Version
+		} else {
+			versionVal = 1 // default version
+		}
+		rowsInc.AddRow(inc.ID, *inc.Text, descriptionVal, *inc.StartDate, inc.EndDate, *inc.Impact, inc.System, inc.Type, inc.CreatedBy, inc.ContactEmail, versionVal)
 		for _, comp := range inc.Components {
 			componentIDs = append(componentIDs, comp.ID)
 		}
@@ -330,7 +340,7 @@ func EventExistenceCheckForTests(dbInst *db.DB, _ *zap.Logger) gin.HandlerFunc {
 			return
 		}
 
-		_, err := dbInst.GetIncident(int(uri.ID))
+		event, err := dbInst.GetIncident(int(uri.ID))
 		if err != nil {
 			if errors.Is(err, db.ErrDBIncidentDSNotExist) {
 				apiErrors.RaiseStatusNotFoundErr(c, apiErrors.ErrIncidentDSNotExist)
@@ -340,6 +350,8 @@ func EventExistenceCheckForTests(dbInst *db.DB, _ *zap.Logger) gin.HandlerFunc {
 			return
 		}
 
+		// Set event in context so PatchIncidentHandler can access it
+		c.Set("event", event)
 		c.Next()
 	}
 }
