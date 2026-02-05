@@ -1,0 +1,127 @@
+package rbac
+
+import (
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+)
+
+func TestService_Resolve(t *testing.T) {
+	svc := New("sd_creators", "sd_operators", "sd_admins")
+
+	tests := []struct {
+		name     string
+		groups   []string
+		expected Role
+	}{
+		{
+			name:     "Empty groups list returns NoRole",
+			groups:   []string{},
+			expected: NoRole,
+		},
+		{
+			name:     "Unrecognized group returns NoRole",
+			groups:   []string{"some_random_group"},
+			expected: NoRole,
+		},
+		{
+			name:     "Creator group returns Creator role",
+			groups:   []string{"sd_creators"},
+			expected: Creator,
+		},
+		{
+			name:     "Operator group returns Operator role",
+			groups:   []string{"sd_operators"},
+			expected: Operator,
+		},
+		{
+			name:     "Admin group returns Admin role",
+			groups:   []string{"sd_admins"},
+			expected: Admin,
+		},
+		{
+			name:     "Multiple roles: Operator supersedes Creator",
+			groups:   []string{"sd_creators", "sd_operators"},
+			expected: Operator,
+		},
+		{
+			name:     "Multiple roles: Admin supersedes Operator",
+			groups:   []string{"sd_operators", "sd_admins"},
+			expected: Admin,
+		},
+		{
+			name:     "Multiple roles: Admin supersedes all",
+			groups:   []string{"sd_creators", "sd_operators", "sd_admins"},
+			expected: Admin,
+		},
+		{
+			name:     "Group normalization: handles leading slash for Creator",
+			groups:   []string{"/sd_creators"},
+			expected: Creator,
+		},
+		{
+			name:     "Group normalization: handles leading slash for Admin",
+			groups:   []string{"/sd_admins"},
+			expected: Admin,
+		},
+		{
+			name:     "Mixed normalized and raw groups",
+			groups:   []string{"/sd_creators", "sd_operators"},
+			expected: Operator,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := svc.Resolve(tt.groups)
+			assert.Equal(t, tt.expected, got)
+		})
+	}
+}
+
+func TestRole_Permissions(t *testing.T) {
+	tests := []struct {
+		name       string
+		role       Role
+		canCreate  bool
+		canApprove bool
+		isAdmin    bool
+	}{
+		{
+			name:       "NoRole has no permissions",
+			role:       NoRole,
+			canCreate:  false,
+			canApprove: false,
+			isAdmin:    false,
+		},
+		{
+			name:       "Creator can create but not approve",
+			role:       Creator,
+			canCreate:  true,
+			canApprove: false,
+			isAdmin:    false,
+		},
+		{
+			name:       "Operator can create and approve",
+			role:       Operator,
+			canCreate:  true,
+			canApprove: true,
+			isAdmin:    false,
+		},
+		{
+			name:       "Admin has all permissions",
+			role:       Admin,
+			canCreate:  true,
+			canApprove: true,
+			isAdmin:    true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.canCreate, tt.role.CanCreate(), "CanCreate()")
+			assert.Equal(t, tt.canApprove, tt.role.CanApprove(), "CanApprove()")
+			assert.Equal(t, tt.isAdmin, tt.role.IsAdmin(), "IsAdmin()")
+		})
+	}
+}

@@ -52,21 +52,25 @@ func (a *API) InitRoutes() {
 		v2API.GET("incidents", v2.GetIncidentsHandler(a.db, a.log))
 		v2API.POST("incidents",
 			AuthenticationMW(a.oa2Prov, a.log, a.secretKeyV1, a.authGroup),
+			RBACMiddleware(a.rbac, a.log),
 			ValidateComponentsMW(a.db, a.log),
 			v2.PostIncidentHandler(a.db, a.log),
 		)
 		v2API.GET("incidents/:eventID", v2.GetIncidentHandler(a.db, a.log))
 		v2API.PATCH("incidents/:eventID",
 			AuthenticationMW(a.oa2Prov, a.log, a.secretKeyV1, a.authGroup),
+			RBACMiddleware(a.rbac, a.log),
 			CheckEventExistenceMW(a.db, a.log),
 			v2.PatchIncidentHandler(a.db, a.log))
 		v2API.POST("incidents/:eventID/extract",
 			AuthenticationMW(a.oa2Prov, a.log, a.secretKeyV1, a.authGroup),
+			RBACMiddleware(a.rbac, a.log),
 			CheckEventExistenceMW(a.db, a.log),
 			ValidateComponentsMW(a.db, a.log),
 			v2.PostIncidentExtractHandler(a.db, a.log))
 		v2API.PATCH("incidents/:eventID/updates/:updateID",
 			AuthenticationMW(a.oa2Prov, a.log, a.secretKeyV1, a.authGroup),
+			RBACMiddleware(a.rbac, a.log),
 			CheckEventExistenceMW(a.db, a.log),
 			v2.PatchEventUpdateTextHandler(a.db, a.log))
 
@@ -75,21 +79,25 @@ func (a *API) InitRoutes() {
 		v2API.GET("events", v2.GetEventsHandler(a.db, a.log))
 		v2API.POST("events",
 			AuthenticationMW(a.oa2Prov, a.log, a.secretKeyV1, a.authGroup),
+			RBACMiddleware(a.rbac, a.log),
 			ValidateComponentsMW(a.db, a.log),
 			v2.PostIncidentHandler(a.db, a.log))
 		v2API.GET("events/:eventID",
 			v2.GetIncidentHandler(a.db, a.log))
 		v2API.PATCH("events/:eventID",
 			AuthenticationMW(a.oa2Prov, a.log, a.secretKeyV1, a.authGroup),
+			RBACMiddleware(a.rbac, a.log),
 			CheckEventExistenceMW(a.db, a.log),
 			v2.PatchIncidentHandler(a.db, a.log))
 		v2API.POST("events/:eventID/extract",
 			AuthenticationMW(a.oa2Prov, a.log, a.secretKeyV1, a.authGroup),
+			RBACMiddleware(a.rbac, a.log),
 			CheckEventExistenceMW(a.db, a.log),
 			ValidateComponentsMW(a.db, a.log),
 			v2.PostIncidentExtractHandler(a.db, a.log))
 		v2API.PATCH("events/:eventID/updates/:updateID",
 			AuthenticationMW(a.oa2Prov, a.log, a.secretKeyV1, a.authGroup),
+			RBACMiddleware(a.rbac, a.log),
 			CheckEventExistenceMW(a.db, a.log),
 			v2.PatchEventUpdateTextHandler(a.db, a.log))
 		// Availability section.

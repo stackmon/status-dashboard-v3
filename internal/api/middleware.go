@@ -14,11 +14,17 @@ import (
 
 	"github.com/stackmon/otc-status-dashboard/internal/api/auth"
 	apiErrors "github.com/stackmon/otc-status-dashboard/internal/api/errors"
+	"github.com/stackmon/otc-status-dashboard/internal/api/rbac"
 	v2 "github.com/stackmon/otc-status-dashboard/internal/api/v2"
 	"github.com/stackmon/otc-status-dashboard/internal/db"
 )
 
-const eventContextKey = "event"
+const (
+	eventContextKey  = "event"
+	claimsContextKey = "claims"
+	roleContextKey   = "role"
+	userIDContextKey = "user_id"
+)
 
 func ValidateComponentsMW(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -108,6 +114,10 @@ func AuthenticationMW(prov *auth.Provider, logger *zap.Logger, secretKey string,
 			return
 		}
 
+		if claims, ok := token.Claims.(jwt.MapClaims); ok {
+			c.Set(claimsContextKey, claims)
+		}
+
 		if _, ok := token.Method.(*jwt.SigningMethodRSA); ok && !isAuthGroupInClaims(token, logger, userAuthGroup) {
 			apiErrors.RaiseNotAuthorizedErr(c, apiErrors.ErrAuthNotAuthenticated)
 			return
@@ -116,29 +126,64 @@ func AuthenticationMW(prov *auth.Provider, logger *zap.Logger, secretKey string,
 	}
 }
 
+func RBACMiddleware(rbacService *rbac.Service, logger *zap.Logger) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		logger.Debug("attempting to resolve user role")
+
+		claimsVal, exists := c.Get(claimsContextKey)
+		if !exists {
+			logger.Debug("no claims found in context, assigning NoRole")
+			c.Set(roleContextKey, rbac.NoRole)
+			c.Next()
+			return
+		}
+
+		claims, okClaims := claimsVal.(jwt.MapClaims)
+		if !okClaims {
+			logger.Error("claims in context are not of type jwt.MapClaims")
+			c.Set(roleContextKey, rbac.NoRole)
+			c.Next()
+			return
+		}
+
+		var groups []string
+		if groupsClaim, okCast := claims["groups"].([]interface{}); okCast {
+			for _, g := range groupsClaim {
+				if gStr, okStr := g.(string); okStr {
+					groups = append(groups, gStr)
+				}
+			}
+		}
+
+		c.Set(roleContextKey, rbacService.Resolve(groups))
+
+		if sub, okSub := claims["sub"].(string); okSub {
+			c.Set(userIDContextKey, sub)
+		}
+
+		c.Next()
+	}
+}
+
 func isAuthGroupInClaims(token *jwt.Token, logger *zap.Logger, userAuthGroup string) bool {
-	// Check group authorization if authGroup is configured
 	claims, ok := token.Claims.(jwt.MapClaims)
 	if !ok {
 		logger.Error("failed to parse token claims")
 		return false
 	}
 
-	// Check if the "groups" claim exists
 	groupsClaim, exists := claims["groups"]
 	if !exists {
 		logger.Error("groups claim not found in token")
 		return false
 	}
 
-	// Convert groups claim to string slice
 	groups, ok := groupsClaim.([]interface{})
 	if !ok {
 		logger.Error("groups claim is not an array")
 		return false
 	}
 
-	// Check if the required group is present
 	hasGroup := false
 	for _, group := range groups {
 		if groupStr, okType := group.(string); okType && strings.TrimPrefix(groupStr, "/") == userAuthGroup {

@@ -4,6 +4,19 @@
 
 The `/v2/events` endpoint provides full event management capabilities, including listing events with pagination, creating new events, updating existing events, and extracting components. This endpoint supports incidents, maintenances, and informational events.
 
+### Optimistic Locking
+
+All PATCH operations on events use **optimistic locking** to prevent concurrent update conflicts:
+
+- The `version` field is included in GET responses for authenticated users
+- PATCH requests must include the current `version` number
+- If the version doesn't match (event was modified by another user), a `409 Conflict` is returned
+- The version is automatically incremented on each successful update
+
+This ensures data integrity when multiple users are working with the same events.
+
+### Deprecated Endpoints
+
 The existing `/v2/incidents` endpoint remains for backward compatibility but is **deprecated**. All operations available on `/v2/incidents` are now also available on `/v2/events`:
 
 | Operation | Deprecated Endpoint | New Endpoint |
@@ -104,7 +117,8 @@ The handler returns a JSON object containing the list of events and pagination d
                     "timestamp": "2025-05-20T11:00:00Z"
                 }
             ],
-            "status": "in progress"
+            "status": "in progress",
+            "version": 3
         },
         ...
     ],
@@ -116,6 +130,8 @@ The handler returns a JSON object containing the list of events and pagination d
     }
 }
 ```
+
+**Note**: The `version` field is only included in responses for authenticated users. It is used for optimistic locking when updating events.
 
 ### Pagination Object Details
 
@@ -170,6 +186,17 @@ Returns the event object with all its details.
 
 Updates an existing event.
 
+### Optimistic Locking
+
+This endpoint uses optimistic locking to prevent concurrent update conflicts:
+
+1. **Fetch the current version**: When you GET an event (as an authenticated user), the response includes a `version` field
+2. **Include version in PATCH**: Your PATCH request must include this `version` number
+3. **Conflict detection**: If another user has modified the event in the meantime, the version will not match and you'll receive a `409 Conflict` error
+4. **Retry logic**: On 409, fetch the latest version of the event and retry with the new version number
+
+This ensures that concurrent updates don't overwrite each other's changes.
+
 ### Request
 
 - **Method**: `PATCH`
@@ -187,9 +214,43 @@ Updates an existing event.
   "impact": 2,
   "status": "analysing",
   "message": "Update message",
-  "update_date": "2025-05-20T11:00:00Z"
+  "update_date": "2025-05-20T11:00:00Z",
+  "version": 1
 }
 ```
+
+**Required fields:**
+- `message`: Explanation of the update
+- `status`: New status for the event
+- `update_date`: Timestamp of the update
+- `version`: Current version number (for optimistic locking)
+
+### Response
+
+**Success (200 OK):**
+
+Returns the updated event with incremented version number.
+
+```json
+{
+  "id": 200,
+  "title": "Updated title",
+  "version": 2,
+  ...
+}
+```
+
+**Version Conflict (409 Conflict):**
+
+Returned when the provided version doesn't match the current version (event was modified by another user).
+
+```json
+{
+  "errMsg": "version conflict: event has been modified by another user"
+}
+```
+
+**Action required:** Fetch the latest version of the event and retry the update with the new version number.
 
 ## Endpoint: `POST /v2/events/:eventID/extract`
 

@@ -12,6 +12,7 @@ import (
 )
 
 type MntStatusHistory struct {
+	hasReviewed   bool
 	hasPlanned    bool
 	hasInProgress bool
 	hasCompleted  bool
@@ -20,6 +21,8 @@ type MntStatusHistory struct {
 
 func (st *MntStatusHistory) hasStatus(status event.Status) bool {
 	switch status { //nolint:exhaustive
+	case event.MaintenanceReviewed:
+		return st.hasReviewed
 	case event.MaintenancePlanned:
 		return st.hasPlanned
 	case event.MaintenanceInProgress:
@@ -34,6 +37,8 @@ func (st *MntStatusHistory) hasStatus(status event.Status) bool {
 
 func (st *MntStatusHistory) setStatus(status event.Status) {
 	switch status { //nolint:exhaustive
+	case event.MaintenanceReviewed:
+		st.hasReviewed = true
 	case event.MaintenancePlanned:
 		st.hasPlanned = true
 	case event.MaintenanceInProgress:
@@ -107,6 +112,9 @@ func (ch *Checker) CheckMaintenance() error {
 func calculateMntStatusHistory(mn *db.Incident) *MntStatusHistory {
 	sHistory := &MntStatusHistory{}
 	for _, st := range mn.Statuses {
+		if st.Status == event.MaintenanceReviewed {
+			sHistory.hasReviewed = true
+		}
 		if st.Status == event.MaintenancePlanned {
 			sHistory.hasPlanned = true
 		}
@@ -127,6 +135,16 @@ func calculateMntStatusHistory(mn *db.Incident) *MntStatusHistory {
 func calculateCurrentMntStatus(sHistory *MntStatusHistory, mn *db.Incident) event.Status {
 	if sHistory.hasCancelled {
 		return event.MaintenanceCancelled
+	}
+
+	// If current status is "reviewed", transition to "planned" (checker auto-approval)
+	if mn.Status == event.MaintenanceReviewed {
+		return event.MaintenancePlanned
+	}
+
+	// If still pending review, don't auto-transition
+	if mn.Status == event.MaintenancePendingReview {
+		return event.MaintenancePendingReview
 	}
 
 	now := time.Now().UTC()
