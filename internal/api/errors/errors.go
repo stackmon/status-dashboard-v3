@@ -27,6 +27,10 @@ func Return404(c *gin.Context) {
 	c.JSON(http.StatusNotFound, ReturnError(ErrPageNotFound))
 }
 
+func RaiseConflictErr(c *gin.Context, err error) {
+	c.AbortWithStatusJSON(http.StatusConflict, ReturnError(err))
+}
+
 func RaiseInternalErr(c *gin.Context, err error) {
 	intErr := fmt.Errorf("%w: %w", ErrInternalError, err)
 	c.AbortWithStatusJSON(http.StatusInternalServerError, ReturnError(intErr))

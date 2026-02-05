@@ -5,7 +5,11 @@
 
 ALTER TABLE incident
     ADD COLUMN created_by VARCHAR(255),
-    ADD COLUMN contact_email VARCHAR(255);
+    ADD COLUMN contact_email VARCHAR(255),
+    ADD COLUMN version INTEGER NOT NULL DEFAULT 1;
+
+-- Update existing records to have version = 1
+UPDATE incident SET version = 1 WHERE version IS NULL;
 
 ALTER TABLE incident_status
     ADD COLUMN created_by VARCHAR(255),
@@ -13,5 +17,6 @@ ALTER TABLE incident_status
 
 COMMENT ON COLUMN incident.created_by IS 'User ID (from JWT sub claim) who created this incident';
 COMMENT ON COLUMN incident.contact_email IS 'Contact email for maintenance events (required for type=maintenance)';
+COMMENT ON COLUMN incident.version IS 'Optimistic locking version counter';
 COMMENT ON COLUMN incident_status.created_by IS 'User ID (from JWT sub claim) who created this status entry';
 COMMENT ON COLUMN incident_status.modified_by IS 'User ID (from JWT sub claim) who last modified this status entry text';

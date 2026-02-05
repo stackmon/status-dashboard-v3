@@ -45,3 +45,7 @@ var ErrMaintenanceContactEmailInvalid = errors.New("contact_email has invalid fo
 var ErrMaintenanceStartDateInPast = errors.New("start_date must be in the future for maintenance")
 var ErrMaintenanceEndDateBeforeStart = errors.New("end_date must be after start_date")
 var ErrMaintenanceDescriptionRequired = errors.New("description is required for maintenance")
+
+// Errors for version conflict (optimistic locking)
+
+var ErrVersionConflict = errors.New("version conflict: event has been modified by another user")

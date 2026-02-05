@@ -234,10 +234,25 @@ func (db *DB) SaveIncident(inc *Incident) (uint, error) {
 }
 
 func (db *DB) ModifyIncident(inc *Incident) error {
-	r := db.g.Updates(inc)
+	if inc.Version == nil {
+		return errors.New("version is required for incident modification")
+	}
+
+	expectedVersion := *inc.Version
+	newVersion := expectedVersion + 1
+	inc.Version = &newVersion
+
+	r := db.g.Model(&Incident{}).
+		Where("id = ? AND version = ?", inc.ID, expectedVersion).
+		Updates(inc)
 
 	if r.Error != nil {
 		return r.Error
+	}
+
+	// The possible reason for RowsAffected == 0 is version mismatch
+	if r.RowsAffected == 0 {
+		return ErrVersionConflict
 	}
 
 	return nil

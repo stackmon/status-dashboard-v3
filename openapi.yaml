@@ -10,8 +10,17 @@ info:
     Some fields are only visible to authenticated users:
     - `creator` - User ID of the event creator
     - `contact_email` - Contact email for maintenance events
+    - `version` - Version number for optimistic locking (conflict detection)
     
     Maintenance events with status `pending_review` are only visible to authenticated users.
+    
+    ## Optimistic Locking
+    
+    The API uses optimistic locking to prevent concurrent update conflicts:
+    - GET requests return a `version` field (only for authenticated users)
+    - PATCH requests must include the current `version` number
+    - If the version doesn't match (event was modified by another user), a 409 Conflict is returned
+    - On successful update, the version is automatically incremented
 servers:
   - url: http://localhost:8000
 tags:
@@ -377,6 +386,12 @@ paths:
           description: Invalid ID supplied
         '404':
           description: Event not found.
+        '409':
+          description: Version conflict - event has been modified by another user. Fetch the latest version and retry.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BadRequestGeneralError'
   /v2/events/{event_id}/extract:
     post:
       summary: Extract components to the new event
@@ -504,6 +519,12 @@ paths:
           description: Invalid ID supplied
         '404':
           description: Incident not found.
+        '409':
+          description: Version conflict - incident has been modified by another user. Fetch the latest version and retry.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BadRequestGeneralError'
   /v2/incidents/{incident_id}/extract:
     post:
       deprecated: true
@@ -839,6 +860,11 @@ components:
           format: email
           description: "Contact email for maintenance events. Only visible to authenticated users."
           example: "maintainer@example.com"
+        version:
+          type: integer
+          format: int32
+          description: "Version number for optimistic locking. Only visible to authenticated users. Automatically incremented on each update."
+          example: 1
     IncidentPost:
       type: object
       required:
@@ -909,6 +935,7 @@ components:
         - message
         - status
         - update_date
+        - version
       properties:
         title:
           type: string
@@ -945,6 +972,11 @@ components:
         end_date:
           type: string
           format: date-time
+        version:
+          type: integer
+          format: int32
+          description: "Current version number for optimistic locking. Must match the server's version or request will fail with 409 Conflict."
+          example: 1
     IncidentPostExtract:
       type: object
       required:

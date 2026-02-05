@@ -51,6 +51,7 @@ type IncidentData struct {
 	Updates      []EventUpdateData `json:"updates,omitempty"`
 	ContactEmail string            `json:"contact_email,omitempty"`
 	CreatedBy    string            `json:"creator,omitempty"`
+	Version      *int              `json:"version,omitempty"`
 	// Status does not take into account OutDatedSystem status.
 	Status event.Status `json:"status,omitempty"`
 }
@@ -337,6 +338,11 @@ func toAPIEvent(inc *db.Incident, isAuthenticated bool) *Incident {
 		createdBy = *inc.CreatedBy
 	}
 
+	var version *int
+	if isAuthenticated && inc.Version != nil {
+		version = inc.Version
+	}
+
 	incData := IncidentData{
 		Title:        *inc.Text,
 		Description:  description,
@@ -350,6 +356,7 @@ func toAPIEvent(inc *db.Incident, isAuthenticated bool) *Incident {
 		Type:         inc.Type,
 		ContactEmail: contactEmail,
 		CreatedBy:    createdBy,
+		Version:      version,
 	}
 
 	return &Incident{IncidentID{ID: int(inc.ID)}, incData}
@@ -1008,6 +1015,7 @@ type PatchIncidentData struct {
 	StartDate   *time.Time   `json:"start_date,omitempty"`
 	EndDate     *time.Time   `json:"end_date,omitempty"`
 	Type        string       `json:"type,omitempty" binding:"omitempty,oneof=maintenance info incident"`
+	Version     *int         `json:"version" binding:"required"`
 }
 
 func PatchIncidentHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
@@ -1039,9 +1047,14 @@ func PatchIncidentHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 
 		storedIncident.Statuses = append(storedIncident.Statuses, status)
 		storedIncident.Status = incData.Status
+		storedIncident.Version = incData.Version
 
 		err := dbInst.ModifyIncident(storedIncident)
 		if err != nil {
+			if errors.Is(err, db.ErrVersionConflict) {
+				apiErrors.RaiseConflictErr(c, apiErrors.ErrVersionConflict)
+				return
+			}
 			apiErrors.RaiseInternalErr(c, err)
 			return
 		}

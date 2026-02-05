@@ -110,6 +110,7 @@ type Incident struct {
 	DeletedAt    *time.Time       `json:"deleted_at,omitempty"`
 	CreatedBy    *string          `json:"created_by,omitempty" gorm:"type:varchar(255)"`
 	ContactEmail *string          `json:"contact_email,omitempty" gorm:"type:varchar(255)"`
+	Version      *int             `json:"version,omitempty" gorm:"not null;default:1"`
 }
 
 func (in *Incident) TableName() string {
