@@ -125,3 +125,89 @@ func TestRole_Permissions(t *testing.T) {
 		})
 	}
 }
+
+func TestService_HasAnyConfiguredGroup(t *testing.T) {
+	svc := New("sd_creators", "sd_operators", "sd_admins")
+
+	tests := []struct {
+		name     string
+		groups   []string
+		expected bool
+	}{
+		{
+			name:     "Empty groups list returns false",
+			groups:   []string{},
+			expected: false,
+		},
+		{
+			name:     "Unrecognized group returns false",
+			groups:   []string{"some_random_group"},
+			expected: false,
+		},
+		{
+			name:     "Creator group returns true",
+			groups:   []string{"sd_creators"},
+			expected: true,
+		},
+		{
+			name:     "Operator group returns true",
+			groups:   []string{"sd_operators"},
+			expected: true,
+		},
+		{
+			name:     "Admin group returns true",
+			groups:   []string{"sd_admins"},
+			expected: true,
+		},
+		{
+			name:     "Group normalization: handles leading slash",
+			groups:   []string{"/sd_creators"},
+			expected: true,
+		},
+		{
+			name:     "Mixed recognized and unrecognized groups",
+			groups:   []string{"random", "other", "sd_operators"},
+			expected: true,
+		},
+		{
+			name:     "Only unrecognized groups",
+			groups:   []string{"random", "other", "unknown"},
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := svc.HasAnyConfiguredGroup(tt.groups)
+			assert.Equal(t, tt.expected, got)
+		})
+	}
+}
+
+func TestService_HasAnyConfiguredGroup_EmptyConfig(t *testing.T) {
+	svc := New("", "", "")
+
+	tests := []struct {
+		name     string
+		groups   []string
+		expected bool
+	}{
+		{
+			name:     "No groups configured, empty list returns false",
+			groups:   []string{},
+			expected: false,
+		},
+		{
+			name:     "No groups configured, any group returns false",
+			groups:   []string{"sd_creators", "sd_admins"},
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := svc.HasAnyConfiguredGroup(tt.groups)
+			assert.Equal(t, tt.expected, got)
+		})
+	}
+}

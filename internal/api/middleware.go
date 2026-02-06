@@ -83,7 +83,29 @@ func parseToken(tokenString string, secretKey string, prov *auth.Provider, logge
 	})
 }
 
-func AuthenticationMW(prov *auth.Provider, logger *zap.Logger, secretKey string, userAuthGroup string) gin.HandlerFunc {
+// AuthOption configures authentication middleware behavior.
+type AuthOption func(*authConfig)
+
+type authConfig struct {
+	optional bool
+}
+
+// WithOptionalAuth makes authentication optional - requests without tokens are allowed to proceed.
+func WithOptionalAuth() AuthOption {
+	return func(cfg *authConfig) {
+		cfg.optional = true
+	}
+}
+
+// AuthenticationMW validates JWT tokens.
+// By default, missing or invalid tokens result in 401.
+// Use WithOptionalAuth() to allow unauthenticated requests to proceed.
+func AuthenticationMW(prov *auth.Provider, logger *zap.Logger, secretKey string, opts ...AuthOption) gin.HandlerFunc {
+	cfg := &authConfig{}
+	for _, opt := range opts {
+		opt(cfg)
+	}
+
 	return func(c *gin.Context) {
 		if prov.Disabled {
 			logger.Info("authentication is disabled")
@@ -91,24 +113,40 @@ func AuthenticationMW(prov *auth.Provider, logger *zap.Logger, secretKey string,
 			return
 		}
 
-		logger.Info("start to process authentication request")
-
 		authHeader := c.GetHeader("Authorization")
 		if authHeader == "" {
+			if cfg.optional {
+				logger.Debug("no authorization header, proceeding as unauthenticated (optional mode)")
+				c.Next()
+				return
+			}
+			logger.Info("start to process authentication request")
 			apiErrors.RaiseNotAuthorizedErr(c, apiErrors.ErrAuthNotAuthenticated)
 			return
 		}
+
+		logger.Info("start to process authentication request")
 
 		rawToken := strings.TrimPrefix(authHeader, "Bearer ")
 		token, err := parseToken(rawToken, secretKey, prov, logger)
 
 		if err != nil {
+			if cfg.optional {
+				logger.Debug("token parsing error in optional auth", zap.Error(err))
+				c.Next()
+				return
+			}
 			logger.Error("token parsing error", zap.Error(err))
 			apiErrors.RaiseNotAuthorizedErr(c, apiErrors.ErrAuthNotAuthenticated)
 			return
 		}
 
 		if !token.Valid {
+			if cfg.optional {
+				logger.Debug("invalid token in optional auth")
+				c.Next()
+				return
+			}
 			logger.Error("token validation error", zap.Error(err))
 			apiErrors.RaiseNotAuthorizedErr(c, apiErrors.ErrAuthNotAuthenticated)
 			return
@@ -118,15 +156,33 @@ func AuthenticationMW(prov *auth.Provider, logger *zap.Logger, secretKey string,
 			c.Set(claimsContextKey, claims)
 		}
 
-		if _, ok := token.Method.(*jwt.SigningMethodRSA); ok && !isAuthGroupInClaims(token, logger, userAuthGroup) {
-			apiErrors.RaiseNotAuthorizedErr(c, apiErrors.ErrAuthNotAuthenticated)
-			return
-		}
 		c.Next()
 	}
 }
 
-func RBACMiddleware(rbacService *rbac.Service, logger *zap.Logger) gin.HandlerFunc {
+// RBACOption configures RBAC middleware behavior.
+type RBACOption func(*rbacConfig)
+
+type rbacConfig struct {
+	optional bool
+}
+
+// WithOptionalRBAC makes RBAC checks optional - requests without valid groups assign NoRole but proceed.
+func WithOptionalRBAC() RBACOption {
+	return func(cfg *rbacConfig) {
+		cfg.optional = true
+	}
+}
+
+// RBACMiddleware resolves user roles from JWT claims.
+// By default, users without configured groups are rejected.
+// Use WithOptionalRBAC() to allow requests without valid groups to proceed with NoRole.
+func RBACMiddleware(rbacService *rbac.Service, logger *zap.Logger, opts ...RBACOption) gin.HandlerFunc {
+	cfg := &rbacConfig{}
+	for _, opt := range opts {
+		opt(cfg)
+	}
+
 	return func(c *gin.Context) {
 		logger.Debug("attempting to resolve user role")
 
@@ -140,22 +196,72 @@ func RBACMiddleware(rbacService *rbac.Service, logger *zap.Logger) gin.HandlerFu
 
 		claims, okClaims := claimsVal.(jwt.MapClaims)
 		if !okClaims {
+			if cfg.optional {
+				logger.Debug("claims in context are not of type jwt.MapClaims, assigning NoRole")
+				c.Set(roleContextKey, rbac.NoRole)
+				c.Next()
+				return
+			}
 			logger.Error("claims in context are not of type jwt.MapClaims")
 			c.Set(roleContextKey, rbac.NoRole)
 			c.Next()
 			return
 		}
 
+		// Extract and validate groups claim
+		groupsClaim, groupsExist := claims["groups"]
+		if !groupsExist {
+			if cfg.optional {
+				logger.Debug("groups claim not found in token, assigning NoRole")
+				c.Set(roleContextKey, rbac.NoRole)
+				c.Next()
+				return
+			}
+			logger.Error("groups claim not found in token")
+			apiErrors.RaiseNotAuthorizedErr(c, apiErrors.ErrAuthNotAuthenticated)
+			return
+		}
+
+		groupsArray, okArray := groupsClaim.([]interface{})
+		if !okArray {
+			if cfg.optional {
+				logger.Debug("groups claim is not an array, assigning NoRole")
+				c.Set(roleContextKey, rbac.NoRole)
+				c.Next()
+				return
+			}
+			logger.Error("groups claim is not an array")
+			apiErrors.RaiseNotAuthorizedErr(c, apiErrors.ErrAuthNotAuthenticated)
+			return
+		}
+
 		var groups []string
-		if groupsClaim, okCast := claims["groups"].([]interface{}); okCast {
-			for _, g := range groupsClaim {
-				if gStr, okStr := g.(string); okStr {
-					groups = append(groups, gStr)
-				}
+		for _, g := range groupsArray {
+			if gStr, okStr := g.(string); okStr {
+				groups = append(groups, gStr)
 			}
 		}
 
-		c.Set(roleContextKey, rbacService.Resolve(groups))
+		// Check if user belongs to any configured RBAC group
+		if !rbacService.HasAnyConfiguredGroup(groups) {
+			if cfg.optional {
+				logger.Debug("user does not belong to any configured RBAC group, assigning NoRole")
+				c.Set(roleContextKey, rbac.NoRole)
+				c.Next()
+				return
+			}
+			logger.Warn("user does not belong to any configured RBAC group")
+			apiErrors.RaiseNotAuthorizedErr(c, apiErrors.ErrAuthNotAuthenticated)
+			return
+		}
+
+		role := rbacService.Resolve(groups)
+		c.Set(roleContextKey, role)
+		if cfg.optional {
+			logger.Debug("user role resolved (optional)", zap.Int("role", int(role)))
+		} else {
+			logger.Debug("user role resolved", zap.Int("role", int(role)))
+		}
 
 		if sub, okSub := claims["sub"].(string); okSub {
 			c.Set(userIDContextKey, sub)
@@ -163,45 +269,6 @@ func RBACMiddleware(rbacService *rbac.Service, logger *zap.Logger) gin.HandlerFu
 
 		c.Next()
 	}
-}
-
-func isAuthGroupInClaims(token *jwt.Token, logger *zap.Logger, userAuthGroup string) bool {
-	claims, ok := token.Claims.(jwt.MapClaims)
-	if !ok {
-		logger.Error("failed to parse token claims")
-		return false
-	}
-
-	groupsClaim, exists := claims["groups"]
-	if !exists {
-		logger.Error("groups claim not found in token")
-		return false
-	}
-
-	groups, ok := groupsClaim.([]interface{})
-	if !ok {
-		logger.Error("groups claim is not an array")
-		return false
-	}
-
-	hasGroup := false
-	for _, group := range groups {
-		if groupStr, okType := group.(string); okType && strings.TrimPrefix(groupStr, "/") == userAuthGroup {
-			hasGroup = true
-			break
-		}
-	}
-
-	if !hasGroup {
-		logger.Warn("user does not belong to required group",
-			zap.String("required_group", userAuthGroup))
-		return false
-	}
-
-	logger.Info("user authorized with group membership",
-		zap.String("group", userAuthGroup))
-
-	return true
 }
 
 func CheckEventExistenceMW(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {

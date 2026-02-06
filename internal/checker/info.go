@@ -74,9 +74,13 @@ func (ch *Checker) CheckInfoEvents() error {
 			ch.fixInfoMissedStatuses(event.InfoCancelled, sHistory, info)
 		}
 
-		err = ch.db.ModifyIncident(info)
-		if err != nil {
-			return err
+		// Only update the incident if the status has actually changed
+		if info.Status != actualStatus {
+			info.Status = actualStatus
+			err = ch.db.ModifyIncident(info)
+			if err != nil {
+				return err
+			}
 		}
 	}
 

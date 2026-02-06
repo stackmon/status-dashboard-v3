@@ -14,152 +14,11 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest"
 
 	"github.com/stackmon/otc-status-dashboard/internal/api/auth"
+	"github.com/stackmon/otc-status-dashboard/internal/api/rbac"
 )
-
-func TestIsAuthGroupInClaims(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
-
-	tests := []struct {
-		name           string
-		groups         []interface{}
-		requiredGroup  string
-		expectedResult bool
-	}{
-		{
-			name:           "Valid group present",
-			groups:         []interface{}{"sd-admins", "sd-operators"},
-			requiredGroup:  "sd-admins",
-			expectedResult: true,
-		},
-		{
-			name:           "Required group not present",
-			groups:         []interface{}{"sd-operators", "other-group"},
-			requiredGroup:  "sd-admins",
-			expectedResult: false,
-		},
-		{
-			name:           "Empty groups array",
-			groups:         []interface{}{},
-			requiredGroup:  "sd-admins",
-			expectedResult: false,
-		},
-		{
-			name:           "Single matching group",
-			groups:         []interface{}{"sd-admins"},
-			requiredGroup:  "sd-admins",
-			expectedResult: true,
-		},
-		{
-			name:           "Multiple groups with match",
-			groups:         []interface{}{"group1", "group2", "sd-admins", "group3"},
-			requiredGroup:  "sd-admins",
-			expectedResult: true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			claims := jwt.MapClaims{
-				"sub":    "test-user",
-				"groups": tt.groups,
-			}
-
-			token := &jwt.Token{
-				Claims: claims,
-			}
-
-			result := isAuthGroupInClaims(token, logger, tt.requiredGroup)
-			assert.Equal(t, tt.expectedResult, result)
-		})
-	}
-}
-
-func TestIsAuthGroupInClaims_MissingGroupsClaim(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
-
-	claims := jwt.MapClaims{
-		"sub": "test-user",
-	}
-
-	token := &jwt.Token{
-		Claims: claims,
-	}
-
-	result := isAuthGroupInClaims(token, logger, "sd-admins")
-	assert.False(t, result)
-}
-
-func TestIsAuthGroupInClaims_InvalidGroupsType(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
-
-	claims := jwt.MapClaims{
-		"sub":    "test-user",
-		"groups": "not-an-array",
-	}
-
-	token := &jwt.Token{
-		Claims: claims,
-	}
-
-	result := isAuthGroupInClaims(token, logger, "sd-admins")
-	assert.False(t, result)
-}
-
-func TestIsAuthGroupInClaims_GroupsWithNonStringElements(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
-
-	claims := jwt.MapClaims{
-		"sub":    "test-user",
-		"groups": []interface{}{123, "sd-admins", true},
-	}
-
-	token := &jwt.Token{
-		Claims: claims,
-	}
-
-	result := isAuthGroupInClaims(token, logger, "sd-admins")
-	assert.True(t, result)
-}
-
-func TestIsAuthGroupInClaims_InvalidClaimsType(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
-
-	type CustomClaims struct {
-		jwt.RegisteredClaims
-		Groups []string
-	}
-
-	token := &jwt.Token{
-		Claims: CustomClaims{
-			Groups: []string{"sd-admins"},
-		},
-	}
-
-	result := isAuthGroupInClaims(token, logger, "sd-admins")
-	assert.False(t, result)
-}
-
-func BenchmarkIsAuthGroupInClaims(b *testing.B) {
-	logger, _ := zap.NewDevelopment()
-
-	claims := jwt.MapClaims{
-		"sub":    "test-user",
-		"groups": []interface{}{"group1", "group2", "sd-admins", "group3", "group4"},
-	}
-
-	token := &jwt.Token{
-		Claims: claims,
-	}
-
-	b.ResetTimer()
-	for range b.N {
-		_ = isAuthGroupInClaims(token, logger, "sd-admins")
-	}
-}
 
 func setRealmPublicKey(prov *auth.Provider, key *rsa.PublicKey) {
 	val := reflect.ValueOf(prov).Elem()
@@ -255,28 +114,28 @@ func TestAuthenticationMW_HMAC_SuccessAndFailures(t *testing.T) {
 	logger := zaptest.NewLogger(t)
 
 	prov := &auth.Provider{}
-	mw := AuthenticationMW(prov, logger, secret, "")
+	mw := AuthenticationMW(prov, logger, secret)
 	w := performRequestWithAuth(mw, "Bearer "+signed)
 	assert.Equal(t, http.StatusOK, w.Code, "expected middleware to allow valid HMAC token")
 
 	w = performRequestWithAuth(mw, "")
 	assert.Equal(t, http.StatusUnauthorized, w.Code, "expected 401 when no Authorization header")
 
-	mwWrong := AuthenticationMW(prov, logger, "wrong-secret", "")
+	mwWrong := AuthenticationMW(prov, logger, "wrong-secret")
 	w = performRequestWithAuth(mwWrong, "Bearer "+signed)
 	assert.Equal(t, http.StatusUnauthorized, w.Code, "expected 401 when secret does not match")
 }
 
-func TestAuthenticationMW_RSA_WithAndWithoutGroup(t *testing.T) {
+func TestAuthenticationMW_RSA_ValidToken(t *testing.T) {
 	priv, err := rsa.GenerateKey(rand.Reader, 2048)
 	require.NoError(t, err, "failed to generate rsa key")
 
-	claimsWithGroup := jwt.MapClaims{
+	claims := jwt.MapClaims{
 		"sub":    "rsa-user",
 		"groups": []interface{}{"/sd-admins"},
 	}
-	tokenWithGroup := jwt.NewWithClaims(jwt.SigningMethodRS256, claimsWithGroup)
-	signedWithGroup, err := tokenWithGroup.SignedString(priv)
+	token := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
+	signed, err := token.SignedString(priv)
 	require.NoError(t, err, "failed to sign rsa token")
 
 	prov := &auth.Provider{}
@@ -287,18 +146,175 @@ func TestAuthenticationMW_RSA_WithAndWithoutGroup(t *testing.T) {
 
 	logger := zaptest.NewLogger(t)
 
-	mw := AuthenticationMW(prov, logger, "", "sd-admins")
-	w := performRequestWithAuth(mw, "Bearer "+signedWithGroup)
-	assert.Equal(t, http.StatusOK, w.Code, "expected middleware to allow RSA token when group present")
+	mw := AuthenticationMW(prov, logger, "")
+	w := performRequestWithAuth(mw, "Bearer "+signed)
+	assert.Equal(t, http.StatusOK, w.Code, "expected middleware to allow valid RSA token")
+}
 
-	claimsWithoutGroup := jwt.MapClaims{
-		"sub":    "rsa-user",
-		"groups": []interface{}{"other-group"},
+func TestRBACMiddleware_ValidGroups(t *testing.T) {
+	logger := zaptest.NewLogger(t)
+	rbacSvc := rbac.New("sd_creators", "sd_operators", "sd_admins")
+
+	tests := []struct {
+		name           string
+		groups         []interface{}
+		expectedStatus int
+		expectedRole   rbac.Role
+	}{
+		{
+			name:           "Creator group is allowed",
+			groups:         []interface{}{"sd_creators"},
+			expectedStatus: http.StatusOK,
+			expectedRole:   rbac.Creator,
+		},
+		{
+			name:           "Operator group is allowed",
+			groups:         []interface{}{"sd_operators"},
+			expectedStatus: http.StatusOK,
+			expectedRole:   rbac.Operator,
+		},
+		{
+			name:           "Admin group is allowed",
+			groups:         []interface{}{"sd_admins"},
+			expectedStatus: http.StatusOK,
+			expectedRole:   rbac.Admin,
+		},
+		{
+			name:           "Group with leading slash is normalized",
+			groups:         []interface{}{"/sd_creators"},
+			expectedStatus: http.StatusOK,
+			expectedRole:   rbac.Creator,
+		},
 	}
-	tokenWithoutGroup := jwt.NewWithClaims(jwt.SigningMethodRS256, claimsWithoutGroup)
-	signedWithoutGroup, err := tokenWithoutGroup.SignedString(priv)
-	require.NoError(t, err, "failed to sign rsa token")
 
-	w = performRequestWithAuth(mw, "Bearer "+signedWithoutGroup)
-	assert.Equal(t, http.StatusUnauthorized, w.Code, "expected 401 when RSA token lacks required group")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			router := gin.New()
+			router.Use(func(c *gin.Context) {
+				c.Set(claimsContextKey, jwt.MapClaims{
+					"sub":    "test-user",
+					"groups": tt.groups,
+				})
+				c.Next()
+			})
+			router.Use(RBACMiddleware(rbacSvc, logger))
+			router.GET("/test", func(c *gin.Context) {
+				role, _ := c.Get(roleContextKey)
+				assert.Equal(t, tt.expectedRole, role)
+				c.Status(http.StatusOK)
+			})
+
+			req := httptest.NewRequest(http.MethodGet, "/test", nil)
+			w := httptest.NewRecorder()
+			router.ServeHTTP(w, req)
+			assert.Equal(t, tt.expectedStatus, w.Code)
+		})
+	}
+}
+
+func TestRBACMiddleware_InvalidGroups(t *testing.T) {
+	logger := zaptest.NewLogger(t)
+	rbacSvc := rbac.New("sd_creators", "sd_operators", "sd_admins")
+
+	tests := []struct {
+		name           string
+		claims         jwt.MapClaims
+		expectedStatus int
+	}{
+		{
+			name: "Missing groups claim returns 401",
+			claims: jwt.MapClaims{
+				"sub": "test-user",
+			},
+			expectedStatus: http.StatusUnauthorized,
+		},
+		{
+			name: "Groups claim is not an array returns 401",
+			claims: jwt.MapClaims{
+				"sub":    "test-user",
+				"groups": "not-an-array",
+			},
+			expectedStatus: http.StatusUnauthorized,
+		},
+		{
+			name: "Empty groups array returns 401",
+			claims: jwt.MapClaims{
+				"sub":    "test-user",
+				"groups": []interface{}{},
+			},
+			expectedStatus: http.StatusUnauthorized,
+		},
+		{
+			name: "Unrecognized groups returns 401",
+			claims: jwt.MapClaims{
+				"sub":    "test-user",
+				"groups": []interface{}{"random_group", "other_group"},
+			},
+			expectedStatus: http.StatusUnauthorized,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			router := gin.New()
+			router.Use(func(c *gin.Context) {
+				c.Set(claimsContextKey, tt.claims)
+				c.Next()
+			})
+			router.Use(RBACMiddleware(rbacSvc, logger))
+			router.GET("/test", func(c *gin.Context) {
+				c.Status(http.StatusOK)
+			})
+
+			req := httptest.NewRequest(http.MethodGet, "/test", nil)
+			w := httptest.NewRecorder()
+			router.ServeHTTP(w, req)
+			assert.Equal(t, tt.expectedStatus, w.Code)
+		})
+	}
+}
+
+func TestRBACMiddleware_NoClaims(t *testing.T) {
+	logger := zaptest.NewLogger(t)
+	rbacSvc := rbac.New("sd_creators", "sd_operators", "sd_admins")
+
+	router := gin.New()
+	router.Use(RBACMiddleware(rbacSvc, logger))
+	router.GET("/test", func(c *gin.Context) {
+		role, exists := c.Get(roleContextKey)
+		assert.True(t, exists)
+		assert.Equal(t, rbac.NoRole, role)
+		c.Status(http.StatusOK)
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusOK, w.Code)
+}
+
+func TestRBACMiddleware_ExtractsUserID(t *testing.T) {
+	logger := zaptest.NewLogger(t)
+	rbacSvc := rbac.New("sd_creators", "sd_operators", "sd_admins")
+
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set(claimsContextKey, jwt.MapClaims{
+			"sub":    "user-12345",
+			"groups": []interface{}{"sd_creators"},
+		})
+		c.Next()
+	})
+	router.Use(RBACMiddleware(rbacSvc, logger))
+	router.GET("/test", func(c *gin.Context) {
+		userID, exists := c.Get(userIDContextKey)
+		assert.True(t, exists)
+		assert.Equal(t, "user-12345", userID)
+		c.Status(http.StatusOK)
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusOK, w.Code)
 }

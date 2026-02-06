@@ -25,6 +25,25 @@ func New(creatorsGroup, operatorsGroup, adminsGroup string) *Service {
 	}
 }
 
+// HasAnyConfiguredGroup checks if the user belongs to any configured RBAC group.
+// Group names are normalized by trimming leading "/" prefix.
+func (s *Service) HasAnyConfiguredGroup(userGroups []string) bool {
+	for _, group := range userGroups {
+		normalizedGroup := strings.TrimPrefix(group, "/")
+
+		if normalizedGroup == s.adminsGroup && s.adminsGroup != "" {
+			return true
+		}
+		if normalizedGroup == s.operatorsGroup && s.operatorsGroup != "" {
+			return true
+		}
+		if normalizedGroup == s.creatorsGroup && s.creatorsGroup != "" {
+			return true
+		}
+	}
+	return false
+}
+
 func (s *Service) Resolve(userGroups []string) Role {
 	currentRole := NoRole
 

@@ -19,7 +19,6 @@ type API struct {
 	log         *zap.Logger
 	oa2Prov     *auth.Provider
 	secretKeyV1 string
-	authGroup   string
 	rbac        *rbac.Service
 }
 
@@ -54,7 +53,6 @@ func New(cfg *conf.Config, log *zap.Logger, database *db.DB) (*API, error) {
 		log:         log,
 		oa2Prov:     oa2Prov,
 		secretKeyV1: cfg.SecretKeyV1,
-		authGroup:   cfg.AuthGroup,
 		rbac:        rbacService,
 	}
 	a.InitRoutes()
