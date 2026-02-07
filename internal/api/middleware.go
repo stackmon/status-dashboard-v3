@@ -24,6 +24,8 @@ const (
 	claimsContextKey = "claims"
 	roleContextKey   = "role"
 	userIDContextKey = "user_id"
+	authMethodKey    = "auth_method"
+	authMethodHMAC   = "hmac"
 )
 
 func ValidateComponentsMW(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
@@ -152,6 +154,10 @@ func AuthenticationMW(prov *auth.Provider, logger *zap.Logger, secretKey string,
 			return
 		}
 
+		if _, ok := token.Method.(*jwt.SigningMethodHMAC); ok {
+			c.Set(authMethodKey, authMethodHMAC)
+		}
+
 		if claims, ok := token.Claims.(jwt.MapClaims); ok {
 			c.Set(claimsContextKey, claims)
 		}
@@ -185,6 +191,19 @@ func RBACMiddleware(rbacService *rbac.Service, logger *zap.Logger, opts ...RBACO
 
 	return func(c *gin.Context) {
 		logger.Debug("attempting to resolve user role")
+
+		if method, ok := c.Get(authMethodKey); ok && method == authMethodHMAC {
+			c.Set(roleContextKey, rbac.Admin)
+			if claimsVal, exists := c.Get(claimsContextKey); exists {
+				if claims, okClaims := claimsVal.(jwt.MapClaims); okClaims {
+					if sub, okSub := claims["sub"].(string); okSub {
+						c.Set(userIDContextKey, sub)
+					}
+				}
+			}
+			c.Next()
+			return
+		}
 
 		claimsVal, exists := c.Get(claimsContextKey)
 		if !exists {

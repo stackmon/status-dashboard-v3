@@ -848,7 +848,7 @@ func TestPatchIncidentVersionConflict(t *testing.T) {
 			sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), 
 			eventID, versionInRequest).
 		WillReturnResult(sqlmock.NewResult(0, 0)) // 0 rows affected - version conflict!
-	m.ExpectCommit()
+	m.ExpectRollback()
 
 	// Prepare PATCH request with version 1 (but DB has version 2)
 	// Use "fixing" status which is valid transition from "analysing"

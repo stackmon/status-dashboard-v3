@@ -235,27 +235,41 @@ func (db *DB) SaveIncident(inc *Incident) (uint, error) {
 
 func (db *DB) ModifyIncident(inc *Incident) error {
 	if inc.Version == nil {
-		return errors.New("version is required for incident modification")
+		return errors.New("version is required for event modification")
 	}
 
 	expectedVersion := *inc.Version
 	newVersion := expectedVersion + 1
 	inc.Version = &newVersion
 
-	r := db.g.Model(&Incident{}).
-		Where("id = ? AND version = ?", inc.ID, expectedVersion).
-		Updates(inc)
+	return db.g.Transaction(func(tx *gorm.DB) error {
+		r := tx.Model(&Incident{}).
+			Where("id = ? AND version = ?", inc.ID, expectedVersion).
+			Omit("Statuses", "Components").
+			Updates(inc)
 
-	if r.Error != nil {
-		return r.Error
-	}
+		if r.Error != nil {
+			return r.Error
+		}
 
-	// The possible reason for RowsAffected == 0 is version mismatch
-	if r.RowsAffected == 0 {
-		return ErrVersionConflict
-	}
+		if r.RowsAffected == 0 {
+			return ErrVersionConflict
+		}
 
-	return nil
+		for i := range inc.Statuses {
+			if inc.Statuses[i].ID != 0 {
+				continue
+			}
+			if inc.Statuses[i].IncidentID == 0 {
+				inc.Statuses[i].IncidentID = inc.ID
+			}
+			if err := tx.Create(&inc.Statuses[i]).Error; err != nil {
+				return err
+			}
+		}
+
+		return nil
+	})
 }
 
 // ReOpenIncident the special function if you need to NULL your end_date.

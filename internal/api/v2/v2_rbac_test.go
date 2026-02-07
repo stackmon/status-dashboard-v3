@@ -6,6 +6,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
+	"go.uber.org/zap"
 
 	"github.com/stackmon/otc-status-dashboard/internal/api/rbac"
 	"github.com/stackmon/otc-status-dashboard/internal/db"
@@ -181,6 +182,7 @@ func TestAllowMaintenancePatch(t *testing.T) {
 			gin.SetMode(gin.TestMode)
 			w := httptest.NewRecorder()
 			c, _ := gin.CreateTestContext(w)
+			logger := zap.NewNop()
 
 			stored := &db.Incident{
 				Status: tc.storedStatus,
@@ -189,7 +191,7 @@ func TestAllowMaintenancePatch(t *testing.T) {
 				Status: tc.incomingStatus,
 			}
 
-			result := allowMaintenancePatch(c, tc.role, stored, incoming)
+			result := allowMaintenancePatch(c, logger, tc.role, stored, incoming)
 
 			assert.Equal(t, tc.expectAllow, result)
 			if !tc.expectAllow {
@@ -249,11 +251,12 @@ func TestAllowMaintenancePatchAsOperator(t *testing.T) {
 			gin.SetMode(gin.TestMode)
 			w := httptest.NewRecorder()
 			c, _ := gin.CreateTestContext(w)
+			logger := zap.NewNop()
 
 			stored := &db.Incident{Status: tc.storedStatus}
 			incoming := &PatchIncidentData{Status: tc.incomingStatus}
 
-			result := allowMaintenancePatchAsOperator(c, stored, incoming)
+			result := allowMaintenancePatchAsOperator(c, logger, stored, incoming)
 
 			assert.Equal(t, tc.expectAllow, result)
 			if !tc.expectAllow {
@@ -313,11 +316,12 @@ func TestAllowMaintenancePatchAsCreator(t *testing.T) {
 			gin.SetMode(gin.TestMode)
 			w := httptest.NewRecorder()
 			c, _ := gin.CreateTestContext(w)
+			logger := zap.NewNop()
 
 			stored := &db.Incident{Status: tc.storedStatus}
 			incoming := &PatchIncidentData{Status: tc.incomingStatus}
 
-			result := allowMaintenancePatchAsCreator(c, stored, incoming)
+			result := allowMaintenancePatchAsCreator(c, logger, stored, incoming)
 
 			assert.Equal(t, tc.expectAllow, result)
 			if !tc.expectAllow {

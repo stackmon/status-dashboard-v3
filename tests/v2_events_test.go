@@ -323,13 +323,16 @@ func TestV2PatchEventHandlerNegative(t *testing.T) {
 	require.NotNil(t, resp, "v2CreateEvent returned nil")
 	incID10 := resp.Result[0].IncidentID
 
+	// New events are created with version=1 by default
+	version := 1
+
 	type testCase struct {
 		ExpectedCode int
 		Expected     string
 		JSON         string
 	}
 
-	jsWrongOpenedStatus := `{
+	jsWrongOpenedStatus := fmt.Sprintf(`{
 "title": "OpenStack Upgrade in regions EU-DE/EU-NL",
  "impact": 1,
  "message": "Any message why the incident was updated.",
@@ -337,30 +340,34 @@ func TestV2PatchEventHandlerNegative(t *testing.T) {
  "update_date": "2024-12-11T14:46:03.877Z",
  "start_date": "2024-12-11T14:46:03.877Z",
  "end_date": "2024-12-11T14:46:03.877Z",
-"type": "incident"
-}`
-	jsWrongOpenedStartDate := `{
+"type": "incident",
+"version": %d
+}`, version)
+	jsWrongOpenedStartDate := fmt.Sprintf(`{
  "impact": 1,
  "message": "Any message why the incident was updated.",
  "status": "analysing",
  "update_date": "2024-12-11T14:46:03.877Z",
  "start_date": "2024-12-11T14:46:03.877Z",
- "type": "incident"
-}`
-	jsWrongOpenedStatusForChangingImpact := `{
+ "type": "incident",
+ "version": %d
+}`, version)
+	jsWrongOpenedStatusForChangingImpact := fmt.Sprintf(`{
 "impact": 0,
 "message": "Any message why the event was updated.",
 "status": "analysing",
 "update_date": "2024-12-11T14:46:03.877Z",
-"type": "maintenance"
-}`
-	jsWrongOpenedMaintenanceImpact := `{
+"type": "maintenance",
+"version": %d
+}`, version)
+	jsWrongOpenedMaintenanceImpact := fmt.Sprintf(`{
  "impact": 0,
  "message": "Any message why the event was updated.",
  "status": "impact changed",
  "update_date": "2024-12-11T14:46:03.877Z",
- "type": "maintenance"
-}`
+ "type": "maintenance",
+ "version": %d
+}`, version)
 	testCases := map[string]*testCase{
 		"negative testcase, wrong status for opened incident": {
 			JSON:         jsWrongOpenedStatus,
@@ -440,6 +447,9 @@ func TestV2PatchEventHandler(t *testing.T) {
 	require.NotNil(t, resp, "v2CreateEvent returned nil")
 	incID := resp.Result[0].IncidentID
 
+	// New events are created with version=1 by default (see migration 000006)
+	currentVersion := 1
+
 	newTitle := "patched incident title"
 	newDescription := "patched incident description"
 	t.Logf("patching incident title, from %s to %s", title, newTitle)
@@ -450,29 +460,41 @@ func TestV2PatchEventHandler(t *testing.T) {
 		Message:     "update title",
 		Status:      "analysing",
 		UpdateDate:  time.Now().UTC(),
+		Version:     &currentVersion,
 	}
 
 	inc := internalPatch(incID, &pData)
 	assert.Equal(t, newTitle, inc.Title)
 	assert.Equal(t, newDescription, inc.Description)
+	// Update version after successful patch (should be incremented to 2)
+	require.NotNil(t, inc.Version, "Version should be returned after PATCH")
+	currentVersion = *inc.Version
 
 	newImpact := 2
 	t.Logf("patching incident impact, from %d to %d", impact, newImpact)
 
 	pData.Impact = &newImpact
 	pData.Status = event.IncidentImpactChanged
+	pData.Version = &currentVersion
 
 	inc = internalPatch(incID, &pData)
 	assert.Equal(t, newImpact, *inc.Impact)
+	// Update version after successful patch
+	require.NotNil(t, inc.Version, "Version should be returned after PATCH")
+	currentVersion = *inc.Version
 
 	t.Logf("close incident")
 	pData.Status = event.IncidentResolved
 	updateDate := time.Now().UTC()
 	pData.UpdateDate = updateDate
+	pData.Version = &currentVersion
 
 	inc = internalPatch(incID, &pData)
 	require.NotNil(t, inc.EndDate)
 	assert.Equal(t, updateDate.Truncate(time.Microsecond), inc.EndDate.Truncate(time.Microsecond))
+	// Update version after successful patch
+	require.NotNil(t, inc.Version, "Version should be returned after PATCH")
+	currentVersion = *inc.Version
 
 	t.Logf("patching closed incident, change start date and end date")
 	startDate = time.Now().AddDate(0, 0, -1).UTC()
@@ -481,24 +503,33 @@ func TestV2PatchEventHandler(t *testing.T) {
 	pData.Status = event.IncidentChanged
 	pData.StartDate = &startDate
 	pData.EndDate = &endDate
+	pData.Version = &currentVersion
 
 	inc = internalPatch(incID, &pData)
 	assert.Equal(t, startDate.Truncate(time.Microsecond), inc.StartDate)
 	assert.Equal(t, event.IncidentChanged, inc.Status)
 	require.NotNil(t, inc.EndDate)
 	assert.Equal(t, endDate.Truncate(time.Microsecond), inc.EndDate.Truncate(time.Microsecond))
+	// Update version after successful patch
+	require.NotNil(t, inc.Version, "Version should be returned after PATCH")
+	currentVersion = *inc.Version
 
 	t.Logf("reopen closed incident")
 
 	pData.Status = event.IncidentReopened
 	pData.StartDate = nil
 	pData.EndDate = nil
+	pData.Version = &currentVersion
 	inc = internalPatch(incID, &pData)
 	assert.Nil(t, inc.EndDate)
+	// Update version after successful patch
+	require.NotNil(t, inc.Version, "Version should be returned after PATCH")
+	currentVersion = *inc.Version
 
 	t.Logf("final close the test incident")
 
 	pData.Status = event.IncidentResolved
+	pData.Version = &currentVersion
 	inc = internalPatch(incID, &pData)
 	assert.Equal(t, event.IncidentResolved, inc.Status)
 	assert.NotNil(t, inc.EndDate)
