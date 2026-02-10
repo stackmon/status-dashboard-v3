@@ -399,8 +399,7 @@ func checkIncidentsDataAfterMoveV1(t *testing.T, r *gin.Engine, incidentID int) 
 	incidents := getIncidentsAPIV1(t, r)
 
 	for _, inc := range incidents {
-		switch inc.ID {
-		case incidentID:
+		if inc.ID == incidentID {
 			assert.Nil(t, inc.EndDate)
 			assert.Equal(t, 3, *inc.Impact)
 			require.Len(t, inc.Updates, 3)
@@ -457,8 +456,7 @@ func checkIncidentsDataAfterMoveAndClosedIncidentV1(t *testing.T, r *gin.Engine,
 	incidents := getIncidentsAPIV1(t, r)
 
 	for _, inc := range incidents {
-		switch inc.ID {
-		case incidentID:
+		if inc.ID == incidentID {
 			assert.Nil(t, inc.EndDate)
 			assert.Equal(t, 3, *inc.Impact)
 			require.Len(t, inc.Updates, 4)

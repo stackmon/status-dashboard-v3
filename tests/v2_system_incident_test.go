@@ -172,15 +172,15 @@ func TestV2SystemIncidentCreationWithMaintenance(t *testing.T) {
 	impact := 0
 	system := false
 	maintenanceData := v2.IncidentData{
-		Title:       "Scheduled maintenance",
-		Description: "Maintenance window",
+		Title:        "Scheduled maintenance",
+		Description:  "Maintenance window",
 		ContactEmail: "test@example.com",
-		Impact:      &impact,
-		Components:  []int{componentID},
-		StartDate:   maintenanceStart,
-		EndDate:     &maintenanceEnd,
-		System:      &system,
-		Type:        event.TypeMaintenance,
+		Impact:       &impact,
+		Components:   []int{componentID},
+		StartDate:    maintenanceStart,
+		EndDate:      &maintenanceEnd,
+		System:       &system,
+		Type:         event.TypeMaintenance,
 	}
 
 	respMaint := v2CreateIncident(t, r, &maintenanceData)
@@ -552,15 +552,15 @@ func TestV2SystemIncidentReuseExisting(t *testing.T) {
 	// Verify both components are in the same incident
 	incident := v2GetEvent(t, r, firstIncidentID)
 	require.Len(t, incident.Components, 2, "incident should have exactly 2 components")
-	
+
 	// Verify component IDs
 	componentIDs := []int{incident.Components[0], incident.Components[1]}
 	assert.Contains(t, componentIDs, 5, "incident should contain component 5")
 	assert.Contains(t, componentIDs, 6, "incident should contain component 6")
-	
+
 	assert.Equal(t, impact, *incident.Impact)
 	assert.True(t, *incident.System)
-	
+
 	// Verify updates - should have 2: "detected" and "component 6 added"
 	require.Len(t, incident.Updates, 2, "incident should have exactly 2 updates")
 	assert.Contains(t, incident.Updates[1].Text, "Distributed Cache Service", "second update should mention component 6")
@@ -631,15 +631,15 @@ func TestV2SystemIncidentMixedScenarios(t *testing.T) {
 	// Create maintenance for component 3
 	impact0 := 0
 	maintData := v2.IncidentData{
-		Title:       "Maintenance for component 3",
-		Description: "Scheduled maintenance",
+		Title:        "Maintenance for component 3",
+		Description:  "Scheduled maintenance",
 		ContactEmail: "test@example.com",
-		Impact:      &impact0,
-		Components:  []int{3},
-		StartDate:   maintStart,
-		EndDate:     &maintEnd,
-		System:      &systemFalse,
-		Type:        event.TypeMaintenance,
+		Impact:       &impact0,
+		Components:   []int{3},
+		StartDate:    maintStart,
+		EndDate:      &maintEnd,
+		System:       &systemFalse,
+		Type:         event.TypeMaintenance,
 	}
 	v2CreateIncident(t, r, &maintData)
 

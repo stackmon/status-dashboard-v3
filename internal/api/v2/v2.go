@@ -156,30 +156,14 @@ func parsePaginationParams(c *gin.Context, params *db.IncidentsParams) error {
 	return nil
 }
 
-// hasExtendedView checks if user has any role set in context (authenticated via JWT).
+// hasExtendedView checks if user has a resolved role above NoRole (authenticated and authorized via RBAC).
 func hasExtendedView(c *gin.Context) bool {
-	claims, exists := c.Get(ClaimsContextKey)
+	roleVal, exists := c.Get("role")
 	if !exists {
 		return false
 	}
-	role, ok := claims.(rbac.Role)
+	role, ok := roleVal.(rbac.Role)
 	return ok && role > rbac.NoRole
-}
-
-// filterPendingReview removes pending review maintenance events for non-authenticated users.
-func filterPendingReview(incidents []*db.Incident, isAuth bool) []*db.Incident {
-	if isAuth {
-		return incidents
-	}
-
-	filtered := make([]*db.Incident, 0, len(incidents))
-	for _, inc := range incidents {
-		if inc.Type == event.TypeMaintenance && inc.Status == event.MaintenancePendingReview {
-			continue
-		}
-		filtered = append(filtered, inc)
-	}
-	return filtered
 }
 
 func GetIncidentsHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
@@ -191,6 +175,11 @@ func GetIncidentsHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 			return
 		}
 
+		isAuth := hasExtendedView(c)
+		if !isAuth {
+			params.ExcludePendingReview = true
+		}
+
 		logger.Debug("retrieve incidents with params", zap.Any("params", params))
 		r, err := dbInst.GetEvents(params)
 		if err != nil {
@@ -198,9 +187,6 @@ func GetIncidentsHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 			apiErrors.RaiseInternalErr(c, err)
 			return
 		}
-
-		isAuth := hasExtendedView(c)
-		r = filterPendingReview(r, isAuth)
 
 		if len(r) == 0 {
 			logger.Debug("no incidents found matching the specific criteria", zap.Any("params", params))
@@ -231,6 +217,11 @@ func GetEventsHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 			return
 		}
 
+		isAuth := hasExtendedView(c)
+		if !isAuth {
+			params.ExcludePendingReview = true
+		}
+
 		logger.Debug("retrieve events with params", zap.Any("params", params))
 		r, total, err := dbInst.GetEventsWithCount(params)
 		if err != nil {
@@ -238,9 +229,6 @@ func GetEventsHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 			apiErrors.RaiseInternalErr(c, err)
 			return
 		}
-
-		// Filter pending review maintenance for non-authenticated users
-		//r = filterPendingReview(r, isAuth)
 
 		if total == 0 {
 			logger.Debug(
@@ -251,7 +239,6 @@ func GetEventsHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 			return
 		}
 
-		isAuth := hasExtendedView(c)
 		events := make([]*Incident, len(r))
 		for i, inc := range r {
 			events[i] = toAPIEvent(inc, isAuth)

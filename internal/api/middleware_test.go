@@ -18,6 +18,11 @@ import (
 
 	"github.com/stackmon/otc-status-dashboard/internal/api/auth"
 	"github.com/stackmon/otc-status-dashboard/internal/api/rbac"
+	v2 "github.com/stackmon/otc-status-dashboard/internal/api/v2"
+)
+
+const (
+	claimsContextKey = "claims"
 )
 
 func setRealmPublicKey(prov *auth.Provider, key *rsa.PublicKey) {
@@ -258,7 +263,7 @@ func TestRBACMiddleware_InvalidGroups(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			router := gin.New()
 			router.Use(func(c *gin.Context) {
-				c.Set(claimsContextKey, tt.claims)
+				c.Set(v2.ClaimsContextKey, tt.claims)
 				c.Next()
 			})
 			router.Use(RBACMiddleware(rbacSvc, logger))
@@ -281,16 +286,13 @@ func TestRBACMiddleware_NoClaims(t *testing.T) {
 	router := gin.New()
 	router.Use(RBACMiddleware(rbacSvc, logger))
 	router.GET("/test", func(c *gin.Context) {
-		role, exists := c.Get(roleContextKey)
-		assert.True(t, exists)
-		assert.Equal(t, rbac.NoRole, role)
 		c.Status(http.StatusOK)
 	})
 
 	req := httptest.NewRequest(http.MethodGet, "/test", nil)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
-	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
 }
 
 func TestRBACMiddleware_ExtractsUserID(t *testing.T) {

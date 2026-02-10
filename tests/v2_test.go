@@ -121,7 +121,7 @@ func TestV2PostIncidentsHandlerNegative(t *testing.T) {
   "system":false,
   "type":"incident"
 }`
-jsWrongMaintenanceImpact := `{
+	jsWrongMaintenanceImpact := `{
   "title":"Maintenance with wrong impact",
   "impact":1,
   "components":[1],
@@ -209,14 +209,14 @@ func TestV2PostIncidentsHandler(t *testing.T) {
 	incType := event.TypeIncident
 
 	incidentCreateData := v2.IncidentData{
-		Title:       title,
-		Description: description,
+		Title:        title,
+		Description:  description,
 		ContactEmail: "test@example.com",
-		Impact:      &impact,
-		Components:  components,
-		StartDate:   startDate,
-		System:      &system,
-		Type:        incType,
+		Impact:       &impact,
+		Components:   components,
+		StartDate:    startDate,
+		System:       &system,
+		Type:         incType,
 	}
 
 	result := v2CreateIncident(t, r, &incidentCreateData)
@@ -476,14 +476,14 @@ func TestV2PatchIncidentHandler(t *testing.T) {
 	}
 
 	incidentCreateData := v2.IncidentData{
-		Title:       title,
-		Description: description,
+		Title:        title,
+		Description:  description,
 		ContactEmail: "test@example.com",
-		Impact:      &impact,
-		Components:  components,
-		StartDate:   startDate,
-		System:      &system,
-		Type:        event.TypeIncident,
+		Impact:       &impact,
+		Components:   components,
+		StartDate:    startDate,
+		System:       &system,
+		Type:         event.TypeIncident,
 	}
 
 	resp := v2CreateIncident(t, r, &incidentCreateData)
@@ -583,14 +583,14 @@ func TestV2PostIncidentExtractHandler(t *testing.T) {
 	system := false
 
 	incidentCreateData := v2.IncidentData{
-		Title:       title,
-		Description: description,
+		Title:        title,
+		Description:  description,
 		ContactEmail: "test@example.com",
-		Impact:      &impact,
-		Components:  components,
-		StartDate:   startDate,
-		System:      &system,
-		Type:        event.TypeIncident,
+		Impact:       &impact,
+		Components:   components,
+		StartDate:    startDate,
+		System:       &system,
+		Type:         event.TypeIncident,
 	}
 
 	t.Log("create a initial incident", incidentCreateData)
@@ -893,13 +893,13 @@ func TestV2GetIncidentsFilteredHandler(t *testing.T) {
 			expectedCount: 5,
 		},
 		{
-			name:        "Filter by start_date",
-			queryParams: map[string]string{"start_date": startDateFilter},
-			expectedIDs: []int{resolvedID, majorID, outageID, activeID, maintenanceID},
+			name:          "Filter by start_date",
+			queryParams:   map[string]string{"start_date": startDateFilter},
+			expectedIDs:   []int{resolvedID, majorID, outageID, activeID, maintenanceID},
 			expectedCount: 5,
 		},
 		{
-			name:        "Filter by end_date",
+			name:          "Filter by end_date",
 			queryParams:   map[string]string{"end_date": endDateFilter},
 			expectedIDs:   []int{resolvedID},
 			expectedCount: 1,
@@ -965,8 +965,8 @@ func TestV2GetIncidentsFilteredHandler(t *testing.T) {
 			expectedCount: 1,
 		},
 		{
-			name:        "Date range: resolved window",
-			queryParams: map[string]string{"start_date": startDateFilter, "end_date": endDateFilter},
+			name:          "Date range: resolved window",
+			queryParams:   map[string]string{"start_date": startDateFilter, "end_date": endDateFilter},
 			expectedIDs:   []int{resolvedID},
 			expectedCount: 1,
 		},
@@ -1027,15 +1027,15 @@ func TestV2PostMaintenanceHandler(t *testing.T) {
 	system := false
 
 	incidentCreateData := v2.IncidentData{
-		Title:       title,
-		Description: description,
+		Title:        title,
+		Description:  description,
 		ContactEmail: "test@example.com",
-		Impact:      &impact,
-		Components:  components,
-		StartDate:   startDate,
-		EndDate:     &endDate,
-		System:      &system,
-		Type:        event.TypeMaintenance,
+		Impact:       &impact,
+		Components:   components,
+		StartDate:    startDate,
+		EndDate:      &endDate,
+		System:       &system,
+		Type:         event.TypeMaintenance,
 	}
 
 	result := v2CreateIncident(t, r, &incidentCreateData)
@@ -1103,15 +1103,15 @@ func TestV2PostInfoWithExistingEventsHandler(t *testing.T) {
 	maintenanceSystem := false
 
 	maintenanceIncidentData := v2.IncidentData{
-		Title:       maintenanceTitle,
-		Description: maintenanceDescription,
+		Title:        maintenanceTitle,
+		Description:  maintenanceDescription,
 		ContactEmail: "test@example.com",
-		Impact:      &maintenanceImpact,
-		Components:  []int{incidentComponentID},
-		StartDate:   maintenanceStartDate,
-		EndDate:     &maintenanceEndDate,
-		System:      &maintenanceSystem,
-		Type:        "maintenance",
+		Impact:       &maintenanceImpact,
+		Components:   []int{incidentComponentID},
+		StartDate:    maintenanceStartDate,
+		EndDate:      &maintenanceEndDate,
+		System:       &maintenanceSystem,
+		Type:         "maintenance",
 	}
 
 	maintenanceIncidentResp := v2CreateIncident(t, r, &maintenanceIncidentData)

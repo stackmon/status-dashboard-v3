@@ -52,17 +52,18 @@ func (db *DB) Close() error {
 }
 
 type IncidentsParams struct {
-	Types        []string
-	Status       *event.Status
-	StartDate    *time.Time
-	EndDate      *time.Time
-	Impact       *int
-	IsSystem     *bool
-	ComponentIDs []int
-	LastCount    int
-	IsActive     *bool
-	Limit        *int
-	Page         *int
+	Types                []string
+	Status               *event.Status
+	StartDate            *time.Time
+	EndDate              *time.Time
+	Impact               *int
+	IsSystem             *bool
+	ComponentIDs         []int
+	LastCount            int
+	IsActive             *bool
+	Limit                *int
+	Page                 *int
+	ExcludePendingReview bool
 }
 
 func applyEventsFilters(base *gorm.DB, params *IncidentsParams) (*gorm.DB, error) {
@@ -114,6 +115,14 @@ func applyEventsFilters(base *gorm.DB, params *IncidentsParams) (*gorm.DB, error
 	case params.EndDate != nil && params.StartDate == nil:
 		base = base.Where("incident.end_date <= ?", *params.EndDate)
 	}
+
+	if params.ExcludePendingReview {
+		base = base.Where(
+			"NOT (incident.type = ? AND incident.status = ?)",
+			event.TypeMaintenance, event.MaintenancePendingReview,
+		)
+	}
+
 	return base, nil
 }
 

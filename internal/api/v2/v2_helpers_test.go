@@ -73,13 +73,13 @@ func initRoutes(t *testing.T, c *gin.Engine, dbInst *db.DB, log *zap.Logger) {
 func prepareIncident(t *testing.T, mock sqlmock.Sqlmock, testTime time.Time) {
 	t.Helper()
 
-	mock.ExpectQuery(`^SELECT count\(\*\) FROM "incident"$`).
+	mock.ExpectQuery(`^SELECT count\(\*\) FROM "incident"`).
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(2))
 
 	rowsInc := sqlmock.NewRows([]string{"id", "text", "description", "start_date", "end_date", "impact", "system", "type", "created_by", "contact_email"}).
 		AddRow(1, "Incident title A", "Description A", testTime, testTime.Add(time.Hour*72), 0, false, "maintenance", nil, nil).
 		AddRow(2, "Incident title B", "Description B", testTime, testTime.Add(time.Hour*72), 3, false, "incident", nil, nil)
-	mock.ExpectQuery("^SELECT (.+) FROM \"incident\" ORDER BY incident.start_date DESC$").WillReturnRows(rowsInc)
+	mock.ExpectQuery(`^SELECT (.+) FROM "incident"`).WillReturnRows(rowsInc)
 
 	rowsIncComp := sqlmock.NewRows([]string{"incident_id", "component_id"}).
 		AddRow(1, 150).
