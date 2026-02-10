@@ -781,7 +781,7 @@ func TestPatchEventUpdateHandler(t *testing.T) {
 // - Event in database has version = 2
 // - PATCH request sent with version = 1 (outdated)
 // - UPDATE query returns 0 affected rows (no match because version doesn't match)
-// - API returns HTTP 409 Conflict with "version conflict" message
+// - API returns HTTP 409 Conflict with "version conflict" message.
 func TestPatchIncidentVersionConflict(t *testing.T) {
 	startDate := "2025-08-01T11:45:26.371Z"
 	updateDate := "2025-08-02T11:45:26.371Z"
@@ -791,7 +791,7 @@ func TestPatchIncidentVersionConflict(t *testing.T) {
 	eventID := 222
 	impact2 := 2 // Incident
 	systemFalse := false
-	versionInDB := 2     // Version in database
+	versionInDB := 2      // Version in database
 	versionInRequest := 1 // Version in PATCH request (outdated)
 
 	// Mock data setup - incident in DB has version 2 and is OPEN (no end_date)
@@ -844,9 +844,9 @@ func TestPatchIncidentVersionConflict(t *testing.T) {
 	// The UPDATE uses WHERE id = ? AND version = ?, so with version=1 it won't match (DB has version=2)
 	m.ExpectBegin()
 	m.ExpectExec(`^UPDATE "incident" SET .+ WHERE id = \$\d+ AND version = \$\d+$`).
-		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), 
-			sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), 
-			eventID, versionInRequest).
+		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(),
+			sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(),
+								eventID, versionInRequest).
 		WillReturnResult(sqlmock.NewResult(0, 0)) // 0 rows affected - version conflict!
 	m.ExpectRollback()
 

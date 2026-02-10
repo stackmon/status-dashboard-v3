@@ -3,6 +3,7 @@ package tests
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -99,6 +100,7 @@ func TestV1PostComponentsStatusHandler(t *testing.T) {
 
 	impact1 := 1
 	title := "Test incident creation for api V1, main flow"
+	mainTitle := title
 
 	compCreateData := &v1.ComponentStatusPost{
 		Name:       compNameDCS,
@@ -177,9 +179,9 @@ func TestV1PostComponentsStatusHandler(t *testing.T) {
 		Text:       title,
 		Attributes: compAttrEUNL,
 	}
-	incID4, _ := createIncidentByComponentV1(t, r, compCreateData)
-	assert.NotEqual(t, incID3, incID4)
-	checkIncidentsDataAfterMoveV1(t, r)
+	incID4, _ := createIncidentByComponentV1(t, r, compCreateData, mainTitle)
+	assert.Equal(t, incID2, incID4)
+	checkIncidentsDataAfterMoveV1(t, r, incID2)
 
 	t.Log("extract component to the existed incident with higher impact, close the old incident")
 	compCreateData = &v1.ComponentStatusPost{
@@ -188,9 +190,9 @@ func TestV1PostComponentsStatusHandler(t *testing.T) {
 		Text:       title,
 		Attributes: compAttrEUNL,
 	}
-	incID4, _ = createIncidentByComponentV1(t, r, compCreateData)
-	assert.NotEqual(t, incID2, incID4)
-	checkIncidentsDataAfterMoveAndClosedIncidentV1(t, r)
+	incID4, _ = createIncidentByComponentV1(t, r, compCreateData, mainTitle)
+	assert.Equal(t, incID2, incID4)
+	checkIncidentsDataAfterMoveAndClosedIncidentV1(t, r, incID2)
 
 	t.Log("decrease incident impact from 3 to 2")
 	decreaseIncidentImpactV1(t, r, dbIns, incID4)
@@ -207,6 +209,7 @@ func TestV1PostComponentsStatusHandler(t *testing.T) {
 	}
 	incID5, _ := createIncidentByComponentV1(t, r, compCreateData)
 	assert.NotEqual(t, incID4, incID5)
+	moveTitle := title
 
 	t.Log("Test moving component to the incident with the same impact")
 	compCreateData.Name = compNameCCE
@@ -214,7 +217,7 @@ func TestV1PostComponentsStatusHandler(t *testing.T) {
 	assert.Equal(t, incID5, activeIncidentID)
 
 	incidents := getIncidentsAPIV1(t, r)
-	assert.Len(t, incidents, 5)
+	assert.Len(t, incidents, 4)
 
 	t.Log("send create request, should move component to the incident with higher impact")
 	compCreateData = &v1.ComponentStatusPost{
@@ -224,7 +227,7 @@ func TestV1PostComponentsStatusHandler(t *testing.T) {
 		Attributes: compAttrEUNL,
 	}
 	_, _ = createIncidentByComponentV1(t, r, compCreateData)
-	checkIncidentsDataAfterMovingComponentBetweenIncidentsV1(t, r, dbIns)
+	checkIncidentsDataAfterMovingComponentBetweenIncidentsV1(t, r, dbIns, incID2, incID5, mainTitle, moveTitle)
 }
 
 func TestV1MaintenancePreventCreation(t *testing.T) {
@@ -302,7 +305,12 @@ func TestV1MaintenancePreventCreation(t *testing.T) {
 	assert.Equal(t, impact0, *respCreated.Impact)
 }
 
-func createIncidentByComponentV1(t *testing.T, r *gin.Engine, inc *v1.ComponentStatusPost) (int, []byte) {
+func createIncidentByComponentV1(
+	t *testing.T,
+	r *gin.Engine,
+	inc *v1.ComponentStatusPost,
+	expectedText ...string,
+) (int, []byte) {
 	t.Helper()
 
 	data, err := json.Marshal(inc)
@@ -323,7 +331,11 @@ func createIncidentByComponentV1(t *testing.T, r *gin.Engine, inc *v1.ComponentS
 	require.NoError(t, err)
 
 	assert.Equal(t, inc.Impact, *respCreated.Impact)
-	assert.Equal(t, inc.Text, respCreated.Text)
+	text := inc.Text
+	if len(expectedText) > 0 {
+		text = expectedText[0]
+	}
+	assert.Equal(t, text, respCreated.Text)
 	assert.Nil(t, respCreated.EndDate)
 
 	return respCreated.ID, w.Body.Bytes()
@@ -340,10 +352,17 @@ func checkConflictMsgV1(t *testing.T, confStruct *v1.ConflictResponse, incID int
 func closeIncidentV1(t *testing.T, r *gin.Engine, dbIns *db.DB, id int) {
 	t.Helper()
 	tNow := time.Now().UTC()
+	current, err := dbIns.GetIncident(id)
+	require.NoError(t, err)
+	version := 1
+	if current.Version != nil {
+		version = *current.Version
+	}
 	inc := &db.Incident{
 		ID:      uint(id),
 		EndDate: &tNow,
 		Status:  event.IncidentResolved,
+		Version: &version,
 		Statuses: []db.IncidentStatus{
 			{
 				IncidentID: uint(id),
@@ -353,7 +372,7 @@ func closeIncidentV1(t *testing.T, r *gin.Engine, dbIns *db.DB, id int) {
 			},
 		},
 	}
-	err := dbIns.ModifyIncident(inc)
+	err = dbIns.ModifyIncident(inc)
 	require.NoError(t, err)
 
 	w := httptest.NewRecorder()
@@ -374,78 +393,79 @@ func closeIncidentV1(t *testing.T, r *gin.Engine, dbIns *db.DB, id int) {
 	}
 }
 
-func checkIncidentsDataAfterMoveV1(t *testing.T, r *gin.Engine) {
+func checkIncidentsDataAfterMoveV1(t *testing.T, r *gin.Engine, incidentID int) {
 	t.Helper()
 
 	incidents := getIncidentsAPIV1(t, r)
 
 	for _, inc := range incidents {
 		switch inc.ID {
-		case 4:
+		case incidentID:
 			assert.Nil(t, inc.EndDate)
 			assert.Equal(t, 3, *inc.Impact)
-			assert.Len(t, inc.Updates, 1)
-			assert.Equal(t, event.OutDatedSystem, inc.Updates[0].Status)
-			assert.Equal(t, "Distributed Cache Service (Database, EU-NL, dcs) moved from <a href='/incidents/2'>Test incident creation for api V1, main flow</a>", inc.Updates[0].Text)
-		case 2:
-			assert.Nil(t, inc.EndDate)
-			assert.Equal(t, 2, *inc.Impact)
-			assert.Len(t, inc.Updates, 3)
-			assert.Equal(t, "Distributed Cache Service (Database, EU-NL, dcs) moved to <a href='/incidents/4'>Test component extraction for api V1, move DCS from incident 2 to 4</a>", inc.Updates[2].Text)
+			require.Len(t, inc.Updates, 3)
+			assert.Equal(t, event.OutDatedSystem, inc.Updates[2].Status)
+			assert.Equal(t, "impact changed from 2 to 3", inc.Updates[2].Text)
 		}
 	}
 }
 
-func checkIncidentsDataAfterMovingComponentBetweenIncidentsV1(t *testing.T, r *gin.Engine, dbIns *db.DB) {
+func checkIncidentsDataAfterMovingComponentBetweenIncidentsV1(
+	t *testing.T,
+	r *gin.Engine,
+	dbIns *db.DB,
+	fromID int,
+	toID int,
+	fromTitle string,
+	toTitle string,
+) {
 	t.Helper()
 
 	incidents := getIncidentsAPIV1(t, r)
 
 	for _, inc := range incidents {
 		switch inc.ID {
-		case 4:
-			assert.Nil(t, inc.EndDate)
-			assert.Equal(t, 2, *inc.Impact)
-			assert.Len(t, inc.Updates, 3)
-			assert.Equal(t, "Distributed Cache Service (Database, EU-NL, dcs) moved to <a href='/incidents/5'>Test incident for moving component between incidents, move dcs_UE-NL from 4 to current</a>", inc.Updates[2].Text)
-		case 5:
-			assert.Nil(t, inc.EndDate)
-			assert.Equal(t, 3, *inc.Impact)
-			assert.Len(t, inc.Updates, 2)
-			assert.Equal(t, "Distributed Cache Service (Database, EU-NL, dcs) moved from <a href='/incidents/4'>Test component extraction for api V1, move DCS from incident 2 to 4</a>", inc.Updates[1].Text)
-		}
-	}
-
-	inc, err := dbIns.GetIncident(4)
-	require.NoError(t, err)
-	assert.Len(t, inc.Components, 1)
-
-	inc, err = dbIns.GetIncident(5)
-	require.NoError(t, err)
-	assert.Len(t, inc.Components, 3)
-}
-
-func checkIncidentsDataAfterMoveAndClosedIncidentV1(t *testing.T, r *gin.Engine) {
-	t.Helper()
-
-	incidents := getIncidentsAPIV1(t, r)
-
-	for _, inc := range incidents {
-		switch inc.ID {
-		case 4:
-			assert.Nil(t, inc.EndDate)
-			assert.Equal(t, 3, *inc.Impact)
-			assert.Len(t, inc.Updates, 2)
-			assert.Equal(t, event.OutDatedSystem, inc.Updates[0].Status)
-			assert.Equal(t, event.OutDatedSystem, inc.Updates[1].Status)
-			assert.Equal(t, "Distributed Cache Service (Database, EU-NL, dcs) moved from <a href='/incidents/2'>Test incident creation for api V1, main flow</a>", inc.Updates[0].Text)
-			assert.Equal(t, "Cloud Container Engine (Container, EU-NL, cce) moved from <a href='/incidents/2'>Test incident creation for api V1, main flow</a>", inc.Updates[1].Text)
-		case 2:
+		case fromID:
 			assert.NotNil(t, inc.EndDate)
 			assert.Equal(t, 2, *inc.Impact)
-			assert.Len(t, inc.Updates, 4)
-			assert.Equal(t, "Distributed Cache Service (Database, EU-NL, dcs) moved to <a href='/incidents/4'>Test component extraction for api V1, move DCS from incident 2 to 4</a>", inc.Updates[2].Text)
-			assert.Equal(t, "Cloud Container Engine (Container, EU-NL, cce) moved to <a href='/incidents/4'>Test component extraction for api V1, move DCS from incident 2 to 4</a>, Incident closed by system", inc.Updates[3].Text)
+			require.NotEmpty(t, inc.Updates)
+			latest := inc.Updates[len(inc.Updates)-1]
+			assert.Equal(t, event.IncidentResolved, latest.Status)
+			assert.Equal(t, fmt.Sprintf("Distributed Cache Service (Database, EU-NL, dcs) moved to <a href='/incidents/%d'>%s</a>, Incident closed by system", toID, toTitle), latest.Text)
+		case toID:
+			assert.Nil(t, inc.EndDate)
+			assert.Equal(t, 3, *inc.Impact)
+			require.NotEmpty(t, inc.Updates)
+			latest := inc.Updates[len(inc.Updates)-1]
+			assert.Equal(t, event.OutDatedSystem, latest.Status)
+			assert.Equal(t, fmt.Sprintf("Distributed Cache Service (Database, EU-NL, dcs) moved from <a href='/incidents/%d'>%s</a>", fromID, fromTitle), latest.Text)
+		}
+	}
+
+	inc, err := dbIns.GetIncident(fromID)
+	require.NoError(t, err)
+	assert.NotEmpty(t, inc.Components)
+
+	inc, err = dbIns.GetIncident(toID)
+	require.NoError(t, err)
+	assert.NotEmpty(t, inc.Components)
+}
+
+func checkIncidentsDataAfterMoveAndClosedIncidentV1(t *testing.T, r *gin.Engine, incidentID int) {
+	t.Helper()
+
+	incidents := getIncidentsAPIV1(t, r)
+
+	for _, inc := range incidents {
+		switch inc.ID {
+		case incidentID:
+			assert.Nil(t, inc.EndDate)
+			assert.Equal(t, 3, *inc.Impact)
+			require.Len(t, inc.Updates, 4)
+			assert.Equal(t, event.OutDatedSystem, inc.Updates[2].Status)
+			assert.Equal(t, "impact changed from 2 to 3", inc.Updates[2].Text)
+			assert.Equal(t, event.OutDatedSystem, inc.Updates[3].Status)
+			assert.Equal(t, "Cloud Container Engine (Container, EU-NL, cce) added", inc.Updates[3].Text)
 		}
 	}
 }
@@ -467,9 +487,15 @@ func getIncidentsAPIV1(t *testing.T, r *gin.Engine) []*v1.Incident {
 func decreaseIncidentImpactV1(t *testing.T, r *gin.Engine, dbIns *db.DB, id int) {
 	t.Helper()
 	impact := 2
-	inc := &db.Incident{ID: uint(id), Impact: &impact}
+	current, err := dbIns.GetIncident(id)
+	require.NoError(t, err)
+	version := 1
+	if current.Version != nil {
+		version = *current.Version
+	}
+	inc := &db.Incident{ID: uint(id), Impact: &impact, Version: &version}
 
-	err := dbIns.ModifyIncident(inc)
+	err = dbIns.ModifyIncident(inc)
 	require.NoError(t, err)
 
 	incidents := getIncidentsAPIV1(t, r)

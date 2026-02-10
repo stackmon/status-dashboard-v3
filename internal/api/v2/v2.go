@@ -615,14 +615,13 @@ func addComponentToSystemIncident(
 				zap.Uint("componentID", comp.ID), zap.Uint("incidentID", sysInc.ID),
 			)
 
-			sysInc.Components = append(sysInc.Components, *comp)
-			sysInc.Statuses = append(sysInc.Statuses, db.IncidentStatus{
+			status := db.IncidentStatus{
 				IncidentID: sysInc.ID,
 				Status:     sysInc.Status,
 				Text:       fmt.Sprintf("%s added to the incident by system.", comp.PrintAttrs()),
 				Timestamp:  time.Now().UTC(),
-			})
-			err := dbInst.ModifyIncident(sysInc)
+			}
+			err := dbInst.AddComponentToIncident(sysInc, comp, status)
 			if err != nil {
 				return nil, err
 			}

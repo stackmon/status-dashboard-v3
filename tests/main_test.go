@@ -26,6 +26,7 @@ import (
 	"github.com/stackmon/otc-status-dashboard/internal/api"
 	"github.com/stackmon/otc-status-dashboard/internal/api/auth"
 	apiErrors "github.com/stackmon/otc-status-dashboard/internal/api/errors"
+	"github.com/stackmon/otc-status-dashboard/internal/api/rbac"
 	v1 "github.com/stackmon/otc-status-dashboard/internal/api/v1"
 	v2 "github.com/stackmon/otc-status-dashboard/internal/api/v2"
 	"github.com/stackmon/otc-status-dashboard/internal/conf"
@@ -166,6 +167,10 @@ func initRoutesV2(t *testing.T, c *gin.Engine, dbInst *db.DB, logger *zap.Logger
 	t.Log("init routes for V2")
 
 	v2Api := c.Group("v2")
+	v2Api.Use(func(c *gin.Context) {
+		c.Set("role", rbac.Admin)
+		c.Next()
+	})
 
 	v2Api.GET("components", v2.GetComponentsHandler(dbInst, logger))
 	v2Api.POST("components", v2.PostComponentHandler(dbInst, logger))

@@ -272,6 +272,52 @@ func (db *DB) ModifyIncident(inc *Incident) error {
 	})
 }
 
+// AddComponentToIncident adds a component and a status update to an incident using optimistic locking.
+func (db *DB) AddComponentToIncident(inc *Incident, comp *Component, status IncidentStatus) error {
+	if inc.Version == nil {
+		return errors.New("version is required for incident modification")
+	}
+
+	expectedVersion := *inc.Version
+	newVersion := expectedVersion + 1
+
+	err := db.g.Transaction(func(tx *gorm.DB) error {
+		// Update version with optimistic lock
+		r := tx.Model(&Incident{}).
+			Where("id = ? AND version = ?", inc.ID, expectedVersion).
+			Updates(map[string]interface{}{
+				"version": newVersion,
+			})
+		if r.Error != nil {
+			return r.Error
+		}
+		if r.RowsAffected == 0 {
+			return ErrVersionConflict
+		}
+
+		// Add component to incident via association
+		if err := tx.Model(inc).Association("Components").Append(comp); err != nil {
+			return err
+		}
+
+		// Create status update
+		if status.IncidentID == 0 {
+			status.IncidentID = inc.ID
+		}
+		if err := tx.Create(&status).Error; err != nil {
+			return err
+		}
+
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+
+	inc.Version = &newVersion
+	return nil
+}
+
 // ReOpenIncident the special function if you need to NULL your end_date.
 func (db *DB) ReOpenIncident(inc *Incident) error {
 	r := db.g.Model(&Incident{}).Where("id = ?", inc.ID).Updates(map[string]interface{}{
@@ -580,6 +626,7 @@ func (db *DB) ExtractComponentsToNewIncident(
 		EndDate:     nil,
 		Impact:      &impact,
 		Statuses:    []IncidentStatus{},
+		Status:      event.OutDatedSystem,
 		System:      false,
 		Type:        event.TypeIncident,
 		Components:  comp,
