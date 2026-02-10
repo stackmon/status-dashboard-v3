@@ -21,7 +21,6 @@ import (
 
 const (
 	eventContextKey  = "event"
-	claimsContextKey = "claims"
 	roleContextKey   = "role"
 	userIDContextKey = "user_id"
 	authMethodKey    = "auth_method"
@@ -103,11 +102,6 @@ func WithOptionalAuth() AuthOption {
 // By default, missing or invalid tokens result in 401.
 // Use WithOptionalAuth() to allow unauthenticated requests to proceed.
 func AuthenticationMW(prov *auth.Provider, logger *zap.Logger, secretKey string, opts ...AuthOption) gin.HandlerFunc {
-	cfg := &authConfig{}
-	for _, opt := range opts {
-		opt(cfg)
-	}
-
 	return func(c *gin.Context) {
 		if prov.Disabled {
 			logger.Info("authentication is disabled")
@@ -115,14 +109,10 @@ func AuthenticationMW(prov *auth.Provider, logger *zap.Logger, secretKey string,
 			return
 		}
 
+		logger.Info("start to process authentication request")
+
 		authHeader := c.GetHeader("Authorization")
 		if authHeader == "" {
-			if cfg.optional {
-				logger.Debug("no authorization header, proceeding as unauthenticated (optional mode)")
-				c.Next()
-				return
-			}
-			logger.Info("start to process authentication request")
 			apiErrors.RaiseNotAuthorizedErr(c, apiErrors.ErrAuthNotAuthenticated)
 			return
 		}
@@ -133,33 +123,80 @@ func AuthenticationMW(prov *auth.Provider, logger *zap.Logger, secretKey string,
 		token, err := parseToken(rawToken, secretKey, prov, logger)
 
 		if err != nil {
-			if cfg.optional {
-				logger.Debug("token parsing error in optional auth", zap.Error(err))
-				c.Next()
-				return
-			}
 			logger.Error("token parsing error", zap.Error(err))
 			apiErrors.RaiseNotAuthorizedErr(c, apiErrors.ErrAuthNotAuthenticated)
 			return
 		}
 
 		if !token.Valid {
-			if cfg.optional {
-				logger.Debug("invalid token in optional auth")
-				c.Next()
-				return
-			}
 			logger.Error("token validation error", zap.Error(err))
 			apiErrors.RaiseNotAuthorizedErr(c, apiErrors.ErrAuthNotAuthenticated)
 			return
 		}
 
-		if _, ok := token.Method.(*jwt.SigningMethodHMAC); ok {
-			c.Set(authMethodKey, authMethodHMAC)
+		claims, ok := token.Claims.(jwt.MapClaims)
+		if !ok {
+			apiErrors.RaiseNotAuthorizedErr(c, apiErrors.ErrAuthNotAuthenticated)
+			return
 		}
 
-		if claims, ok := token.Claims.(jwt.MapClaims); ok {
-			c.Set(claimsContextKey, claims)
+		c.Set(v2.ClaimsContextKey, claims)
+		c.Next()
+	}
+}
+
+func SetJWTClaims(prov *auth.Provider, logger *zap.Logger, secretKey string) gin.HandlerFunc {
+	return func(c *gin.Context) {
+
+		logger.Info("start to retrieve JWT claims from the token")
+
+		authHeader := c.GetHeader("Authorization")
+		if authHeader == "" {
+			logger.Info("jwt header is empty, skipping JWT claims retrieval")
+			c.Set(v2.ClaimsContextKey, nil)
+			c.Next()
+			return
+		}
+
+		rawToken := strings.TrimPrefix(authHeader, "Bearer ")
+		token, err := parseToken(rawToken, secretKey, prov, logger)
+
+		if err != nil {
+			logger.Error("token parsing error", zap.Error(err))
+			apiErrors.RaiseNotAuthorizedErr(c, apiErrors.ErrAuthNotAuthenticated)
+			return
+		}
+
+		if !token.Valid {
+			logger.Error("token validation error", zap.Error(err))
+			apiErrors.RaiseNotAuthorizedErr(c, apiErrors.ErrAuthNotAuthenticated)
+			return
+		}
+
+		claims, ok := token.Claims.(jwt.MapClaims)
+		if !ok {
+			apiErrors.RaiseNotAuthorizedErr(c, apiErrors.ErrAuthTokenInvalid)
+			return
+		}
+
+		// Extract preferred_username
+		if preferredUsername, exists := claims["preferred_username"].(string); exists {
+			c.Set("preferred_username", preferredUsername)
+			logger.Info("extracted preferred_username from JWT", zap.String("preferred_username", preferredUsername))
+		}
+
+		// Extract groups
+		if groupsClaim, exists := claims["groups"]; exists {
+			if groupsArray, okArray := groupsClaim.([]interface{}); okArray {
+				var groups []string
+				for _, g := range groupsArray {
+					if gStr, okStr := g.(string); okStr {
+						groups = append(groups, gStr)
+					}
+				}
+				c.Set("groups", groups)
+				logger.Info("extracted groups from JWT", zap.Int("group_count", len(groups)))
+			}
 		}
 
 		c.Next()
@@ -194,7 +231,7 @@ func RBACMiddleware(rbacService *rbac.Service, logger *zap.Logger, opts ...RBACO
 
 		if method, ok := c.Get(authMethodKey); ok && method == authMethodHMAC {
 			c.Set(roleContextKey, rbac.Admin)
-			if claimsVal, exists := c.Get(claimsContextKey); exists {
+			if claimsVal, exists := c.Get(v2.ClaimsContextKey); exists {
 				if claims, okClaims := claimsVal.(jwt.MapClaims); okClaims {
 					if sub, okSub := claims["sub"].(string); okSub {
 						c.Set(userIDContextKey, sub)
@@ -205,7 +242,7 @@ func RBACMiddleware(rbacService *rbac.Service, logger *zap.Logger, opts ...RBACO
 			return
 		}
 
-		claimsVal, exists := c.Get(claimsContextKey)
+		claimsVal, exists := c.Get(v2.ClaimsContextKey)
 		if !exists {
 			logger.Debug("no claims found in context, assigning NoRole")
 			c.Set(roleContextKey, rbac.NoRole)

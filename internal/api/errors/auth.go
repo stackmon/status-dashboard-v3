@@ -3,6 +3,7 @@ package errors
 import "errors"
 
 var ErrAuthNotAuthenticated = errors.New("not authenticated")
+var ErrAuthTokenInvalid = errors.New("token invalid")
 var ErrAuthFailedLogout = errors.New("failed to logout")
 var ErrAuthForbidden = errors.New("access is denied")
 

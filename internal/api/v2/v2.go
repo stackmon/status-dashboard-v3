@@ -21,6 +21,8 @@ const (
 	defaultPageNumber    = 1
 )
 
+const ClaimsContextKey = "claims"
+
 // Event IDs and core data structures.
 type IncidentID struct {
 	ID int `json:"id" uri:"eventID" binding:"required,gte=0"`
@@ -154,13 +156,13 @@ func parsePaginationParams(c *gin.Context, params *db.IncidentsParams) error {
 	return nil
 }
 
-// isAuthenticated checks if user has any role set in context (authenticated via JWT).
-func isAuthenticated(c *gin.Context) bool {
-	roleVal, exists := c.Get("role")
+// hasExtendedView checks if user has any role set in context (authenticated via JWT).
+func hasExtendedView(c *gin.Context) bool {
+	claims, exists := c.Get(ClaimsContextKey)
 	if !exists {
 		return false
 	}
-	role, ok := roleVal.(rbac.Role)
+	role, ok := claims.(rbac.Role)
 	return ok && role > rbac.NoRole
 }
 
@@ -197,7 +199,7 @@ func GetIncidentsHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 			return
 		}
 
-		isAuth := isAuthenticated(c)
+		isAuth := hasExtendedView(c)
 		r = filterPendingReview(r, isAuth)
 
 		if len(r) == 0 {
@@ -238,8 +240,7 @@ func GetEventsHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 		}
 
 		// Filter pending review maintenance for non-authenticated users
-		isAuth := isAuthenticated(c)
-		r = filterPendingReview(r, isAuth)
+		//r = filterPendingReview(r, isAuth)
 
 		if total == 0 {
 			logger.Debug(
@@ -250,6 +251,7 @@ func GetEventsHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 			return
 		}
 
+		isAuth := hasExtendedView(c)
 		events := make([]*Incident, len(r))
 		for i, inc := range r {
 			events[i] = toAPIEvent(inc, isAuth)
@@ -306,12 +308,12 @@ func GetIncidentHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 		}
 
 		// Hide pending review maintenance from non-authenticated users
-		if !isAuthenticated(c) && r.Type == event.TypeMaintenance && r.Status == event.MaintenancePendingReview {
+		if !hasExtendedView(c) && r.Type == event.TypeMaintenance && r.Status == event.MaintenancePendingReview {
 			apiErrors.RaiseStatusNotFoundErr(c, apiErrors.ErrIncidentDSNotExist)
 			return
 		}
 
-		c.JSON(http.StatusOK, toAPIEvent(r, isAuthenticated(c)))
+		c.JSON(http.StatusOK, toAPIEvent(r, hasExtendedView(c)))
 	}
 }
 
@@ -1072,7 +1074,7 @@ func PatchIncidentHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 			return
 		}
 
-		c.JSON(http.StatusOK, toAPIEvent(inc, isAuthenticated(c)))
+		c.JSON(http.StatusOK, toAPIEvent(inc, hasExtendedView(c)))
 	}
 }
 
@@ -1252,7 +1254,7 @@ func PostIncidentExtractHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFu
 			return
 		}
 
-		c.JSON(http.StatusOK, toAPIEvent(inc, isAuthenticated(c)))
+		c.JSON(http.StatusOK, toAPIEvent(inc, hasExtendedView(c)))
 	}
 }
 
