@@ -66,7 +66,7 @@ type IncidentsParams struct {
 	ExcludePendingReview bool
 }
 
-func applyEventsFilters(base *gorm.DB, params *IncidentsParams) (*gorm.DB, error) {
+func applyEventsFilters(base *gorm.DB, params *IncidentsParams, isAuth bool) (*gorm.DB, error) {
 	if params.Types != nil {
 		base = base.Where("incident.type IN (?)", params.Types)
 	}
@@ -99,6 +99,8 @@ func applyEventsFilters(base *gorm.DB, params *IncidentsParams) (*gorm.DB, error
 			[]event.Status{event.IncidentResolved,
 				event.MaintenanceCompleted,
 				event.MaintenanceCancelled,
+				event.MaintenancePendingReview,
+				event.MaintenanceReviewed,
 				event.InfoCompleted,
 				event.InfoCancelled})
 	}
@@ -116,7 +118,7 @@ func applyEventsFilters(base *gorm.DB, params *IncidentsParams) (*gorm.DB, error
 		base = base.Where("incident.end_date <= ?", *params.EndDate)
 	}
 
-	if params.ExcludePendingReview {
+	if !isAuth {
 		base = base.Where(
 			"NOT (incident.type = ? AND incident.status = ?)",
 			event.TypeMaintenance, event.MaintenancePendingReview,
@@ -168,7 +170,7 @@ func (db *DB) fetchUnpaginatedEvents(filteredBase *gorm.DB, param *IncidentsPara
 }
 
 // GetEventsWithCount retrieves events based on the provided parameters, with pagination and total count.
-func (db *DB) GetEventsWithCount(params ...*IncidentsParams) ([]*Incident, int64, error) {
+func (db *DB) GetEventsWithCount(isAuth bool, params ...*IncidentsParams) ([]*Incident, int64, error) {
 	var param IncidentsParams
 	var total int64
 	var events []*Incident
@@ -179,7 +181,7 @@ func (db *DB) GetEventsWithCount(params ...*IncidentsParams) ([]*Incident, int64
 	// Base query for filtering
 	base := db.g.Model(&Incident{})
 
-	filteredBase, err := applyEventsFilters(base, &param)
+	filteredBase, err := applyEventsFilters(base, &param, isAuth)
 	if err != nil {
 		return nil, 0, err
 	}

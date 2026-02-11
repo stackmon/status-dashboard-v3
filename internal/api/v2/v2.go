@@ -21,7 +21,10 @@ const (
 	defaultPageNumber    = 1
 )
 
-const ClaimsContextKey = "claims"
+const (
+	UsernameContextKey     = "userID"
+	UserIDGroupsContextKey = "userIDGroups"
+)
 
 // Event IDs and core data structures.
 type IncidentID struct {
@@ -158,12 +161,18 @@ func parsePaginationParams(c *gin.Context, params *db.IncidentsParams) error {
 
 // hasExtendedView checks if user has a resolved role above NoRole (authenticated and authorized via RBAC).
 func hasExtendedView(c *gin.Context) bool {
-	roleVal, exists := c.Get("role")
+	roleVal, exists := c.Get(UserIDGroupsContextKey) // slice of strings
 	if !exists {
 		return false
 	}
-	role, ok := roleVal.(rbac.Role)
-	return ok && role > rbac.NoRole
+	roleVal, ok := roleVal.([]string)
+	if !ok {
+		return false
+	}
+
+	// check groups
+
+	return false
 }
 
 func GetIncidentsHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
@@ -218,12 +227,9 @@ func GetEventsHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 		}
 
 		isAuth := hasExtendedView(c)
-		if !isAuth {
-			params.ExcludePendingReview = true
-		}
 
 		logger.Debug("retrieve events with params", zap.Any("params", params))
-		r, total, err := dbInst.GetEventsWithCount(params)
+		r, total, err := dbInst.GetEventsWithCount(isAuth, params)
 		if err != nil {
 			logger.Error("failed to retrieve incidents", zap.Error(err))
 			apiErrors.RaiseInternalErr(c, err)
@@ -241,7 +247,7 @@ func GetEventsHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 
 		events := make([]*Incident, len(r))
 		for i, inc := range r {
-			events[i] = toAPIEvent(inc, isAuth)
+			events[i] = toAPIEvent(inc)
 		}
 
 		page := 1
@@ -304,7 +310,7 @@ func GetIncidentHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 	}
 }
 
-func toAPIEvent(inc *db.Incident, isAuthenticated bool) *Incident {
+func toAPIEvent(inc *db.Incident) *Incident {
 	components := make([]int, len(inc.Components))
 	for i, comp := range inc.Components {
 		components[i] = int(comp.ID)
@@ -318,17 +324,17 @@ func toAPIEvent(inc *db.Incident, isAuthenticated bool) *Incident {
 	}
 
 	var contactEmail string
-	if isAuthenticated && inc.ContactEmail != nil {
+	if inc.ContactEmail != nil {
 		contactEmail = *inc.ContactEmail
 	}
 
 	var createdBy string
-	if isAuthenticated && inc.CreatedBy != nil {
+	if inc.CreatedBy != nil {
 		createdBy = *inc.CreatedBy
 	}
 
 	var version *int
-	if isAuthenticated && inc.Version != nil {
+	if inc.Version != nil {
 		version = inc.Version
 	}
 

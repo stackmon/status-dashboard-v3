@@ -27,6 +27,11 @@ const (
 	authMethodHMAC   = "hmac"
 )
 
+const (
+	usernameClaim = "preferred_username"
+	groupsClaim   = "groups"
+)
+
 func ValidateComponentsMW(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		logger.Info("start to validate given components")
@@ -117,23 +122,28 @@ func AuthenticationMW(prov *auth.Provider, logger *zap.Logger, secretKey string)
 			return
 		}
 
-		if _, ok := token.Method.(*jwt.SigningMethodHMAC); ok {
-			c.Set(authMethodKey, authMethodHMAC)
-		}
-
 		claims, ok := token.Claims.(jwt.MapClaims)
 		if !ok {
 			apiErrors.RaiseNotAuthorizedErr(c, apiErrors.ErrAuthNotAuthenticated)
 			return
 		}
 
-		c.Set(v2.ClaimsContextKey, claims)
+		if errUserID := setUserIDFromClaims(claims, c, logger); errUserID != nil {
+			logger.Error("failed to set userID from claims", zap.Error(err))
+			return
+		}
+
+		if groupsErr := setGroupsFromClaims(claims, c, logger); groupsErr != nil {
+			logger.Error("failed to set groups from claims", zap.Error(groupsErr))
+			return
+		}
+
 		c.Next()
 	}
 }
 
 func SetJWTClaims(
-	prov *auth.Provider, logger *zap.Logger, secretKey string, rbacService *rbac.Service,
+	prov *auth.Provider, logger *zap.Logger, secretKey string,
 ) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		logger.Info("start to retrieve JWT claims from the token")
@@ -141,8 +151,7 @@ func SetJWTClaims(
 		authHeader := c.GetHeader("Authorization")
 		if authHeader == "" {
 			logger.Info("jwt header is empty, skipping JWT claims retrieval")
-			c.Set(v2.ClaimsContextKey, nil)
-			c.Set(roleContextKey, rbac.NoRole)
+			c.Set(v2.UsernameContextKey, nil)
 			c.Next()
 			return
 		}
@@ -158,43 +167,66 @@ func SetJWTClaims(
 
 		if !token.Valid {
 			logger.Error("token validation error", zap.Error(err))
+			apiErrors.RaiseNotAuthorizedErr(c, apiErrors.ErrAuthNotAuthenticated)
+			return
+		}
+
+		claims, ok := token.Claims.(jwt.MapClaims)
+		if !ok {
 			apiErrors.RaiseNotAuthorizedErr(c, apiErrors.ErrAuthTokenInvalid)
 			return
 		}
 
-		claims, _ := token.Claims.(jwt.MapClaims)
-
-		if preferredUsername, exists := claims["preferred_username"].(string); exists {
-			c.Set("preferred_username", preferredUsername)
-			logger.Info("extracted preferred_username from JWT", zap.String("preferred_username", preferredUsername))
+		if errUserID := setUserIDFromClaims(claims, c, logger); errUserID != nil {
+			logger.Error("failed to set userID from claims", zap.Error(err))
+			return
 		}
 
-		groups := extractGroupsFromClaims(claims)
-		c.Set("groups", groups)
-		logger.Info("extracted groups from JWT", zap.Int("group_count", len(groups)))
-		c.Set(roleContextKey, rbacService.Resolve(groups))
+		if groupsErr := setGroupsFromClaims(claims, c, logger); groupsErr != nil {
+			logger.Error("failed to set groups from claims", zap.Error(groupsErr))
+			return
+		}
 
 		c.Next()
 	}
 }
 
-// extractGroupsFromClaims extracts the "groups" claim from JWT as a string slice.
-func extractGroupsFromClaims(claims jwt.MapClaims) []string {
-	groupsClaim, exists := claims["groups"]
+func setUserIDFromClaims(claims jwt.MapClaims, c *gin.Context, logger *zap.Logger) error {
+	preferredUsername, exists := claims[usernameClaim]
 	if !exists {
-		return nil
+		logger.Error("preferred_username claim not found")
+		return fmt.Errorf("preferred_username claim not found")
 	}
-	groupsArray, ok := groupsClaim.([]interface{})
+
+	preferredUsernameStr, ok := preferredUsername.(string)
 	if !ok {
-		return nil
+		logger.Error("preferred_username is not a string")
+		return fmt.Errorf("preferred_username claim is not a string")
 	}
-	var groups []string
-	for _, g := range groupsArray {
-		if gStr, isStr := g.(string); isStr {
-			groups = append(groups, gStr)
-		}
+
+	c.Set(v2.UsernameContextKey, preferredUsernameStr)
+	logger.Info("extracted preferred_username from JWT", zap.String(usernameClaim, preferredUsernameStr))
+
+	return nil
+}
+
+// setGroupsFromClaims extracts the "groups" claim from JWT as a string slice.
+func setGroupsFromClaims(claims jwt.MapClaims, c *gin.Context, logger *zap.Logger) error {
+	groupsCl, exists := claims[groupsClaim]
+	if !exists {
+		logger.Error("group claim not found")
+		return fmt.Errorf("preferred_username claim not found")
 	}
-	return groups
+
+	groups, ok := groupsCl.([]string)
+	if !ok {
+		return fmt.Errorf("group claim is not an array of strings")
+	}
+
+	c.Set(v2.UserIDGroupsContextKey, groups)
+	logger.Info("extracted groups from JWT", zap.Strings("groups", groups))
+
+	return nil
 }
 
 // RBACMiddleware resolves user roles from JWT claims for write operations (POST/PATCH).
@@ -236,20 +268,6 @@ func isHMACAuth(c *gin.Context) bool {
 	return ok && method == authMethodHMAC
 }
 
-func setUserIDFromClaims(c *gin.Context) {
-	claimsVal, exists := c.Get(v2.ClaimsContextKey)
-	if !exists {
-		return
-	}
-	claims, ok := claimsVal.(jwt.MapClaims)
-	if !ok {
-		return
-	}
-	if sub, hasSub := claims["sub"].(string); hasSub {
-		c.Set(userIDContextKey, sub)
-	}
-}
-
 func getGroupsFromClaims(c *gin.Context, logger *zap.Logger) []string {
 	claimsVal, exists := c.Get(v2.ClaimsContextKey)
 	if !exists {
@@ -261,7 +279,7 @@ func getGroupsFromClaims(c *gin.Context, logger *zap.Logger) []string {
 		logger.Error("claims in context are not of type jwt.MapClaims")
 		return nil
 	}
-	return extractGroupsFromClaims(claims)
+	return setGroupsFromClaims(claims)
 }
 
 func CheckEventExistenceMW(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {

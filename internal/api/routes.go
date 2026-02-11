@@ -73,7 +73,7 @@ func (a *API) InitRoutes() {
 		// Events section.
 		// Get /v2/events returns events page with pagination.
 		v2API.GET("events",
-			SetJWTClaims(a.oa2Prov, a.log, a.secretKeyV1, a.rbac),
+			SetJWTClaims(a.oa2Prov, a.log, a.secretKeyV1),
 			v2.GetEventsHandler(a.db, a.log))
 		v2API.POST("events",
 			AuthenticationMW(a.oa2Prov, a.log, a.secretKeyV1),
@@ -81,7 +81,7 @@ func (a *API) InitRoutes() {
 			ValidateComponentsMW(a.db, a.log),
 			v2.PostIncidentHandler(a.db, a.log))
 		v2API.GET("events/:eventID",
-			SetJWTClaims(a.oa2Prov, a.log, a.secretKeyV1, a.rbac),
+			SetJWTClaims(a.oa2Prov, a.log, a.secretKeyV1),
 			v2.GetIncidentHandler(a.db, a.log))
 		v2API.PATCH("events/:eventID",
 			AuthenticationMW(a.oa2Prov, a.log, a.secretKeyV1),

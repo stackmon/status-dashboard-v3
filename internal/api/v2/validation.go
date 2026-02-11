@@ -18,9 +18,15 @@ func IsValidIncidentFilterStatus(status event.Status) bool {
 	if event.IsMaintenanceStatus(status) {
 		return true
 	}
+
+	if event.IsInformationStatus(status) {
+		return true
+	}
+
 	if event.IsIncidentOpenStatus(status) {
 		return true
 	}
+
 	if event.IsIncidentClosedStatus(status) {
 		return true
 	}
