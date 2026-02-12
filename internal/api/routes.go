@@ -45,28 +45,32 @@ func (a *API) InitRoutes() {
 
 		// Incidents section. Deprecated.
 		// will be removed in a later version.
-		v2API.GET("incidents", v2.GetIncidentsHandler(a.db, a.log))
+		v2API.GET("incidents",
+			SetJWTClaims(a.oa2Prov, a.log, a.secretKeyV1),
+			v2.GetIncidentsHandler(a.db, a.log, a.rbac))
 		v2API.POST("incidents",
 			AuthenticationMW(a.oa2Prov, a.log, a.secretKeyV1),
-			RBACMiddleware(a.rbac, a.log),
+			RBACAuthorizationMW(a.rbac, a.log),
 			ValidateComponentsMW(a.db, a.log),
 			v2.PostIncidentHandler(a.db, a.log),
 		)
-		v2API.GET("incidents/:eventID", v2.GetIncidentHandler(a.db, a.log))
+		v2API.GET("incidents/:eventID",
+			SetJWTClaims(a.oa2Prov, a.log, a.secretKeyV1),
+			v2.GetIncidentHandler(a.db, a.log, a.rbac))
 		v2API.PATCH("incidents/:eventID",
 			AuthenticationMW(a.oa2Prov, a.log, a.secretKeyV1),
-			RBACMiddleware(a.rbac, a.log),
+			RBACAuthorizationMW(a.rbac, a.log),
 			CheckEventExistenceMW(a.db, a.log),
 			v2.PatchIncidentHandler(a.db, a.log))
 		v2API.POST("incidents/:eventID/extract",
 			AuthenticationMW(a.oa2Prov, a.log, a.secretKeyV1),
-			RBACMiddleware(a.rbac, a.log),
+			RBACAuthorizationMW(a.rbac, a.log),
 			CheckEventExistenceMW(a.db, a.log),
 			ValidateComponentsMW(a.db, a.log),
 			v2.PostIncidentExtractHandler(a.db, a.log))
 		v2API.PATCH("incidents/:eventID/updates/:updateID",
 			AuthenticationMW(a.oa2Prov, a.log, a.secretKeyV1),
-			RBACMiddleware(a.rbac, a.log),
+			RBACAuthorizationMW(a.rbac, a.log),
 			CheckEventExistenceMW(a.db, a.log),
 			v2.PatchEventUpdateTextHandler(a.db, a.log))
 
@@ -74,29 +78,29 @@ func (a *API) InitRoutes() {
 		// Get /v2/events returns events page with pagination.
 		v2API.GET("events",
 			SetJWTClaims(a.oa2Prov, a.log, a.secretKeyV1),
-			v2.GetEventsHandler(a.db, a.log))
+			v2.GetEventsHandler(a.db, a.log, a.rbac))
 		v2API.POST("events",
 			AuthenticationMW(a.oa2Prov, a.log, a.secretKeyV1),
-			RBACMiddleware(a.rbac, a.log),
+			RBACAuthorizationMW(a.rbac, a.log),
 			ValidateComponentsMW(a.db, a.log),
 			v2.PostIncidentHandler(a.db, a.log))
 		v2API.GET("events/:eventID",
 			SetJWTClaims(a.oa2Prov, a.log, a.secretKeyV1),
-			v2.GetIncidentHandler(a.db, a.log))
+			v2.GetIncidentHandler(a.db, a.log, a.rbac))
 		v2API.PATCH("events/:eventID",
 			AuthenticationMW(a.oa2Prov, a.log, a.secretKeyV1),
-			RBACMiddleware(a.rbac, a.log),
+			RBACAuthorizationMW(a.rbac, a.log),
 			CheckEventExistenceMW(a.db, a.log),
 			v2.PatchIncidentHandler(a.db, a.log))
 		v2API.POST("events/:eventID/extract",
 			AuthenticationMW(a.oa2Prov, a.log, a.secretKeyV1),
-			RBACMiddleware(a.rbac, a.log),
+			RBACAuthorizationMW(a.rbac, a.log),
 			CheckEventExistenceMW(a.db, a.log),
 			ValidateComponentsMW(a.db, a.log),
 			v2.PostIncidentExtractHandler(a.db, a.log))
 		v2API.PATCH("events/:eventID/updates/:updateID",
 			AuthenticationMW(a.oa2Prov, a.log, a.secretKeyV1),
-			RBACMiddleware(a.rbac, a.log),
+			RBACAuthorizationMW(a.rbac, a.log),
 			CheckEventExistenceMW(a.db, a.log),
 			v2.PatchEventUpdateTextHandler(a.db, a.log))
 		// Availability section.

@@ -38,9 +38,9 @@ func TestCreatorFieldExposedToAuthenticated(t *testing.T) {
 	c, _ := gin.CreateTestContext(w)
 	c.Request, _ = http.NewRequest(http.MethodGet, "/v2/events", nil)
 
-	c.Set("role", rbac.Operator)
+	c.Set("userIDGroups", []string{"operators"})
 
-	handler := GetEventsHandler(d, log)
+	handler := GetEventsHandler(d, log, rbac.New("", "operators", ""))
 	handler(c)
 
 	assert.Equal(t, 200, w.Code)
@@ -69,12 +69,42 @@ func TestCreatorFieldHiddenFromUnauthenticated(t *testing.T) {
 	c, _ := gin.CreateTestContext(w)
 	c.Request, _ = http.NewRequest(http.MethodGet, "/v2/events", nil)
 
-	handler := GetEventsHandler(d, log)
+	handler := GetEventsHandler(d, log, rbac.New("", "operators", ""))
 	handler(c)
 
 	assert.Equal(t, 200, w.Code)
 	assert.NotContains(t, w.Body.String(), "creator")
 	assert.NotContains(t, w.Body.String(), "user@example.com")
+}
+
+func TestContactEmailHiddenFromUnauthenticated(t *testing.T) {
+	d, m, err := db.NewWithMock()
+	require.NoError(t, err)
+	log := zap.NewNop()
+
+	now := time.Now().UTC()
+	creator := "user@example.com"
+	contactEmail := "contact@example.com"
+
+	m.ExpectQuery(`^SELECT count\(\*\) FROM "incident"`).WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+
+	rowsInc := sqlmock.NewRows([]string{"id", "text", "description", "start_date", "end_date", "impact", "system", "type", "created_by", "contact_email"}).
+		AddRow(1, "Title", "Desc", now, now.Add(1*time.Hour), 1, false, "maintenance", creator, contactEmail)
+	m.ExpectQuery(`^SELECT (.+) FROM "incident"`).WillReturnRows(rowsInc)
+
+	m.ExpectQuery(`^SELECT (.+) FROM "incident_component_relation"`).WillReturnRows(sqlmock.NewRows([]string{"incident_id", "component_id"}))
+	m.ExpectQuery(`^SELECT (.+) FROM "incident_status"`).WillReturnRows(sqlmock.NewRows([]string{"id", "incident_id", "timestamp", "text", "status"}))
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request, _ = http.NewRequest(http.MethodGet, "/v2/events", nil)
+
+	handler := GetEventsHandler(d, log, rbac.New("", "operators", ""))
+	handler(c)
+
+	assert.Equal(t, 200, w.Code)
+	assert.NotContains(t, w.Body.String(), "contact_email")
+	assert.NotContains(t, w.Body.String(), "contact@example.com")
 }
 
 func TestVersionFieldExposedToAuthenticated(t *testing.T) {

@@ -22,6 +22,11 @@ const (
 )
 
 const (
+	authorizedView = true
+	publicView     = false
+)
+
+const (
 	UsernameContextKey     = "userID"
 	UserIDGroupsContextKey = "userIDGroups"
 )
@@ -160,22 +165,25 @@ func parsePaginationParams(c *gin.Context, params *db.IncidentsParams) error {
 }
 
 // hasExtendedView checks if user has a resolved role above NoRole (authenticated and authorized via RBAC).
-func hasExtendedView(c *gin.Context) bool {
-	roleVal, exists := c.Get(UserIDGroupsContextKey) // slice of strings
+func hasExtendedView(c *gin.Context, svc *rbac.Service) bool {
+	if svc == nil {
+		return false
+	}
+
+	val, exists := c.Get(UserIDGroupsContextKey)
 	if !exists {
 		return false
 	}
-	roleVal, ok := roleVal.([]string)
-	if !ok {
+
+	groups, ok := val.([]string)
+	if !ok || len(groups) == 0 {
 		return false
 	}
 
-	// check groups
-
-	return false
+	return svc.HasAuthorizedGroup(groups)
 }
 
-func GetIncidentsHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
+func GetIncidentsHandler(dbInst *db.DB, logger *zap.Logger, svc *rbac.Service) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		logger.Debug("retrieve and parse incidents params from query")
 		params, err := parseFilterParams(c)
@@ -184,13 +192,13 @@ func GetIncidentsHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 			return
 		}
 
-		isAuth := hasExtendedView(c)
+		isAuth := hasExtendedView(c, svc)
 		if !isAuth {
 			params.ExcludePendingReview = true
 		}
 
 		logger.Debug("retrieve incidents with params", zap.Any("params", params))
-		r, err := dbInst.GetEvents(params)
+		r, err := dbInst.GetEvents(isAuth, params)
 		if err != nil {
 			logger.Error("failed to retrieve incidents", zap.Error(err))
 			apiErrors.RaiseInternalErr(c, err)
@@ -212,7 +220,7 @@ func GetIncidentsHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 	}
 }
 
-func GetEventsHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
+func GetEventsHandler(dbInst *db.DB, logger *zap.Logger, svc *rbac.Service) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		logger.Debug("retrieve and parse events params from query")
 		params, err := parseFilterParams(c)
@@ -226,7 +234,7 @@ func GetEventsHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 			return
 		}
 
-		isAuth := hasExtendedView(c)
+		isAuth := hasExtendedView(c, svc)
 
 		logger.Debug("retrieve events with params", zap.Any("params", params))
 		r, total, err := dbInst.GetEventsWithCount(isAuth, params)
@@ -247,7 +255,7 @@ func GetEventsHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 
 		events := make([]*Incident, len(r))
 		for i, inc := range r {
-			events[i] = toAPIEvent(inc)
+			events[i] = toAPIEvent(inc, isAuth)
 		}
 
 		page := 1
@@ -281,7 +289,7 @@ func GetEventsHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 	}
 }
 
-func GetIncidentHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
+func GetIncidentHandler(dbInst *db.DB, logger *zap.Logger, svc *rbac.Service) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		logger.Debug("retrieve incident")
 		var incID IncidentID
@@ -300,58 +308,49 @@ func GetIncidentHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 			return
 		}
 
+		isAuth := hasExtendedView(c, svc)
 		// Hide pending review maintenance from non-authenticated users
-		if !hasExtendedView(c) && r.Type == event.TypeMaintenance && r.Status == event.MaintenancePendingReview {
+		if !isAuth && r.Type == event.TypeMaintenance && r.Status == event.MaintenancePendingReview {
 			apiErrors.RaiseStatusNotFoundErr(c, apiErrors.ErrIncidentDSNotExist)
 			return
 		}
 
-		c.JSON(http.StatusOK, toAPIEvent(r, hasExtendedView(c)))
+		c.JSON(http.StatusOK, toAPIEvent(r, isAuth))
 	}
 }
 
-func toAPIEvent(inc *db.Incident) *Incident {
+func toAPIEvent(inc *db.Incident, isAuth bool) *Incident {
 	components := make([]int, len(inc.Components))
 	for i, comp := range inc.Components {
 		components[i] = int(comp.ID)
 	}
-
-	updates := mapEventUpdates(inc.Statuses)
 
 	var description string
 	if inc.Description != nil {
 		description = *inc.Description
 	}
 
-	var contactEmail string
-	if inc.ContactEmail != nil {
-		contactEmail = *inc.ContactEmail
-	}
-
-	var createdBy string
-	if inc.CreatedBy != nil {
-		createdBy = *inc.CreatedBy
-	}
-
-	var version *int
-	if inc.Version != nil {
-		version = inc.Version
-	}
-
 	incData := IncidentData{
-		Title:        *inc.Text,
-		Description:  description,
-		Impact:       inc.Impact,
-		Components:   components,
-		StartDate:    *inc.StartDate,
-		EndDate:      inc.EndDate,
-		System:       &inc.System,
-		Updates:      updates,
-		Status:       inc.Status,
-		Type:         inc.Type,
-		ContactEmail: contactEmail,
-		CreatedBy:    createdBy,
-		Version:      version,
+		Title:       *inc.Text,
+		Description: description,
+		Impact:      inc.Impact,
+		Components:  components,
+		StartDate:   *inc.StartDate,
+		EndDate:     inc.EndDate,
+		System:      &inc.System,
+		Updates:     mapEventUpdates(inc.Statuses),
+		Status:      inc.Status,
+		Type:        inc.Type,
+	}
+
+	if isAuth {
+		if inc.ContactEmail != nil {
+			incData.ContactEmail = *inc.ContactEmail
+		}
+		if inc.CreatedBy != nil {
+			incData.CreatedBy = *inc.CreatedBy
+		}
+		incData.Version = inc.Version
 	}
 
 	return &Incident{IncidentID{ID: int(inc.ID)}, incData}
@@ -596,7 +595,7 @@ func addComponentToSystemIncident(
 		IsSystem: &system,
 		IsActive: &active,
 	}
-	sysIncidents, errEvents := dbInst.GetEvents(params)
+	sysIncidents, errEvents := dbInst.GetEventsInternal(params)
 	if errEvents != nil {
 		return nil, errEvents
 	}
@@ -659,7 +658,7 @@ func moveComponentFromToSystemIncidents(
 		IsSystem: &system,
 		IsActive: &active,
 	}
-	sysIncidents, errEvents := dbInst.GetEvents(params)
+	sysIncidents, errEvents := dbInst.GetEventsInternal(params)
 	if errEvents != nil {
 		return nil, errEvents
 	}
@@ -761,7 +760,7 @@ func handleRegularIncidentCreation(
 
 	log.Info("get active events from the database")
 	isActive := true
-	openedIncidents, err := dbInst.GetEvents(&db.IncidentsParams{IsActive: &isActive})
+	openedIncidents, err := dbInst.GetEventsInternal(&db.IncidentsParams{IsActive: &isActive})
 	if err != nil {
 		return nil, err
 	}
@@ -1067,7 +1066,7 @@ func PatchIncidentHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 			return
 		}
 
-		c.JSON(http.StatusOK, toAPIEvent(inc, hasExtendedView(c)))
+		c.JSON(http.StatusOK, toAPIEvent(inc, authorizedView))
 	}
 }
 
@@ -1247,7 +1246,7 @@ func PostIncidentExtractHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFu
 			return
 		}
 
-		c.JSON(http.StatusOK, toAPIEvent(inc, hasExtendedView(c)))
+		c.JSON(http.StatusOK, toAPIEvent(inc, authorizedView))
 	}
 }
 

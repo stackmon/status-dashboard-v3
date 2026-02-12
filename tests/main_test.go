@@ -166,9 +166,12 @@ func initRoutesV2(t *testing.T, c *gin.Engine, dbInst *db.DB, logger *zap.Logger
 	t.Helper()
 	t.Log("init routes for V2")
 
+	rbacSvc := rbac.New("", "", "sd_admins")
+
 	v2Api := c.Group("v2")
 	v2Api.Use(func(c *gin.Context) {
 		c.Set("role", rbac.Admin)
+		c.Set(v2.UserIDGroupsContextKey, []string{"sd_admins"})
 		c.Next()
 	})
 
@@ -178,11 +181,11 @@ func initRoutesV2(t *testing.T, c *gin.Engine, dbInst *db.DB, logger *zap.Logger
 
 	// Incidents routes are deprecated.
 	// They will be removed in the next iteration.
-	v2Api.GET("incidents", v2.GetIncidentsHandler(dbInst, logger))
+	v2Api.GET("incidents", v2.GetIncidentsHandler(dbInst, logger, rbacSvc))
 	v2Api.POST("incidents", api.ValidateComponentsMW(dbInst, logger), v2.PostIncidentHandler(dbInst, logger))
 	v2Api.GET("incidents/:eventID",
 		api.CheckEventExistenceMW(dbInst, logger),
-		v2.GetIncidentHandler(dbInst, logger))
+		v2.GetIncidentHandler(dbInst, logger, rbacSvc))
 	v2Api.PATCH("incidents/:eventID",
 		api.CheckEventExistenceMW(dbInst, logger),
 		v2.PatchIncidentHandler(dbInst, logger))
@@ -194,11 +197,11 @@ func initRoutesV2(t *testing.T, c *gin.Engine, dbInst *db.DB, logger *zap.Logger
 		v2.PatchEventUpdateTextHandler(dbInst, logger))
 
 	// Events routes.
-	v2Api.GET("events", v2.GetEventsHandler(dbInst, logger))
+	v2Api.GET("events", v2.GetEventsHandler(dbInst, logger, rbacSvc))
 	v2Api.POST("events", api.ValidateComponentsMW(dbInst, logger), v2.PostIncidentHandler(dbInst, logger))
 	v2Api.GET("events/:eventID",
 		api.CheckEventExistenceMW(dbInst, logger),
-		v2.GetIncidentHandler(dbInst, logger))
+		v2.GetIncidentHandler(dbInst, logger, rbacSvc))
 	v2Api.PATCH("events/:eventID",
 		api.CheckEventExistenceMW(dbInst, logger),
 		v2.PatchIncidentHandler(dbInst, logger))

@@ -229,26 +229,25 @@ func setGroupsFromClaims(claims jwt.MapClaims, c *gin.Context, logger *zap.Logge
 	return nil
 }
 
-// RBACMiddleware resolves user roles from JWT claims for write operations (POST/PATCH).
+// RBACAuthorizationMW resolves user roles from JWT claims for write operations (POST/PATCH).
 // Users without configured groups are rejected with 401.
-func RBACMiddleware(rbacService *rbac.Service, logger *zap.Logger) gin.HandlerFunc {
+func RBACAuthorizationMW(rbacService *rbac.Service, logger *zap.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		logger.Debug("attempting to resolve user role")
 
-		if isHMACAuth(c) {
-			c.Set(roleContextKey, rbac.Admin)
-			setUserIDFromClaims(c)
-			c.Next()
-			return
-		}
-
-		groups := getGroupsFromClaims(c, logger)
-		if groups == nil {
+		groupsVal, exists := c.Get(v2.UserIDGroupsContextKey)
+		if !exists {
 			apiErrors.RaiseNotAuthorizedErr(c, apiErrors.ErrAuthNotAuthenticated)
 			return
 		}
 
-		if !rbacService.HasAnyConfiguredGroup(groups) {
+		groups, ok := groupsVal.([]string)
+		if !ok {
+			apiErrors.RaiseNotAuthorizedErr(c, apiErrors.ErrAuthNotAuthenticated)
+			return
+		}
+
+		if !rbacService.HasAuthorizedGroup(groups) {
 			logger.Warn("user does not belong to any configured RBAC group")
 			apiErrors.RaiseNotAuthorizedErr(c, apiErrors.ErrAuthNotAuthenticated)
 			return
@@ -257,29 +256,9 @@ func RBACMiddleware(rbacService *rbac.Service, logger *zap.Logger) gin.HandlerFu
 		role := rbacService.Resolve(groups)
 		c.Set(roleContextKey, role)
 		logger.Debug("user role resolved", zap.Int("role", int(role)))
-		setUserIDFromClaims(c)
 
 		c.Next()
 	}
-}
-
-func isHMACAuth(c *gin.Context) bool {
-	method, ok := c.Get(authMethodKey)
-	return ok && method == authMethodHMAC
-}
-
-func getGroupsFromClaims(c *gin.Context, logger *zap.Logger) []string {
-	claimsVal, exists := c.Get(v2.ClaimsContextKey)
-	if !exists {
-		logger.Debug("no claims found in context")
-		return nil
-	}
-	claims, ok := claimsVal.(jwt.MapClaims)
-	if !ok {
-		logger.Error("claims in context are not of type jwt.MapClaims")
-		return nil
-	}
-	return setGroupsFromClaims(claims)
 }
 
 func CheckEventExistenceMW(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {

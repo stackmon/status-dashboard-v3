@@ -25,9 +25,9 @@ func New(creatorsGroup, operatorsGroup, adminsGroup string) *Service {
 	}
 }
 
-// HasAnyConfiguredGroup checks if the user belongs to any configured RBAC group.
+// HasAuthorizedGroup checks if the user belongs to any configured RBAC group.
 // Group names are normalized by trimming leading "/" prefix.
-func (s *Service) HasAnyConfiguredGroup(userGroups []string) bool {
+func (s *Service) HasAuthorizedGroup(userGroups []string) bool {
 	for _, group := range userGroups {
 		normalizedGroup := strings.TrimPrefix(group, "/")
 

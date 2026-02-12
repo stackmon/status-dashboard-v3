@@ -178,7 +178,7 @@ func TestService_HasAnyConfiguredGroup(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := svc.HasAnyConfiguredGroup(tt.groups)
+			got := svc.HasAuthorizedGroup(tt.groups)
 			assert.Equal(t, tt.expected, got)
 		})
 	}
@@ -206,7 +206,7 @@ func TestService_HasAnyConfiguredGroup_EmptyConfig(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := svc.HasAnyConfiguredGroup(tt.groups)
+			got := svc.HasAuthorizedGroup(tt.groups)
 			assert.Equal(t, tt.expected, got)
 		})
 	}

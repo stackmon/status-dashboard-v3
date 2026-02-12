@@ -15,6 +15,11 @@ import (
 	"github.com/stackmon/otc-status-dashboard/internal/event"
 )
 
+const (
+	PublicAccess     = false
+	AuthorizedAccess = true
+)
+
 type DB struct {
 	g *gorm.DB
 }
@@ -204,10 +209,15 @@ func (db *DB) GetEventsWithCount(isAuth bool, params ...*IncidentsParams) ([]*In
 }
 
 // GetEvents retrieves events based on the provided parameters.
-// This is a wrapper around GetIncidentsWithCount for backward compatibility.
-func (db *DB) GetEvents(params ...*IncidentsParams) ([]*Incident, error) {
-	events, _, err := db.GetEventsWithCount(params...)
+// This is a wrapper around GetEventsWithCount for backward compatibility.
+func (db *DB) GetEvents(isAuth bool, params ...*IncidentsParams) ([]*Incident, error) {
+	events, _, err := db.GetEventsWithCount(isAuth, params...)
 	return events, err
+}
+
+// GetEventsInternal retrieves all events for internal use (no filtering by auth).
+func (db *DB) GetEventsInternal(params ...*IncidentsParams) ([]*Incident, error) {
+	return db.GetEvents(AuthorizedAccess, params...)
 }
 
 func (db *DB) GetIncident(id int) (*Incident, error) {

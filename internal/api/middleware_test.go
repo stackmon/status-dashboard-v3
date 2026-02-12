@@ -21,9 +21,6 @@ import (
 	v2 "github.com/stackmon/otc-status-dashboard/internal/api/v2"
 )
 
-const (
-	claimsContextKey = "claims"
-)
 
 func setRealmPublicKey(prov *auth.Provider, key *rsa.PublicKey) {
 	val := reflect.ValueOf(prov).Elem()
@@ -162,31 +159,31 @@ func TestRBACMiddleware_ValidGroups(t *testing.T) {
 
 	tests := []struct {
 		name           string
-		groups         []interface{}
+		groups         []string
 		expectedStatus int
 		expectedRole   rbac.Role
 	}{
 		{
 			name:           "Creator group is allowed",
-			groups:         []interface{}{"sd_creators"},
+			groups:         []string{"sd_creators"},
 			expectedStatus: http.StatusOK,
 			expectedRole:   rbac.Creator,
 		},
 		{
 			name:           "Operator group is allowed",
-			groups:         []interface{}{"sd_operators"},
+			groups:         []string{"sd_operators"},
 			expectedStatus: http.StatusOK,
 			expectedRole:   rbac.Operator,
 		},
 		{
 			name:           "Admin group is allowed",
-			groups:         []interface{}{"sd_admins"},
+			groups:         []string{"sd_admins"},
 			expectedStatus: http.StatusOK,
 			expectedRole:   rbac.Admin,
 		},
 		{
 			name:           "Group with leading slash is normalized",
-			groups:         []interface{}{"/sd_creators"},
+			groups:         []string{"/sd_creators"},
 			expectedStatus: http.StatusOK,
 			expectedRole:   rbac.Creator,
 		},
@@ -196,13 +193,10 @@ func TestRBACMiddleware_ValidGroups(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			router := gin.New()
 			router.Use(func(c *gin.Context) {
-				c.Set(claimsContextKey, jwt.MapClaims{
-					"sub":    "test-user",
-					"groups": tt.groups,
-				})
+				c.Set(v2.UserIDGroupsContextKey, tt.groups)
 				c.Next()
 			})
-			router.Use(RBACMiddleware(rbacSvc, logger))
+			router.Use(RBACAuthorizationMW(rbacSvc, logger))
 			router.GET("/test", func(c *gin.Context) {
 				role, _ := c.Get(roleContextKey)
 				assert.Equal(t, tt.expectedRole, role)
@@ -223,38 +217,25 @@ func TestRBACMiddleware_InvalidGroups(t *testing.T) {
 
 	tests := []struct {
 		name           string
-		claims         jwt.MapClaims
+		groups         []string
+		setGroups      bool
 		expectedStatus int
 	}{
 		{
-			name: "Missing groups claim returns 401",
-			claims: jwt.MapClaims{
-				"sub": "test-user",
-			},
+			name:           "Missing groups returns 401",
+			setGroups:      false,
 			expectedStatus: http.StatusUnauthorized,
 		},
 		{
-			name: "Groups claim is not an array returns 401",
-			claims: jwt.MapClaims{
-				"sub":    "test-user",
-				"groups": "not-an-array",
-			},
+			name:           "Empty groups array returns 401",
+			groups:         []string{},
+			setGroups:      true,
 			expectedStatus: http.StatusUnauthorized,
 		},
 		{
-			name: "Empty groups array returns 401",
-			claims: jwt.MapClaims{
-				"sub":    "test-user",
-				"groups": []interface{}{},
-			},
-			expectedStatus: http.StatusUnauthorized,
-		},
-		{
-			name: "Unrecognized groups returns 401",
-			claims: jwt.MapClaims{
-				"sub":    "test-user",
-				"groups": []interface{}{"random_group", "other_group"},
-			},
+			name:           "Unrecognized groups returns 401",
+			groups:         []string{"random_group", "other_group"},
+			setGroups:      true,
 			expectedStatus: http.StatusUnauthorized,
 		},
 	}
@@ -263,10 +244,12 @@ func TestRBACMiddleware_InvalidGroups(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			router := gin.New()
 			router.Use(func(c *gin.Context) {
-				c.Set(v2.ClaimsContextKey, tt.claims)
+				if tt.setGroups {
+					c.Set(v2.UserIDGroupsContextKey, tt.groups)
+				}
 				c.Next()
 			})
-			router.Use(RBACMiddleware(rbacSvc, logger))
+			router.Use(RBACAuthorizationMW(rbacSvc, logger))
 			router.GET("/test", func(c *gin.Context) {
 				c.Status(http.StatusOK)
 			})
@@ -284,7 +267,7 @@ func TestRBACMiddleware_NoClaims(t *testing.T) {
 	rbacSvc := rbac.New("sd_creators", "sd_operators", "sd_admins")
 
 	router := gin.New()
-	router.Use(RBACMiddleware(rbacSvc, logger))
+	router.Use(RBACAuthorizationMW(rbacSvc, logger))
 	router.GET("/test", func(c *gin.Context) {
 		c.Status(http.StatusOK)
 	})
@@ -301,15 +284,13 @@ func TestRBACMiddleware_ExtractsUserID(t *testing.T) {
 
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
-		c.Set(claimsContextKey, jwt.MapClaims{
-			"sub":    "user-12345",
-			"groups": []interface{}{"sd_creators"},
-		})
+		c.Set(v2.UsernameContextKey, "user-12345")
+		c.Set(v2.UserIDGroupsContextKey, []string{"sd_creators"})
 		c.Next()
 	})
-	router.Use(RBACMiddleware(rbacSvc, logger))
+	router.Use(RBACAuthorizationMW(rbacSvc, logger))
 	router.GET("/test", func(c *gin.Context) {
-		userID, exists := c.Get(userIDContextKey)
+		userID, exists := c.Get(v2.UsernameContextKey)
 		assert.True(t, exists)
 		assert.Equal(t, "user-12345", userID)
 		c.Status(http.StatusOK)
