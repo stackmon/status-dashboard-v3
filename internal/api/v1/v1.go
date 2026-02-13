@@ -78,10 +78,10 @@ func (s *SD2Time) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-func GetIncidentsHandler(db *db.DB, logger *zap.Logger) gin.HandlerFunc {
+func GetIncidentsHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		logger.Debug("retrieve incidents")
-		r, err := db.GetEvents()
+		r, err := dbInst.GetEvents(db.PublicAccess)
 		if err != nil {
 			apiErrors.RaiseInternalErr(c, err)
 			return
@@ -259,7 +259,7 @@ func PostComponentStatusHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFu
 
 		log.Info("get opened incidents")
 		isActiveTrue := true
-		openedIncidents, err := dbInst.GetEvents(&db.IncidentsParams{IsActive: &isActiveTrue})
+		openedIncidents, err := dbInst.GetEventsInternal(&db.IncidentsParams{IsActive: &isActiveTrue})
 		if err != nil {
 			apiErrors.RaiseInternalErr(c, err)
 			return

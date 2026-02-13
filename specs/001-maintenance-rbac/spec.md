@@ -157,15 +157,18 @@ The system enforces role-based permissions throughout the maintenance lifecycle.
 #### Data Storage and Display
 
 - **FR-016**: System MUST store the creator's user_id (from JWT token) in the maintenance event record for all users regardless of their role (sd_creators, sd_operators, or sd_admins)
-- **FR-017**: System MUST expose the creator's user_id in API responses using the field name "creator"
+- **FR-017**: System MUST expose the creator's user_id in API responses using the field name "creator" ONLY for authenticated users
+- **FR-017a**: System MUST NOT include the "creator" field in API responses for unauthenticated users
 - **FR-018**: System MUST display the creator information as "Creator or Author" in the UI for logged-in users
 - **FR-019**: System MUST store the contact email provided during maintenance creation
+- **FR-019a**: System MUST NOT include the "contact_email" field in API responses for unauthenticated users
 - **FR-020**: System MUST display the contact email as "Contact Email" in the UI for logged-in users
 - **FR-021**: System MUST NOT send actual email notifications (email field is for display purposes only)
 
 #### Status Workflow
 
 - **FR-022**: System MUST support the following status flow for sd_creators: pending review → reviewed → planned → [existing statuses]
+- **FR-022-1**: System MUST NOT include maintenance events with "pending review" status in API responses for unauthenticated users
 - **FR-022a**: System MUST support direct "planned" status for events created by sd_operators and sd_admins users (bypassing pending review and reviewed statuses)
 - **FR-022b**: System MUST support "cancelled" as a terminal status reachable from any other status, representing event removal/cancellation
 - **FR-023**: The internal checker goroutine in the existing "checker" module MUST automatically change status from "reviewed" to "planned" without performing additional validation

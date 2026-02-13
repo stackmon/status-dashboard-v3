@@ -12,6 +12,7 @@ import (
 	"go.uber.org/zap"
 
 	apiErrors "github.com/stackmon/otc-status-dashboard/internal/api/errors"
+	"github.com/stackmon/otc-status-dashboard/internal/api/rbac"
 	"github.com/stackmon/otc-status-dashboard/internal/db"
 )
 
@@ -43,20 +44,24 @@ func initRoutes(t *testing.T, c *gin.Engine, dbInst *db.DB, log *zap.Logger) {
 		v2Api.POST("component_status", PostComponentHandler(dbInst, log))
 
 		// Incidents routes (deprecated)
-		v2Api.GET("incidents", GetIncidentsHandler(dbInst, log))
+		v2Api.GET("incidents", GetIncidentsHandler(dbInst, log, rbac.New("", "operators", "")))
 		v2Api.POST("incidents", PostIncidentHandler(dbInst, log))
-		v2Api.GET("incidents/:eventID", GetIncidentHandler(dbInst, log))
-		v2Api.PATCH("incidents/:eventID", PatchIncidentHandler(dbInst, log))
+		v2Api.GET("incidents/:eventID", GetIncidentHandler(dbInst, log, rbac.New("", "operators", "")))
+		v2Api.PATCH("incidents/:eventID",
+			EventExistenceCheckForTests(dbInst, log),
+			PatchIncidentHandler(dbInst, log))
 		v2Api.PATCH("incidents/:eventID/updates/:updateID",
 			EventExistenceCheckForTests(dbInst, log),
 			PatchEventUpdateTextHandler(dbInst, log),
 		)
 
 		// Events routes (new endpoints)
-		v2Api.GET("events", GetEventsHandler(dbInst, log))
+		v2Api.GET("events", GetEventsHandler(dbInst, log, rbac.New("", "operators", "")))
 		v2Api.POST("events", PostIncidentHandler(dbInst, log))
-		v2Api.GET("events/:eventID", GetIncidentHandler(dbInst, log))
-		v2Api.PATCH("events/:eventID", PatchIncidentHandler(dbInst, log))
+		v2Api.GET("events/:eventID", GetIncidentHandler(dbInst, log, rbac.New("", "operators", "")))
+		v2Api.PATCH("events/:eventID",
+			EventExistenceCheckForTests(dbInst, log),
+			PatchIncidentHandler(dbInst, log))
 		v2Api.PATCH("events/:eventID/updates/:updateID",
 			EventExistenceCheckForTests(dbInst, log),
 			PatchEventUpdateTextHandler(dbInst, log),
@@ -69,13 +74,13 @@ func initRoutes(t *testing.T, c *gin.Engine, dbInst *db.DB, log *zap.Logger) {
 func prepareIncident(t *testing.T, mock sqlmock.Sqlmock, testTime time.Time) {
 	t.Helper()
 
-	mock.ExpectQuery(`^SELECT count\(\*\) FROM "incident"$`).
+	mock.ExpectQuery(`^SELECT count\(\*\) FROM "incident"`).
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(2))
 
-	rowsInc := sqlmock.NewRows([]string{"id", "text", "description", "start_date", "end_date", "impact", "system", "type"}).
-		AddRow(1, "Incident title A", "Description A", testTime, testTime.Add(time.Hour*72), 0, false, "maintenance").
-		AddRow(2, "Incident title B", "Description B", testTime, testTime.Add(time.Hour*72), 3, false, "incident")
-	mock.ExpectQuery("^SELECT (.+) FROM \"incident\" ORDER BY incident.start_date DESC$").WillReturnRows(rowsInc)
+	rowsInc := sqlmock.NewRows([]string{"id", "text", "description", "start_date", "end_date", "impact", "system", "type", "created_by", "contact_email"}).
+		AddRow(1, "Incident title A", "Description A", testTime, testTime.Add(time.Hour*72), 0, false, "maintenance", nil, nil).
+		AddRow(2, "Incident title B", "Description B", testTime, testTime.Add(time.Hour*72), 3, false, "incident", nil, nil)
+	mock.ExpectQuery(`^SELECT (.+) FROM "incident"`).WillReturnRows(rowsInc)
 
 	rowsIncComp := sqlmock.NewRows([]string{"incident_id", "component_id"}).
 		AddRow(1, 150).
@@ -109,7 +114,7 @@ func prepareIncident(t *testing.T, mock sqlmock.Sqlmock, testTime time.Time) {
 func prepareIncidentRows(result []*db.Incident) (*sqlmock.Rows, []driver.Value, []driver.Value) {
 	incidentIDs := make([]driver.Value, len(result))
 	componentIDs := make([]driver.Value, 0)
-	rowsInc := sqlmock.NewRows([]string{"id", "text", "description", "start_date", "end_date", "impact", "system", "type"})
+	rowsInc := sqlmock.NewRows([]string{"id", "text", "description", "start_date", "end_date", "impact", "system", "type", "created_by", "contact_email", "version"})
 
 	for i, inc := range result {
 		incidentIDs[i] = inc.ID
@@ -117,7 +122,13 @@ func prepareIncidentRows(result []*db.Incident) (*sqlmock.Rows, []driver.Value, 
 		if inc.Description != nil {
 			descriptionVal = *inc.Description
 		}
-		rowsInc.AddRow(inc.ID, *inc.Text, descriptionVal, *inc.StartDate, inc.EndDate, *inc.Impact, inc.System, inc.Type)
+		var versionVal interface{}
+		if inc.Version != nil {
+			versionVal = *inc.Version
+		} else {
+			versionVal = 1 // default version
+		}
+		rowsInc.AddRow(inc.ID, *inc.Text, descriptionVal, *inc.StartDate, inc.EndDate, *inc.Impact, inc.System, inc.Type, inc.CreatedBy, inc.ContactEmail, versionVal)
 		for _, comp := range inc.Components {
 			componentIDs = append(componentIDs, comp.ID)
 		}
@@ -153,7 +164,7 @@ func prepareMockForIncidents(t *testing.T, mock sqlmock.Sqlmock, result []*db.In
 		mock.ExpectQuery(`^SELECT count\(\*\) FROM "incident"`).
 			WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
 		mock.ExpectQuery(`^SELECT (.+) FROM "incident"`).
-			WillReturnRows(sqlmock.NewRows([]string{"id", "text", "description", "start_date", "end_date", "impact", "system", "type"}))
+			WillReturnRows(sqlmock.NewRows([]string{"id", "text", "description", "start_date", "end_date", "impact", "system", "type", "created_by", "contact_email"}))
 		return
 	}
 
@@ -180,7 +191,7 @@ func prepareMockForEvents(t *testing.T, mock sqlmock.Sqlmock, result []*db.Incid
 
 	if len(result) == 0 {
 		mock.ExpectQuery(`^SELECT (.+) FROM "incident"`).
-			WillReturnRows(sqlmock.NewRows([]string{"id", "text", "description", "start_date", "end_date", "impact", "system", "type"}))
+			WillReturnRows(sqlmock.NewRows([]string{"id", "text", "description", "start_date", "end_date", "impact", "system", "type", "created_by", "contact_email"}))
 		return
 	}
 
@@ -228,8 +239,8 @@ func prepareAvailability(t *testing.T, mock sqlmock.Sqlmock, testTime time.Time)
 	startOfMonth := time.Date(testTime.Year(), testTime.Month(), 1, 0, 0, 0, 0, time.UTC)
 	startOfNextMonth := startOfMonth.AddDate(0, 1, 0)
 
-	rowsInc := sqlmock.NewRows([]string{"id", "text", "description", "start_date", "end_date", "impact", "system", "type"}).
-		AddRow(2, "Incident title B", "Description B for Availability", startOfMonth, startOfNextMonth, 3, false, "incident")
+	rowsInc := sqlmock.NewRows([]string{"id", "text", "description", "start_date", "end_date", "impact", "system", "type", "created_by", "contact_email"}).
+		AddRow(2, "Incident title B", "Description B for Availability", startOfMonth, startOfNextMonth, 3, false, "incident", nil, nil)
 	mock.ExpectQuery("^SELECT (.+) FROM \"incident\" WHERE \"incident\".\"id\" = \\$1$").WillReturnRows(rowsInc)
 
 	rowsStatus := sqlmock.NewRows([]string{"id", "incident_id", "timestamp", "text", "status"}).
@@ -330,7 +341,7 @@ func EventExistenceCheckForTests(dbInst *db.DB, _ *zap.Logger) gin.HandlerFunc {
 			return
 		}
 
-		_, err := dbInst.GetIncident(int(uri.ID))
+		event, err := dbInst.GetIncident(int(uri.ID))
 		if err != nil {
 			if errors.Is(err, db.ErrDBIncidentDSNotExist) {
 				apiErrors.RaiseStatusNotFoundErr(c, apiErrors.ErrIncidentDSNotExist)
@@ -340,6 +351,8 @@ func EventExistenceCheckForTests(dbInst *db.DB, _ *zap.Logger) gin.HandlerFunc {
 			return
 		}
 
+		// Set event in context so PatchIncidentHandler can access it
+		c.Set("event", event)
 		c.Next()
 	}
 }

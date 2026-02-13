@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 
 # Create a stage for building the application.
-ARG GO_VERSION=1.24
+ARG GO_VERSION=1.25
 FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-alpine AS build
 WORKDIR /usr/src/app
 

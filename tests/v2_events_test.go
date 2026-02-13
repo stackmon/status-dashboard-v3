@@ -92,7 +92,10 @@ func TestV2PostEventsHandlerNegative(t *testing.T) {
   "title":"Maintenance with wrong impact",
   "impact":1,
   "components":[1],
-  "start_date":"2024-11-25T09:32:14.075Z",
+  "start_date":"2031-11-25T09:32:14.075Z",
+  "end_date":"2031-11-25T10:32:14.075Z",
+  "description":"maintenance description",
+  "contact_email":"test@example.com",
   "system":false,
   "type":"maintenance"
 }`
@@ -173,13 +176,14 @@ func TestV2PostEventsHandler(t *testing.T) {
 	incType := event.TypeIncident
 
 	incidentCreateData := v2.IncidentData{
-		Title:       title,
-		Description: description,
-		Impact:      &impact,
-		Components:  components,
-		StartDate:   startDate,
-		System:      &system,
-		Type:        incType,
+		Title:        title,
+		Description:  description,
+		ContactEmail: "test@example.com",
+		Impact:       &impact,
+		Components:   components,
+		StartDate:    startDate,
+		System:       &system,
+		Type:         incType,
 	}
 
 	result := v2CreateEvent(t, r, &incidentCreateData)
@@ -242,6 +246,9 @@ func TestV2PostEventsHandler(t *testing.T) {
 	title = "Test maintenance creation for api V2 for the components: 1-Cloud Container Engine (Container, EU-DE, cce), 2-Cloud Container Engine (Container, EU-NL, cce)"
 	incidentCreateData.Title = title
 	incidentCreateData.Description = "any description for maintenance incident"
+	incidentCreateData.ContactEmail = "test@example.com"
+	startDate = time.Now().Add(time.Hour * 1).UTC()
+	incidentCreateData.StartDate = startDate
 	endDate := time.Now().AddDate(0, 0, 1).UTC()
 	incidentCreateData.EndDate = &endDate
 	incidentCreateData.Type = event.TypeMaintenance
@@ -282,6 +289,7 @@ func TestV2PostEventsHandler(t *testing.T) {
 	t.Log("check response, if incident component is not present in the opened incidents, should create a new incident")
 	components = []int{3}
 	impact = 1
+	startDate = time.Now().AddDate(0, 0, -1).UTC()
 	incidentCreateData = v2.IncidentData{
 		Title:       "Test for another different component id: 3.",
 		Description: "Any description for incident with different component",
@@ -323,13 +331,16 @@ func TestV2PatchEventHandlerNegative(t *testing.T) {
 	require.NotNil(t, resp, "v2CreateEvent returned nil")
 	incID10 := resp.Result[0].IncidentID
 
+	// New events are created with version=1 by default
+	version := 1
+
 	type testCase struct {
 		ExpectedCode int
 		Expected     string
 		JSON         string
 	}
 
-	jsWrongOpenedStatus := `{
+	jsWrongOpenedStatus := fmt.Sprintf(`{
 "title": "OpenStack Upgrade in regions EU-DE/EU-NL",
  "impact": 1,
  "message": "Any message why the incident was updated.",
@@ -337,30 +348,34 @@ func TestV2PatchEventHandlerNegative(t *testing.T) {
  "update_date": "2024-12-11T14:46:03.877Z",
  "start_date": "2024-12-11T14:46:03.877Z",
  "end_date": "2024-12-11T14:46:03.877Z",
-"type": "incident"
-}`
-	jsWrongOpenedStartDate := `{
+"type": "incident",
+"version": %d
+}`, version)
+	jsWrongOpenedStartDate := fmt.Sprintf(`{
  "impact": 1,
  "message": "Any message why the incident was updated.",
  "status": "analysing",
  "update_date": "2024-12-11T14:46:03.877Z",
  "start_date": "2024-12-11T14:46:03.877Z",
- "type": "incident"
-}`
-	jsWrongOpenedStatusForChangingImpact := `{
+ "type": "incident",
+ "version": %d
+}`, version)
+	jsWrongOpenedStatusForChangingImpact := fmt.Sprintf(`{
 "impact": 0,
 "message": "Any message why the event was updated.",
 "status": "analysing",
 "update_date": "2024-12-11T14:46:03.877Z",
-"type": "maintenance"
-}`
-	jsWrongOpenedMaintenanceImpact := `{
+"type": "maintenance",
+"version": %d
+}`, version)
+	jsWrongOpenedMaintenanceImpact := fmt.Sprintf(`{
  "impact": 0,
  "message": "Any message why the event was updated.",
  "status": "impact changed",
  "update_date": "2024-12-11T14:46:03.877Z",
- "type": "maintenance"
-}`
+ "type": "maintenance",
+ "version": %d
+}`, version)
 	testCases := map[string]*testCase{
 		"negative testcase, wrong status for opened incident": {
 			JSON:         jsWrongOpenedStatus,
@@ -427,18 +442,23 @@ func TestV2PatchEventHandler(t *testing.T) {
 	}
 
 	incidentCreateData := v2.IncidentData{
-		Title:       title,
-		Description: description,
-		Impact:      &impact,
-		Components:  components,
-		StartDate:   startDate,
-		System:      &system,
-		Type:        event.TypeIncident,
+		Title:        title,
+		Description:  description,
+		ContactEmail: "test@example.com",
+		Impact:       &impact,
+		Components:   components,
+		StartDate:    startDate,
+		System:       &system,
+		Type:         event.TypeIncident,
 	}
 
 	resp := v2CreateEvent(t, r, &incidentCreateData)
 	require.NotNil(t, resp, "v2CreateEvent returned nil")
 	incID := resp.Result[0].IncidentID
+
+	currentIncident := v2GetEvent(t, r, incID)
+	require.NotNil(t, currentIncident.Version, "Version should be returned after GET")
+	currentVersion := *currentIncident.Version
 
 	newTitle := "patched incident title"
 	newDescription := "patched incident description"
@@ -450,29 +470,41 @@ func TestV2PatchEventHandler(t *testing.T) {
 		Message:     "update title",
 		Status:      "analysing",
 		UpdateDate:  time.Now().UTC(),
+		Version:     &currentVersion,
 	}
 
 	inc := internalPatch(incID, &pData)
 	assert.Equal(t, newTitle, inc.Title)
 	assert.Equal(t, newDescription, inc.Description)
+	// Update version after successful patch (should be incremented to 2)
+	require.NotNil(t, inc.Version, "Version should be returned after PATCH")
+	currentVersion = *inc.Version
 
 	newImpact := 2
 	t.Logf("patching incident impact, from %d to %d", impact, newImpact)
 
 	pData.Impact = &newImpact
 	pData.Status = event.IncidentImpactChanged
+	pData.Version = &currentVersion
 
 	inc = internalPatch(incID, &pData)
 	assert.Equal(t, newImpact, *inc.Impact)
+	// Update version after successful patch
+	require.NotNil(t, inc.Version, "Version should be returned after PATCH")
+	currentVersion = *inc.Version
 
 	t.Logf("close incident")
 	pData.Status = event.IncidentResolved
 	updateDate := time.Now().UTC()
 	pData.UpdateDate = updateDate
+	pData.Version = &currentVersion
 
 	inc = internalPatch(incID, &pData)
 	require.NotNil(t, inc.EndDate)
 	assert.Equal(t, updateDate.Truncate(time.Microsecond), inc.EndDate.Truncate(time.Microsecond))
+	// Update version after successful patch
+	require.NotNil(t, inc.Version, "Version should be returned after PATCH")
+	currentVersion = *inc.Version
 
 	t.Logf("patching closed incident, change start date and end date")
 	startDate = time.Now().AddDate(0, 0, -1).UTC()
@@ -481,24 +513,33 @@ func TestV2PatchEventHandler(t *testing.T) {
 	pData.Status = event.IncidentChanged
 	pData.StartDate = &startDate
 	pData.EndDate = &endDate
+	pData.Version = &currentVersion
 
 	inc = internalPatch(incID, &pData)
 	assert.Equal(t, startDate.Truncate(time.Microsecond), inc.StartDate)
 	assert.Equal(t, event.IncidentChanged, inc.Status)
 	require.NotNil(t, inc.EndDate)
 	assert.Equal(t, endDate.Truncate(time.Microsecond), inc.EndDate.Truncate(time.Microsecond))
+	// Update version after successful patch
+	require.NotNil(t, inc.Version, "Version should be returned after PATCH")
+	currentVersion = *inc.Version
 
 	t.Logf("reopen closed incident")
 
 	pData.Status = event.IncidentReopened
 	pData.StartDate = nil
 	pData.EndDate = nil
+	pData.Version = &currentVersion
 	inc = internalPatch(incID, &pData)
 	assert.Nil(t, inc.EndDate)
+	// Update version after successful patch
+	require.NotNil(t, inc.Version, "Version should be returned after PATCH")
+	currentVersion = *inc.Version
 
 	t.Logf("final close the test incident")
 
 	pData.Status = event.IncidentResolved
+	pData.Version = &currentVersion
 	inc = internalPatch(incID, &pData)
 	assert.Equal(t, event.IncidentResolved, inc.Status)
 	assert.NotNil(t, inc.EndDate)
@@ -530,13 +571,14 @@ func TestV2PostEventExtractHandler(t *testing.T) {
 	system := false
 
 	incidentCreateData := v2.IncidentData{
-		Title:       title,
-		Description: description,
-		Impact:      &impact,
-		Components:  components,
-		StartDate:   startDate,
-		System:      &system,
-		Type:        event.TypeIncident,
+		Title:        title,
+		Description:  description,
+		ContactEmail: "test@example.com",
+		Impact:       &impact,
+		Components:   components,
+		StartDate:    startDate,
+		System:       &system,
+		Type:         event.TypeIncident,
 	}
 
 	t.Log("create a initial incident", incidentCreateData)
@@ -594,6 +636,7 @@ func v2CreateEvent(t *testing.T, r *gin.Engine, inc *v2.IncidentData) *v2.PostIn
 	r.ServeHTTP(w, req)
 
 	if w.Code != http.StatusOK {
+		t.Logf("v2CreateEvent error: %s", w.Body.String())
 		return nil
 	}
 
@@ -654,10 +697,16 @@ func v2PatchEvent(t *testing.T, r *gin.Engine, inc *v2.Incident, status ...event
 		st = status[0]
 	}
 
+	version := 1
+	if inc.Version != nil {
+		version = *inc.Version
+	}
+
 	patch := v2.PatchIncidentData{
 		Message:    "closed",
 		Status:     st,
 		UpdateDate: *inc.EndDate,
+		Version:    &version,
 	}
 
 	d, err := json.Marshal(patch)
@@ -670,6 +719,11 @@ func v2PatchEvent(t *testing.T, r *gin.Engine, inc *v2.Incident, status ...event
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, 200, w.Code)
+
+	updated := v2.Incident{}
+	err = json.Unmarshal(w.Body.Bytes(), &updated)
+	require.NoError(t, err)
+	*inc = updated
 }
 
 func TestV2GetEventsFilteredHandler(t *testing.T) { //nolint:gocognit
@@ -826,18 +880,11 @@ func TestV2GetEventsHandler(t *testing.T) {
 	allIncidents := v2GetEvents(t, r)
 	t.Logf("Initial incidents in DB: %+v", len(allIncidents))
 	totalIncidents := len(allIncidents)
-	expectedpages := totalIncidents / 10
-	if totalIncidents%10 != 0 {
-		expectedpages++
-	}
 
 	testCases := []struct {
 		name               string
 		queryParams        string
 		expectedStatusCode int
-		expectedTotal      int
-		expectedPages      int
-		expectedItemsCount int
 		expectedLimit      int
 		expectedPage       int
 	}{
@@ -845,9 +892,6 @@ func TestV2GetEventsHandler(t *testing.T) {
 			name:               "Default pagination",
 			queryParams:        "",
 			expectedStatusCode: http.StatusOK,
-			expectedTotal:      totalIncidents,
-			expectedPages:      1,
-			expectedItemsCount: totalIncidents,
 			expectedLimit:      50, // default limit
 			expectedPage:       1,  // default page
 		},
@@ -855,9 +899,6 @@ func TestV2GetEventsHandler(t *testing.T) {
 			name:               "Pagination with limit 10, page 1",
 			queryParams:        "?limit=10&page=1",
 			expectedStatusCode: http.StatusOK,
-			expectedTotal:      totalIncidents,
-			expectedPages:      expectedpages,
-			expectedItemsCount: 10,
 			expectedLimit:      10,
 			expectedPage:       1,
 		},
@@ -865,9 +906,6 @@ func TestV2GetEventsHandler(t *testing.T) {
 			name:               "Pagination with limit 10, page 2",
 			queryParams:        "?limit=10&page=2",
 			expectedStatusCode: http.StatusOK,
-			expectedTotal:      totalIncidents,
-			expectedPages:      expectedpages,
-			expectedItemsCount: 10,
 			expectedLimit:      10,
 			expectedPage:       2,
 		},
@@ -875,9 +913,6 @@ func TestV2GetEventsHandler(t *testing.T) {
 			name:               "Pagination with limit 20, page 1",
 			queryParams:        "?limit=20&page=1",
 			expectedStatusCode: http.StatusOK,
-			expectedTotal:      totalIncidents,
-			expectedPages:      2,
-			expectedItemsCount: 20,
 			expectedLimit:      20,
 			expectedPage:       1,
 		},
@@ -895,9 +930,24 @@ func TestV2GetEventsHandler(t *testing.T) {
 			err := json.Unmarshal(w.Body.Bytes(), &response)
 			require.NoError(t, err)
 
-			assert.Len(t, response.Data, tc.expectedItemsCount)
-			assert.Equal(t, tc.expectedTotal, response.Pagination.TotalRecords)
-			assert.Equal(t, tc.expectedPages, response.Pagination.TotalPages)
+			expectedItems := totalIncidents - (tc.expectedPage-1)*tc.expectedLimit
+			if expectedItems < 0 {
+				expectedItems = 0
+			}
+			if expectedItems > tc.expectedLimit {
+				expectedItems = tc.expectedLimit
+			}
+			expectedPages := totalIncidents / tc.expectedLimit
+			if totalIncidents%tc.expectedLimit != 0 {
+				expectedPages++
+			}
+			if expectedPages == 0 {
+				expectedPages = 1
+			}
+
+			assert.Len(t, response.Data, expectedItems)
+			assert.Equal(t, totalIncidents, response.Pagination.TotalRecords)
+			assert.Equal(t, expectedPages, response.Pagination.TotalPages)
 			assert.Equal(t, tc.expectedLimit, response.Pagination.RecordsPerPage)
 			assert.Equal(t, tc.expectedPage, response.Pagination.PageIndex)
 		})
@@ -919,14 +969,15 @@ func TestV2PostEventsMaintenanceHandler(t *testing.T) {
 	system := false
 
 	incidentCreateData := v2.IncidentData{
-		Title:       title,
-		Description: description,
-		Impact:      &impact,
-		Components:  components,
-		StartDate:   startDate,
-		EndDate:     &endDate,
-		System:      &system,
-		Type:        event.TypeMaintenance,
+		Title:        title,
+		Description:  description,
+		ContactEmail: "test@example.com",
+		Impact:       &impact,
+		Components:   components,
+		StartDate:    startDate,
+		EndDate:      &endDate,
+		System:       &system,
+		Type:         event.TypeMaintenance,
 	}
 
 	result := v2CreateEvent(t, r, &incidentCreateData)
@@ -994,14 +1045,15 @@ func TestV2PostEventsInfoWithExistingEventsHandler(t *testing.T) {
 	maintenanceSystem := false
 
 	maintenanceIncidentData := v2.IncidentData{
-		Title:       maintenanceTitle,
-		Description: maintenanceDescription,
-		Impact:      &maintenanceImpact,
-		Components:  []int{incidentComponentID},
-		StartDate:   maintenanceStartDate,
-		EndDate:     &maintenanceEndDate,
-		System:      &maintenanceSystem,
-		Type:        "maintenance",
+		Title:        maintenanceTitle,
+		Description:  maintenanceDescription,
+		ContactEmail: "test@example.com",
+		Impact:       &maintenanceImpact,
+		Components:   []int{incidentComponentID},
+		StartDate:    maintenanceStartDate,
+		EndDate:      &maintenanceEndDate,
+		System:       &maintenanceSystem,
+		Type:         "maintenance",
 	}
 
 	maintenanceIncidentResp := v2CreateEvent(t, r, &maintenanceIncidentData)
@@ -1131,7 +1183,7 @@ func TestV2PatchEventUpdateHandler(t *testing.T) {
 			updateIndex:    0,
 			body:           `{"text": "This should fail."}`,
 			expectedStatus: http.StatusNotFound,
-			expectedBody:   `{"errMsg":"incident not found"}`,
+			expectedBody:   `{"errMsg":"event does not exist"}`,
 		},
 		{
 			name:           "Update index not found",
@@ -1139,7 +1191,7 @@ func TestV2PatchEventUpdateHandler(t *testing.T) {
 			updateIndex:    99,
 			body:           `{"text": "This should also fail."}`,
 			expectedStatus: http.StatusNotFound,
-			expectedBody:   `{"errMsg":"update not found"}`,
+			expectedBody:   `{"errMsg":"update does not exist"}`,
 		},
 		{
 			name:           "Invalid update index (negative)",

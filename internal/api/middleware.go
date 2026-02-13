@@ -14,11 +14,20 @@ import (
 
 	"github.com/stackmon/otc-status-dashboard/internal/api/auth"
 	apiErrors "github.com/stackmon/otc-status-dashboard/internal/api/errors"
+	"github.com/stackmon/otc-status-dashboard/internal/api/rbac"
 	v2 "github.com/stackmon/otc-status-dashboard/internal/api/v2"
 	"github.com/stackmon/otc-status-dashboard/internal/db"
 )
 
-const eventContextKey = "event"
+const (
+	eventContextKey = "event"
+	roleContextKey  = "role"
+)
+
+const (
+	usernameClaim = "preferred_username"
+	groupsClaim   = "groups"
+)
 
 func ValidateComponentsMW(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -77,7 +86,9 @@ func parseToken(tokenString string, secretKey string, prov *auth.Provider, logge
 	})
 }
 
-func AuthenticationMW(prov *auth.Provider, logger *zap.Logger, secretKey string, userAuthGroup string) gin.HandlerFunc {
+// AuthenticationMW validates JWT tokens.
+// Missing or invalid tokens result in 401.
+func AuthenticationMW(prov *auth.Provider, logger *zap.Logger, secretKey string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if prov.Disabled {
 			logger.Info("authentication is disabled")
@@ -89,7 +100,60 @@ func AuthenticationMW(prov *auth.Provider, logger *zap.Logger, secretKey string,
 
 		authHeader := c.GetHeader("Authorization")
 		if authHeader == "" {
+			logger.Debug("authentication failed: missing Authorization header")
 			apiErrors.RaiseNotAuthorizedErr(c, apiErrors.ErrAuthNotAuthenticated)
+			return
+		}
+
+		rawToken := strings.TrimPrefix(authHeader, "Bearer ")
+		token, err := parseToken(rawToken, secretKey, prov, logger)
+
+		if err != nil {
+			logger.Error("token parsing error", zap.Error(err))
+			apiErrors.RaiseNotAuthorizedErr(c, apiErrors.ErrAuthNotAuthenticated)
+			return
+		}
+
+		if !token.Valid {
+			logger.Error("token validation error", zap.Error(err))
+			apiErrors.RaiseNotAuthorizedErr(c, apiErrors.ErrAuthTokenInvalid)
+			return
+		}
+
+		claims, ok := token.Claims.(jwt.MapClaims)
+		if !ok {
+			logger.Error("authentication failed: unable to extract claims from token")
+			apiErrors.RaiseNotAuthorizedErr(c, apiErrors.ErrAuthNotAuthenticated)
+			return
+		}
+
+		if errUserID := setUserIDFromClaims(claims, c, logger); errUserID != nil {
+			logger.Error("failed to set userID from claims", zap.Error(errUserID))
+			c.Abort()
+			return
+		}
+
+		if groupsErr := setGroupsFromClaims(claims, c, logger); groupsErr != nil {
+			logger.Error("failed to set groups from claims", zap.Error(groupsErr))
+			c.Abort()
+			return
+		}
+
+		c.Next()
+	}
+}
+
+func SetJWTClaims(
+	prov *auth.Provider, logger *zap.Logger, secretKey string,
+) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		logger.Info("start to retrieve JWT claims from the token")
+
+		authHeader := c.GetHeader("Authorization")
+		if authHeader == "" {
+			logger.Info("jwt header is empty, skipping JWT claims retrieval")
+			c.Set(v2.UsernameContextKey, nil)
+			c.Next()
 			return
 		}
 
@@ -108,55 +172,107 @@ func AuthenticationMW(prov *auth.Provider, logger *zap.Logger, secretKey string,
 			return
 		}
 
-		if _, ok := token.Method.(*jwt.SigningMethodRSA); ok && !isAuthGroupInClaims(token, logger, userAuthGroup) {
-			apiErrors.RaiseNotAuthorizedErr(c, apiErrors.ErrAuthNotAuthenticated)
+		claims, ok := token.Claims.(jwt.MapClaims)
+		if !ok {
+			apiErrors.RaiseNotAuthorizedErr(c, apiErrors.ErrAuthTokenInvalid)
 			return
 		}
+
+		if errUserID := setUserIDFromClaims(claims, c, logger); errUserID != nil {
+			logger.Error("failed to set userID from claims", zap.Error(errUserID))
+			c.Abort()
+			return
+		}
+
+		if groupsErr := setGroupsFromClaims(claims, c, logger); groupsErr != nil {
+			logger.Error("failed to set groups from claims", zap.Error(groupsErr))
+			c.Abort()
+			return
+		}
+
 		c.Next()
 	}
 }
 
-func isAuthGroupInClaims(token *jwt.Token, logger *zap.Logger, userAuthGroup string) bool {
-	// Check group authorization if authGroup is configured
-	claims, ok := token.Claims.(jwt.MapClaims)
-	if !ok {
-		logger.Error("failed to parse token claims")
-		return false
-	}
-
-	// Check if the "groups" claim exists
-	groupsClaim, exists := claims["groups"]
+func setUserIDFromClaims(claims jwt.MapClaims, c *gin.Context, logger *zap.Logger) error {
+	preferredUsername, exists := claims[usernameClaim]
 	if !exists {
-		logger.Error("groups claim not found in token")
-		return false
+		logger.Error("preferred_username claim not found")
+		return fmt.Errorf("preferred_username claim not found")
 	}
 
-	// Convert groups claim to string slice
-	groups, ok := groupsClaim.([]interface{})
+	preferredUsernameStr, ok := preferredUsername.(string)
 	if !ok {
-		logger.Error("groups claim is not an array")
-		return false
+		logger.Error("preferred_username is not a string")
+		return fmt.Errorf("preferred_username claim is not a string")
 	}
 
-	// Check if the required group is present
-	hasGroup := false
-	for _, group := range groups {
-		if groupStr, okType := group.(string); okType && strings.TrimPrefix(groupStr, "/") == userAuthGroup {
-			hasGroup = true
-			break
+	c.Set(v2.UsernameContextKey, preferredUsernameStr)
+	logger.Info("extracted preferred_username from JWT", zap.String(usernameClaim, preferredUsernameStr))
+
+	return nil
+}
+
+// setGroupsFromClaims extracts the "groups" claim from JWT as a string slice.
+func setGroupsFromClaims(claims jwt.MapClaims, c *gin.Context, logger *zap.Logger) error {
+	groupsCl, exists := claims[groupsClaim]
+	if !exists {
+		logger.Error("group claim not found")
+		return fmt.Errorf("groups claim not found")
+	}
+
+	rawGroups, ok := groupsCl.([]interface{})
+	if !ok {
+		return fmt.Errorf("group claim is not an array")
+	}
+
+	groups := make([]string, 0, len(rawGroups))
+	for _, g := range rawGroups {
+		s, isStr := g.(string)
+		if !isStr {
+			return fmt.Errorf("group claim contains non-string value")
 		}
+		groups = append(groups, s)
 	}
 
-	if !hasGroup {
-		logger.Warn("user does not belong to required group",
-			zap.String("required_group", userAuthGroup))
-		return false
+	c.Set(v2.UserIDGroupsContextKey, groups)
+	logger.Info("extracted groups from JWT", zap.Strings("groups", groups))
+
+	return nil
+}
+
+// RBACAuthorizationMW resolves user roles from JWT claims for write operations (POST/PATCH).
+// Users without configured groups are rejected with 401.
+func RBACAuthorizationMW(rbacService *rbac.Service, logger *zap.Logger) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		logger.Debug("attempting to resolve user role")
+
+		groupsVal, exists := c.Get(v2.UserIDGroupsContextKey)
+		if !exists {
+			logger.Warn("authorization failed: user groups not found in context")
+			apiErrors.RaiseNotAuthorizedErr(c, apiErrors.ErrAuthNotAuthenticated)
+			return
+		}
+
+		groups, ok := groupsVal.([]string)
+		if !ok {
+			logger.Error("authorization failed: user groups in context have unexpected type")
+			apiErrors.RaiseNotAuthorizedErr(c, apiErrors.ErrAuthNotAuthenticated)
+			return
+		}
+
+		if !rbacService.HasAuthorizedGroup(groups) {
+			logger.Warn("user does not belong to any configured RBAC group")
+			apiErrors.RaiseNotAuthorizedErr(c, apiErrors.ErrAuthNotAuthenticated)
+			return
+		}
+
+		role := rbacService.Resolve(groups)
+		c.Set(roleContextKey, role)
+		logger.Debug("user role resolved", zap.Int("role", int(role)))
+
+		c.Next()
 	}
-
-	logger.Info("user authorized with group membership",
-		zap.String("group", userAuthGroup))
-
-	return true
 }
 
 func CheckEventExistenceMW(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
@@ -165,6 +281,7 @@ func CheckEventExistenceMW(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 
 		var incID v2.IncidentID
 		if err := c.ShouldBindUri(&incID); err != nil {
+			logger.Debug("event existence check failed: invalid event ID in URI", zap.Error(err))
 			apiErrors.RaiseBadRequestErr(c, err)
 			return
 		}
@@ -175,6 +292,7 @@ func CheckEventExistenceMW(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 				apiErrors.RaiseStatusNotFoundErr(c, apiErrors.ErrIncidentDSNotExist)
 				return
 			}
+			logger.Error("event existence check failed: database error", zap.Error(err))
 			apiErrors.RaiseInternalErr(c, err)
 			return
 		}
