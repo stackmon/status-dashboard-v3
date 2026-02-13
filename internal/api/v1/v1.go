@@ -81,7 +81,6 @@ func (s *SD2Time) UnmarshalJSON(data []byte) error {
 func GetIncidentsHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		logger.Debug("retrieve incidents")
-		const publicAccess = false
 		r, err := dbInst.GetEvents(db.PublicAccess)
 		if err != nil {
 			apiErrors.RaiseInternalErr(c, err)

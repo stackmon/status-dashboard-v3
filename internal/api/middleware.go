@@ -20,11 +20,8 @@ import (
 )
 
 const (
-	eventContextKey  = "event"
-	roleContextKey   = "role"
-	userIDContextKey = "user_id"
-	authMethodKey    = "auth_method"
-	authMethodHMAC   = "hmac"
+	eventContextKey = "event"
+	roleContextKey  = "role"
 )
 
 const (
@@ -103,6 +100,7 @@ func AuthenticationMW(prov *auth.Provider, logger *zap.Logger, secretKey string)
 
 		authHeader := c.GetHeader("Authorization")
 		if authHeader == "" {
+			logger.Debug("authentication failed: missing Authorization header")
 			apiErrors.RaiseNotAuthorizedErr(c, apiErrors.ErrAuthNotAuthenticated)
 			return
 		}
@@ -124,17 +122,20 @@ func AuthenticationMW(prov *auth.Provider, logger *zap.Logger, secretKey string)
 
 		claims, ok := token.Claims.(jwt.MapClaims)
 		if !ok {
+			logger.Error("authentication failed: unable to extract claims from token")
 			apiErrors.RaiseNotAuthorizedErr(c, apiErrors.ErrAuthNotAuthenticated)
 			return
 		}
 
 		if errUserID := setUserIDFromClaims(claims, c, logger); errUserID != nil {
-			logger.Error("failed to set userID from claims", zap.Error(err))
+			logger.Error("failed to set userID from claims", zap.Error(errUserID))
+			c.Abort()
 			return
 		}
 
 		if groupsErr := setGroupsFromClaims(claims, c, logger); groupsErr != nil {
 			logger.Error("failed to set groups from claims", zap.Error(groupsErr))
+			c.Abort()
 			return
 		}
 
@@ -178,12 +179,14 @@ func SetJWTClaims(
 		}
 
 		if errUserID := setUserIDFromClaims(claims, c, logger); errUserID != nil {
-			logger.Error("failed to set userID from claims", zap.Error(err))
+			logger.Error("failed to set userID from claims", zap.Error(errUserID))
+			c.Abort()
 			return
 		}
 
 		if groupsErr := setGroupsFromClaims(claims, c, logger); groupsErr != nil {
 			logger.Error("failed to set groups from claims", zap.Error(groupsErr))
+			c.Abort()
 			return
 		}
 
@@ -215,12 +218,21 @@ func setGroupsFromClaims(claims jwt.MapClaims, c *gin.Context, logger *zap.Logge
 	groupsCl, exists := claims[groupsClaim]
 	if !exists {
 		logger.Error("group claim not found")
-		return fmt.Errorf("preferred_username claim not found")
+		return fmt.Errorf("groups claim not found")
 	}
 
-	groups, ok := groupsCl.([]string)
+	rawGroups, ok := groupsCl.([]interface{})
 	if !ok {
-		return fmt.Errorf("group claim is not an array of strings")
+		return fmt.Errorf("group claim is not an array")
+	}
+
+	groups := make([]string, 0, len(rawGroups))
+	for _, g := range rawGroups {
+		s, isStr := g.(string)
+		if !isStr {
+			return fmt.Errorf("group claim contains non-string value")
+		}
+		groups = append(groups, s)
 	}
 
 	c.Set(v2.UserIDGroupsContextKey, groups)
@@ -237,12 +249,14 @@ func RBACAuthorizationMW(rbacService *rbac.Service, logger *zap.Logger) gin.Hand
 
 		groupsVal, exists := c.Get(v2.UserIDGroupsContextKey)
 		if !exists {
+			logger.Warn("authorization failed: user groups not found in context")
 			apiErrors.RaiseNotAuthorizedErr(c, apiErrors.ErrAuthNotAuthenticated)
 			return
 		}
 
 		groups, ok := groupsVal.([]string)
 		if !ok {
+			logger.Error("authorization failed: user groups in context have unexpected type")
 			apiErrors.RaiseNotAuthorizedErr(c, apiErrors.ErrAuthNotAuthenticated)
 			return
 		}
@@ -267,6 +281,7 @@ func CheckEventExistenceMW(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 
 		var incID v2.IncidentID
 		if err := c.ShouldBindUri(&incID); err != nil {
+			logger.Debug("event existence check failed: invalid event ID in URI", zap.Error(err))
 			apiErrors.RaiseBadRequestErr(c, err)
 			return
 		}
@@ -277,6 +292,7 @@ func CheckEventExistenceMW(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 				apiErrors.RaiseStatusNotFoundErr(c, apiErrors.ErrIncidentDSNotExist)
 				return
 			}
+			logger.Error("event existence check failed: database error", zap.Error(err))
 			apiErrors.RaiseInternalErr(c, err)
 			return
 		}

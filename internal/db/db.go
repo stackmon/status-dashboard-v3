@@ -57,18 +57,17 @@ func (db *DB) Close() error {
 }
 
 type IncidentsParams struct {
-	Types                []string
-	Status               *event.Status
-	StartDate            *time.Time
-	EndDate              *time.Time
-	Impact               *int
-	IsSystem             *bool
-	ComponentIDs         []int
-	LastCount            int
-	IsActive             *bool
-	Limit                *int
-	Page                 *int
-	ExcludePendingReview bool
+	Types        []string
+	Status       *event.Status
+	StartDate    *time.Time
+	EndDate      *time.Time
+	Impact       *int
+	IsSystem     *bool
+	ComponentIDs []int
+	LastCount    int
+	IsActive     *bool
+	Limit        *int
+	Page         *int
 }
 
 func applyEventsFilters(base *gorm.DB, params *IncidentsParams, isAuth bool) (*gorm.DB, error) {

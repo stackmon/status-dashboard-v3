@@ -3,6 +3,7 @@ package api
 import (
 	"crypto/rand"
 	"crypto/rsa"
+	"fmt"
 	"reflect"
 	"testing"
 	"unsafe"
@@ -20,7 +21,6 @@ import (
 	"github.com/stackmon/otc-status-dashboard/internal/api/rbac"
 	v2 "github.com/stackmon/otc-status-dashboard/internal/api/v2"
 )
-
 
 func setRealmPublicKey(prov *auth.Provider, key *rsa.PublicKey) {
 	val := reflect.ValueOf(prov).Elem()
@@ -109,7 +109,10 @@ func performRequestWithAuth(mw gin.HandlerFunc, authHeader string) *httptest.Res
 
 func TestAuthenticationMW_HMAC_SuccessAndFailures(t *testing.T) {
 	secret := "supersecret"
-	tkn := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{"sub": "123"})
+	tkn := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+		"preferred_username": "test-user",
+		"groups":             []interface{}{"sd_admins"},
+	})
 	signed, err := tkn.SignedString([]byte(secret))
 	require.NoError(t, err, "failed to sign token")
 
@@ -300,4 +303,247 @@ func TestRBACMiddleware_ExtractsUserID(t *testing.T) {
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
+}
+
+func TestSetGroupsFromClaims(t *testing.T) {
+	logger := zaptest.NewLogger(t)
+
+	tests := []struct {
+		name        string
+		claims      jwt.MapClaims
+		expectErr   bool
+		expectCount int
+	}{
+		{
+			name:        "valid groups",
+			claims:      jwt.MapClaims{"groups": []interface{}{"sd_creators", "sd_operators"}},
+			expectErr:   false,
+			expectCount: 2,
+		},
+		{
+			name:      "missing groups claim",
+			claims:    jwt.MapClaims{},
+			expectErr: true,
+		},
+		{
+			name:      "groups is not an array",
+			claims:    jwt.MapClaims{"groups": "not-an-array"},
+			expectErr: true,
+		},
+		{
+			name:      "groups contains non-string",
+			claims:    jwt.MapClaims{"groups": []interface{}{"sd_creators", 123}},
+			expectErr: true,
+		},
+		{
+			name:        "empty groups array",
+			claims:      jwt.MapClaims{"groups": []interface{}{}},
+			expectErr:   false,
+			expectCount: 0,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			gin.SetMode(gin.TestMode)
+			w := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(w)
+
+			err := setGroupsFromClaims(tc.claims, c, logger)
+
+			if tc.expectErr {
+				assert.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			val, exists := c.Get(v2.UserIDGroupsContextKey)
+			assert.True(t, exists)
+			groups, ok := val.([]string)
+			require.True(t, ok)
+			assert.Len(t, groups, tc.expectCount)
+		})
+	}
+}
+
+func TestSetUserIDFromClaims(t *testing.T) {
+	logger := zaptest.NewLogger(t)
+
+	tests := []struct {
+		name      string
+		claims    jwt.MapClaims
+		expectErr bool
+		expectUID string
+	}{
+		{
+			name:      "valid preferred_username",
+			claims:    jwt.MapClaims{"preferred_username": "test-user"},
+			expectErr: false,
+			expectUID: "test-user",
+		},
+		{
+			name:      "missing preferred_username",
+			claims:    jwt.MapClaims{},
+			expectErr: true,
+		},
+		{
+			name:      "preferred_username is not a string",
+			claims:    jwt.MapClaims{"preferred_username": 12345},
+			expectErr: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			gin.SetMode(gin.TestMode)
+			w := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(w)
+
+			err := setUserIDFromClaims(tc.claims, c, logger)
+
+			if tc.expectErr {
+				assert.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			val, exists := c.Get(v2.UsernameContextKey)
+			assert.True(t, exists)
+			assert.Equal(t, tc.expectUID, val)
+		})
+	}
+}
+
+func TestSetJWTClaims_HMAC(t *testing.T) {
+	secret := "test-jwt-claims-secret"
+	logger := zaptest.NewLogger(t)
+	prov := &auth.Provider{}
+
+	t.Run("no auth header continues with nil userID", func(t *testing.T) {
+		var capturedUserID interface{}
+		var uidExists bool
+
+		router := gin.New()
+		router.Use(SetJWTClaims(prov, logger, secret))
+		router.GET("/test", func(c *gin.Context) {
+			capturedUserID, uidExists = c.Get(v2.UsernameContextKey)
+			c.Status(http.StatusOK)
+		})
+
+		req := httptest.NewRequest(http.MethodGet, "/test", nil)
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+		assert.True(t, uidExists)
+		assert.Nil(t, capturedUserID)
+	})
+
+	t.Run("valid HMAC token sets userID and groups", func(t *testing.T) {
+		var capturedUserID interface{}
+		var capturedGroups interface{}
+
+		claims := jwt.MapClaims{
+			"preferred_username": "jwt-user",
+			"groups":             []interface{}{"sd_creators"},
+		}
+		token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+		signed, err := token.SignedString([]byte(secret))
+		require.NoError(t, err)
+
+		router := gin.New()
+		router.Use(SetJWTClaims(prov, logger, secret))
+		router.GET("/test", func(c *gin.Context) {
+			capturedUserID, _ = c.Get(v2.UsernameContextKey)
+			capturedGroups, _ = c.Get(v2.UserIDGroupsContextKey)
+			c.Status(http.StatusOK)
+		})
+
+		req := httptest.NewRequest(http.MethodGet, "/test", nil)
+		req.Header.Set("Authorization", "Bearer "+signed)
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+		assert.Equal(t, "jwt-user", capturedUserID)
+		groups, ok := capturedGroups.([]string)
+		require.True(t, ok)
+		assert.Equal(t, []string{"sd_creators"}, groups)
+	})
+
+	t.Run("invalid token returns 401", func(t *testing.T) {
+		router := gin.New()
+		router.Use(SetJWTClaims(prov, logger, secret))
+		router.GET("/test", func(c *gin.Context) {
+			c.Status(http.StatusOK)
+		})
+
+		req := httptest.NewRequest(http.MethodGet, "/test", nil)
+		req.Header.Set("Authorization", "Bearer invalid-token")
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusUnauthorized, w.Code)
+	})
+}
+
+func TestCheckEventExistenceMW(t *testing.T) {
+	logger := zaptest.NewLogger(t)
+
+	t.Run("invalid eventID returns 400", func(t *testing.T) {
+		router := gin.New()
+		// Pass nil db - we won't reach the DB call because binding fails
+		router.Use(CheckEventExistenceMW(nil, logger))
+		router.GET("/events/:eventID", func(c *gin.Context) {
+			c.Status(http.StatusOK)
+		})
+
+		req := httptest.NewRequest(http.MethodGet, "/events/not-a-number", nil)
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusBadRequest, w.Code)
+	})
+}
+
+func TestErrorHandle(t *testing.T) {
+	t.Run("no errors passes through", func(t *testing.T) {
+		router := gin.New()
+		router.Use(ErrorHandle())
+		router.GET("/test", func(c *gin.Context) {
+			c.Status(http.StatusOK)
+		})
+
+		req := httptest.NewRequest(http.MethodGet, "/test", nil)
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusOK, w.Code)
+	})
+
+	t.Run("4xx error is passed through", func(t *testing.T) {
+		router := gin.New()
+		router.Use(ErrorHandle())
+		router.GET("/test", func(c *gin.Context) {
+			c.Status(http.StatusBadRequest)
+			_ = c.Error(fmt.Errorf("bad input"))
+		})
+
+		req := httptest.NewRequest(http.MethodGet, "/test", nil)
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusBadRequest, w.Code)
+		assert.Contains(t, w.Body.String(), "bad input")
+	})
+
+	t.Run("5xx error is masked", func(t *testing.T) {
+		router := gin.New()
+		router.Use(ErrorHandle())
+		router.GET("/test", func(c *gin.Context) {
+			c.Status(http.StatusInternalServerError)
+			_ = c.Error(fmt.Errorf("database connection lost"))
+		})
+
+		req := httptest.NewRequest(http.MethodGet, "/test", nil)
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusInternalServerError, w.Code)
+		assert.NotContains(t, w.Body.String(), "database connection lost")
+	})
 }
