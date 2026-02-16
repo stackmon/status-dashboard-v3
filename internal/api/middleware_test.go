@@ -123,6 +123,16 @@ func TestAuthenticationMW_HMAC_SuccessAndFailures(t *testing.T) {
 	w := performRequestWithAuth(mw, "Bearer "+signed)
 	assert.Equal(t, http.StatusOK, w.Code, "expected middleware to allow valid HMAC token")
 
+	invalidGroupsTkn := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+		"preferred_username": "test-user",
+		"groups":             "sd_admins",
+	})
+	invalidSigned, err := invalidGroupsTkn.SignedString([]byte(secret))
+	require.NoError(t, err, "failed to sign token with invalid groups claim")
+
+	w = performRequestWithAuth(mw, "Bearer "+invalidSigned)
+	assert.Equal(t, http.StatusUnauthorized, w.Code, "expected 401 when groups claim has invalid type")
+
 	w = performRequestWithAuth(mw, "")
 	assert.Equal(t, http.StatusUnauthorized, w.Code, "expected 401 when no Authorization header")
 
@@ -136,8 +146,8 @@ func TestAuthenticationMW_RSA_ValidToken(t *testing.T) {
 	require.NoError(t, err, "failed to generate rsa key")
 
 	claims := jwt.MapClaims{
-		"sub":    "rsa-user",
-		"groups": []interface{}{"/sd-admins"},
+		"preferred_username": "rsa-user",
+		"groups":             []interface{}{"/sd-admins"},
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
 	signed, err := token.SignedString(priv)

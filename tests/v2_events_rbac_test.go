@@ -714,3 +714,67 @@ func TestV2HasExtendedViewBehavior(t *testing.T) {
 		assert.GreaterOrEqual(t, len(resp.Data), 1, "should see at least the planned event")
 	})
 }
+
+func TestV2InvalidTokenAndClaims(t *testing.T) {
+	truncateIncidents(t)
+	r := initTestsWithHMAC(t)
+
+	creatorToken := generateTestToken("user-a", []string{"sd_creators"})
+
+	components := []int{1, 2}
+	impact := 0
+	system := false
+	startDate := time.Now().Add(time.Hour).UTC()
+	endDate := time.Now().Add(2 * time.Hour).UTC()
+
+	incData := v2.IncidentData{
+		Title: "Test event", Description: "test",
+		ContactEmail: "test@example.com", Impact: &impact,
+		Components: components, StartDate: startDate,
+		EndDate: &endDate, System: &system, Type: event.TypeMaintenance,
+	}
+
+	t.Run("invalid token signature returns 401", func(t *testing.T) {
+		wrongSecretToken := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+			"preferred_username": "user-a",
+			"groups":             []interface{}{"sd_creators"},
+		})
+		invalidToken, err := wrongSecretToken.SignedString([]byte("wrong-secret"))
+		require.NoError(t, err)
+
+		data, _ := json.Marshal(incData)
+		w := httptest.NewRecorder()
+		req, _ := http.NewRequest(http.MethodPost, "/v2/events", bytes.NewReader(data))
+		req.Header.Set("Authorization", "Bearer "+invalidToken)
+		r.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusUnauthorized, w.Code)
+	})
+
+	t.Run("valid token with invalid groups claim returns 401", func(t *testing.T) {
+		invalidClaimsToken := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+			"preferred_username": "user-a",
+			"groups":             "sd_creators",
+		})
+		tokenWithInvalidClaims, err := invalidClaimsToken.SignedString([]byte(testHMACSecret))
+		require.NoError(t, err)
+
+		data, _ := json.Marshal(incData)
+		w := httptest.NewRecorder()
+		req, _ := http.NewRequest(http.MethodPost, "/v2/events", bytes.NewReader(data))
+		req.Header.Set("Authorization", "Bearer "+tokenWithInvalidClaims)
+		r.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusUnauthorized, w.Code)
+	})
+
+	t.Run("valid token with valid claims succeeds", func(t *testing.T) {
+		data, _ := json.Marshal(incData)
+		w := httptest.NewRecorder()
+		req, _ := http.NewRequest(http.MethodPost, "/v2/events", bytes.NewReader(data))
+		req.Header.Set("Authorization", "Bearer "+creatorToken)
+		r.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+	})
+}

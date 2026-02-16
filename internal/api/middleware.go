@@ -129,13 +129,13 @@ func AuthenticationMW(prov *auth.Provider, logger *zap.Logger, secretKey string)
 
 		if errUserID := setUserIDFromClaims(claims, c, logger); errUserID != nil {
 			logger.Error("failed to set userID from claims", zap.Error(errUserID))
-			c.Abort()
+			apiErrors.RaiseNotAuthorizedErr(c, apiErrors.ErrAuthTokenInvalid)
 			return
 		}
 
 		if groupsErr := setGroupsFromClaims(claims, c, logger); groupsErr != nil {
 			logger.Error("failed to set groups from claims", zap.Error(groupsErr))
-			c.Abort()
+			apiErrors.RaiseNotAuthorizedErr(c, apiErrors.ErrAuthTokenInvalid)
 			return
 		}
 
@@ -174,6 +174,7 @@ func SetJWTClaims(
 
 		claims, ok := token.Claims.(jwt.MapClaims)
 		if !ok {
+			logger.Error("authentication failed: unable to extract claims from token")
 			apiErrors.RaiseNotAuthorizedErr(c, apiErrors.ErrAuthTokenInvalid)
 			return
 		}
