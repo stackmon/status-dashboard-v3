@@ -300,8 +300,9 @@ func GetIncidentHandler(dbInst *db.DB, logger *zap.Logger, svc *rbac.Service) gi
 		}
 
 		isAuth := hasExtendedView(c, svc)
-		// Hide pending review maintenance from non-authenticated users
-		if !isAuth && r.Type == event.TypeMaintenance && r.Status == event.MaintenancePendingReview {
+		// Hide pending review and reviewed maintenance from non-authenticated users
+		if !isAuth && r.Type == event.TypeMaintenance &&
+			(r.Status == event.MaintenancePendingReview || r.Status == event.MaintenanceReviewed) {
 			apiErrors.RaiseStatusNotFoundErr(c, apiErrors.ErrIncidentDSNotExist)
 			return
 		}

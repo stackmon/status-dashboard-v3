@@ -124,8 +124,8 @@ func applyEventsFilters(base *gorm.DB, params *IncidentsParams, isAuth bool) (*g
 
 	if !isAuth {
 		base = base.Where(
-			"NOT (incident.type = ? AND incident.status = ?)",
-			event.TypeMaintenance, event.MaintenancePendingReview,
+			"NOT (incident.type = ? AND incident.status IN (?, ?))",
+			event.TypeMaintenance, event.MaintenancePendingReview, event.MaintenanceReviewed,
 		)
 	}
 

@@ -168,7 +168,7 @@ The system enforces role-based permissions throughout the maintenance lifecycle.
 #### Status Workflow
 
 - **FR-022**: System MUST support the following status flow for sd_creators: pending review → reviewed → planned → [existing statuses]
-- **FR-022-1**: System MUST NOT include maintenance events with "pending review" status in API responses for unauthenticated users
+- **FR-022-1**: System MUST NOT include maintenance events with "pending review" or "reviewed" status in API responses for unauthenticated users
 - **FR-022a**: System MUST support direct "planned" status for events created by sd_operators and sd_admins users (bypassing pending review and reviewed statuses)
 - **FR-022b**: System MUST support "cancelled" as a terminal status reachable from any other status, representing event removal/cancellation
 - **FR-023**: The internal checker goroutine in the existing "checker" module MUST automatically change status from "reviewed" to "planned" without performing additional validation

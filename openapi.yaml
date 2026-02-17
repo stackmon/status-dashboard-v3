@@ -12,7 +12,7 @@ info:
     - `contact_email` - Contact email for maintenance events
     - `version` - Version number for optimistic locking (conflict detection)
     
-    Maintenance events with status `pending_review` are only visible to authenticated users.
+    Maintenance events with status `pending_review` or `reviewed` are only visible to authenticated users.
     
     ## Optimistic Locking
     
@@ -21,6 +21,25 @@ info:
     - PATCH requests must include the current `version` number
     - If the version doesn't match (event was modified by another user), a 409 Conflict is returned
     - On successful update, the version is automatically incremented
+    
+    ## Role-Based Access Control (RBAC)
+    
+    The API implements RBAC with three roles (highest to lowest privilege):
+    
+    | Role | Permissions |
+    |------|-------------|
+    | **sd_admins** | Unrestricted access to all operations, bypass status restrictions |
+    | **sd_operators** | View all events, approve pending_review → reviewed, create events (status: planned) |
+    | **sd_creators** | Create maintenance (status: pending_review), modify/cancel own pending_review events |
+    
+    Roles are determined from the JWT `groups` claim and mapped via environment variables:
+    - `SD_ADMINS_GROUP` (default: "admin-group")
+    - `SD_OPERATORS_GROUP`
+    - `SD_CREATORS_GROUP`
+    
+    ### Error Responses
+    - `401 Unauthorized` - Missing or invalid JWT token
+    - `403 Forbidden` - Insufficient role permissions or not event owner
 servers:
   - url: http://localhost:8000
 tags:
@@ -34,6 +53,8 @@ tags:
     description: Operations about components
   - name: v1
     description: Deprecated API schema for backward compatibility
+security:
+  - BearerAuth: []
 paths:
   /auth/login:
     get:
@@ -331,6 +352,10 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/IncidentPostResponse'
+        '401':
+          description: Unauthorized - missing or invalid JWT token
+        '403':
+          description: Forbidden - insufficient permissions for this operation
 
   /v2/events/{event_id}:
     get:
@@ -386,6 +411,10 @@ paths:
           description: Invalid ID supplied
         '404':
           description: Event not found.
+        '401':
+          description: Unauthorized - missing or invalid JWT token
+        '403':
+          description: Forbidden - insufficient permissions or not event owner
         '409':
           description: Version conflict - event has been modified by another user. Fetch the latest version and retry.
           content:
@@ -519,6 +548,10 @@ paths:
           description: Invalid ID supplied
         '404':
           description: Incident not found.
+        '401':
+          description: Unauthorized - missing or invalid JWT token
+        '403':
+          description: Forbidden - insufficient permissions or not event owner
         '409':
           description: Version conflict - incident has been modified by another user. Fetch the latest version and retry.
           content:
@@ -1214,3 +1247,9 @@ components:
       schema:
         type: integer
         example: 0
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT token from Keycloak. Include in Authorization header as "Bearer <token>"

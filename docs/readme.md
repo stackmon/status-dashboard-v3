@@ -7,3 +7,4 @@
 - [Incident creation for API V2](./v2/v2_incident_creation.md)
 - [Components availability V2](./v2/v2_components_availability.md)
 - [Authentication for FE part](./auth/authentication.md)
+- [Role-Based Access Control (RBAC)](./auth/rbac.md)
