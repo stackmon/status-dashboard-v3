@@ -773,12 +773,12 @@ func TestPatchEventUpdateHandler(t *testing.T) {
 	}
 }
 
-// TestPatchIncidentVersionConflict tests the optimistic locking mechanism for event updates.
+// TestPatchIncidentVersionConflict tests the optimistic locking mechanism for maintenance event updates.
 // This test verifies that when a PATCH request is sent with an outdated version number,
 // the API correctly returns HTTP 409 Conflict.
 //
 // Scenario:
-// - Event in database has version = 2
+// - Maintenance event in database has version = 2
 // - PATCH request sent with version = 1 (outdated)
 // - UPDATE query returns 0 affected rows (no match because version doesn't match)
 // - API returns HTTP 409 Conflict with "version conflict" message.
@@ -789,20 +789,20 @@ func TestPatchIncidentVersionConflict(t *testing.T) {
 	require.NoError(t, err)
 
 	eventID := 222
-	impact2 := 2 // Incident
+	impact0 := 0 // Maintenance
 	systemFalse := false
 	versionInDB := 2      // Version in database
 	versionInRequest := 1 // Version in PATCH request (outdated)
 
-	// Mock data setup - incident in DB has version 2 and is OPEN (no end_date)
-	incidentInDB := db.Incident{
+	// Mock data setup - maintenance in DB has version 2 with planned status
+	maintenanceInDB := db.Incident{
 		ID:          uint(eventID),
-		Text:        &[]string{"Incident title"}[0],
+		Text:        &[]string{"Maintenance title"}[0],
 		Description: &[]string{"Description"}[0],
 		StartDate:   &testTime,
-		EndDate:     nil, // Open incident
-		Impact:      &impact2,
-		Type:        event.TypeIncident,
+		EndDate:     nil,
+		Impact:      &impact0,
+		Type:        event.TypeMaintenance,
 		System:      systemFalse,
 		Version:     &versionInDB,
 		Components: []db.Component{
@@ -817,17 +817,17 @@ func TestPatchIncidentVersionConflict(t *testing.T) {
 			},
 		},
 		Statuses: []db.IncidentStatus{
-			{ID: 91, IncidentID: uint(eventID), Status: event.IncidentAnalysing, Text: "Incident analysing.", Timestamp: testTime},
+			{ID: 91, IncidentID: uint(eventID), Status: event.MaintenancePlanned, Text: "Maintenance planned.", Timestamp: testTime},
 		},
 	}
 
 	r, m, _ := initTests(t)
 
 	// Mock GetIncident for EventExistenceCheck middleware
-	rowsInc, incidentIDs, componentIDs := prepareIncidentRows([]*db.Incident{&incidentInDB})
+	rowsInc, incidentIDs, componentIDs := prepareIncidentRows([]*db.Incident{&maintenanceInDB})
 	m.ExpectQuery(`^SELECT (.+) FROM "incident"`).WillReturnRows(rowsInc)
 
-	rowsIncComp, rowsComp, rowsCompAttr, rowsStatus := prepareRelatedRows([]*db.Incident{&incidentInDB})
+	rowsIncComp, rowsComp, rowsCompAttr, rowsStatus := prepareRelatedRows([]*db.Incident{&maintenanceInDB})
 	m.ExpectQuery(`^SELECT (.+) FROM "incident_component_relation"`).
 		WithArgs(incidentIDs...).
 		WillReturnRows(rowsIncComp)
@@ -851,10 +851,9 @@ func TestPatchIncidentVersionConflict(t *testing.T) {
 	m.ExpectRollback()
 
 	// Prepare PATCH request with version 1 (but DB has version 2)
-	// Use "fixing" status which is valid transition from "analysing"
 	requestBody := fmt.Sprintf(`{
-		"message": "Incident is being fixed",
-		"status": "fixing",
+		"message": "Maintenance update",
+		"status": "in progress",
 		"update_date": "%s",
 		"version": %d
 	}`, updateDate, versionInRequest)
@@ -871,6 +870,138 @@ func TestPatchIncidentVersionConflict(t *testing.T) {
 	assert.Equal(t, http.StatusConflict, w.Code, "Expected HTTP 409 Conflict for version mismatch")
 	assert.Contains(t, w.Body.String(), "version conflict", "Response should contain 'version conflict' message")
 	assert.NoError(t, m.ExpectationsWereMet())
+}
+
+// TestPatchIncidentVersionConflictIgnoredForNonMaintenance tests that version conflict
+// does NOT block updates for incident and info types (version check is only enforced for maintenance).
+func TestPatchIncidentVersionConflictIgnoredForNonMaintenance(t *testing.T) {
+	testCases := []struct {
+		name        string
+		eventType   string
+		impact      int
+		status      event.Status
+		patchStatus string
+	}{
+		{
+			name:        "incident type ignores version conflict",
+			eventType:   event.TypeIncident,
+			impact:      2,
+			status:      event.IncidentAnalysing,
+			patchStatus: "fixing",
+		},
+		{
+			name:        "info type ignores version conflict",
+			eventType:   event.TypeInformation,
+			impact:      0,
+			status:      event.InfoPlanned,
+			patchStatus: "active",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			startDate := "2025-08-01T11:45:26.371Z"
+			updateDate := "2025-08-02T11:45:26.371Z"
+			testTime, err := time.Parse(time.RFC3339, startDate)
+			require.NoError(t, err)
+
+			eventID := 223
+			systemFalse := false
+			versionInDB := 2
+			versionInRequest := 1 // Outdated version
+
+			eventInDB := db.Incident{
+				ID:          uint(eventID),
+				Text:        &[]string{"Event title"}[0],
+				Description: &[]string{"Description"}[0],
+				StartDate:   &testTime,
+				EndDate:     nil,
+				Impact:      &tc.impact,
+				Type:        tc.eventType,
+				System:      systemFalse,
+				Version:     &versionInDB,
+				Components: []db.Component{
+					{
+						ID:   151,
+						Name: "Component A",
+						Attrs: []db.ComponentAttr{
+							{ID: 462, ComponentID: 151, Name: "category", Value: "A"},
+							{ID: 463, ComponentID: 151, Name: "region", Value: "A"},
+							{ID: 464, ComponentID: 151, Name: "type", Value: "a"},
+						},
+					},
+				},
+				Statuses: []db.IncidentStatus{
+					{ID: 91, IncidentID: uint(eventID), Status: tc.status, Text: "Status.", Timestamp: testTime},
+				},
+			}
+
+			r, m, _ := initTests(t)
+
+			// Mock for EventExistenceCheck middleware
+			rowsInc, incidentIDs, componentIDs := prepareIncidentRows([]*db.Incident{&eventInDB})
+			m.ExpectQuery(`^SELECT (.+) FROM "incident"`).WillReturnRows(rowsInc)
+
+			rowsIncComp, rowsComp, rowsCompAttr, rowsStatus := prepareRelatedRows([]*db.Incident{&eventInDB})
+			m.ExpectQuery(`^SELECT (.+) FROM "incident_component_relation"`).
+				WithArgs(incidentIDs...).
+				WillReturnRows(rowsIncComp)
+			m.ExpectQuery(`^SELECT (.+) FROM "component"`).
+				WithArgs(componentIDs...).
+				WillReturnRows(rowsComp)
+			m.ExpectQuery("^SELECT (.+) FROM \"component_attribute\"").
+				WillReturnRows(rowsCompAttr)
+			m.ExpectQuery(`^SELECT (.+) FROM "incident_status"`).
+				WithArgs(incidentIDs...).
+				WillReturnRows(rowsStatus)
+
+			// For non-maintenance, UPDATE does NOT include version in WHERE clause
+			m.ExpectBegin()
+			m.ExpectExec(`^UPDATE "incident" SET .+ WHERE id = \$\d+$`).
+				WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(),
+					sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(),
+					eventID).
+				WillReturnResult(sqlmock.NewResult(0, 1))
+			m.ExpectQuery(`^INSERT INTO "incident_status"`).
+				WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(92))
+			m.ExpectCommit()
+
+			// Mock for GetIncident after update (reload)
+			rowsInc2, incidentIDs2, componentIDs2 := prepareIncidentRows([]*db.Incident{&eventInDB})
+			m.ExpectQuery(`^SELECT (.+) FROM "incident"`).WillReturnRows(rowsInc2)
+
+			rowsIncComp2, rowsComp2, rowsCompAttr2, rowsStatus2 := prepareRelatedRows([]*db.Incident{&eventInDB})
+			m.ExpectQuery(`^SELECT (.+) FROM "incident_component_relation"`).
+				WithArgs(incidentIDs2...).
+				WillReturnRows(rowsIncComp2)
+			m.ExpectQuery(`^SELECT (.+) FROM "component"`).
+				WithArgs(componentIDs2...).
+				WillReturnRows(rowsComp2)
+			m.ExpectQuery("^SELECT (.+) FROM \"component_attribute\"").
+				WillReturnRows(rowsCompAttr2)
+			m.ExpectQuery(`^SELECT (.+) FROM "incident_status"`).
+				WithArgs(incidentIDs2...).
+				WillReturnRows(rowsStatus2)
+
+			requestBody := fmt.Sprintf(`{
+				"message": "Event update",
+				"status": "%s",
+				"update_date": "%s",
+				"version": %d
+			}`, tc.patchStatus, updateDate, versionInRequest)
+
+			w := httptest.NewRecorder()
+			req, _ := http.NewRequest(http.MethodPatch, fmt.Sprintf("/v2/events/%d", eventID), strings.NewReader(requestBody))
+			req.Header.Set("Content-Type", "application/json")
+
+			r.ServeHTTP(w, req)
+
+			t.Logf("Response: %s", w.Body.String())
+
+			assert.Equal(t, http.StatusOK, w.Code, "Expected HTTP 200 OK - version conflict should be ignored for non-maintenance")
+			assert.NoError(t, m.ExpectationsWereMet())
+		})
+	}
 }
 
 func TestModifyEventUpdate(t *testing.T) {

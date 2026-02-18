@@ -36,6 +36,12 @@ func initTests(t *testing.T) (*gin.Engine, sqlmock.Sqlmock, *db.DB) {
 func initRoutes(t *testing.T, c *gin.Engine, dbInst *db.DB, log *zap.Logger) {
 	t.Helper()
 
+	// Middleware to inject admin role for tests
+	setAdminRole := func(c *gin.Context) {
+		c.Set("role", rbac.Admin)
+		c.Next()
+	}
+
 	v2Api := c.Group("v2")
 	{
 		v2Api.GET("components", GetComponentsHandler(dbInst, log))
@@ -49,6 +55,7 @@ func initRoutes(t *testing.T, c *gin.Engine, dbInst *db.DB, log *zap.Logger) {
 		v2Api.GET("incidents/:eventID", GetIncidentHandler(dbInst, log, rbac.New("", "operators", "")))
 		v2Api.PATCH("incidents/:eventID",
 			EventExistenceCheckForTests(dbInst, log),
+			setAdminRole,
 			PatchIncidentHandler(dbInst, log))
 		v2Api.PATCH("incidents/:eventID/updates/:updateID",
 			EventExistenceCheckForTests(dbInst, log),
@@ -61,6 +68,7 @@ func initRoutes(t *testing.T, c *gin.Engine, dbInst *db.DB, log *zap.Logger) {
 		v2Api.GET("events/:eventID", GetIncidentHandler(dbInst, log, rbac.New("", "operators", "")))
 		v2Api.PATCH("events/:eventID",
 			EventExistenceCheckForTests(dbInst, log),
+			setAdminRole,
 			PatchIncidentHandler(dbInst, log))
 		v2Api.PATCH("events/:eventID/updates/:updateID",
 			EventExistenceCheckForTests(dbInst, log),

@@ -263,16 +263,19 @@ func (db *DB) ModifyIncident(inc *Incident) error {
 	inc.Version = &newVersion
 
 	return db.g.Transaction(func(tx *gorm.DB) error {
-		r := tx.Model(&Incident{}).
-			Where("id = ? AND version = ?", inc.ID, expectedVersion).
-			Omit("Statuses", "Components").
-			Updates(inc)
+		query := tx.Model(&Incident{}).Where("id = ?", inc.ID)
+
+		if inc.Type == event.TypeMaintenance {
+			query = query.Where("version = ?", expectedVersion)
+		}
+
+		r := query.Omit("Statuses", "Components").Updates(inc)
 
 		if r.Error != nil {
 			return r.Error
 		}
 
-		if r.RowsAffected == 0 {
+		if inc.Type == event.TypeMaintenance && r.RowsAffected == 0 {
 			return ErrVersionConflict
 		}
 

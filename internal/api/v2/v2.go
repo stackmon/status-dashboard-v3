@@ -991,7 +991,7 @@ type PatchIncidentData struct {
 	StartDate   *time.Time   `json:"start_date,omitempty"`
 	EndDate     *time.Time   `json:"end_date,omitempty"`
 	Type        string       `json:"type,omitempty" binding:"omitempty,oneof=maintenance info incident"`
-	Version     *int         `json:"version" binding:"required"`
+	Version     *int         `json:"version"`
 }
 
 func PatchIncidentHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
@@ -1004,6 +1004,13 @@ func PatchIncidentHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 		if err := c.ShouldBindBodyWithJSON(&incData); err != nil {
 			logger.Warn("incident patch failed: invalid request body", zap.Error(err))
 			apiErrors.RaiseBadRequestErr(c, err)
+			return
+		}
+
+		if storedIncident.Type == event.TypeMaintenance && incData.Version == nil {
+			logger.Info("incident patch failed: version required for maintenance",
+				zap.Uint("event_id", storedIncident.ID))
+			apiErrors.RaiseBadRequestErr(c, errors.New("version is required for maintenance events"))
 			return
 		}
 
