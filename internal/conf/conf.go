@@ -45,14 +45,19 @@ type Config struct {
 	AuthenticationDisabled bool `envconfig:"AUTHENTICATION_DISABLED"`
 	// Secret key for V1 authentication (deprecated)
 	SecretKeyV1 string `envconfig:"SECRET_KEY"`
-	// Auth group name that users must belong to for authorization (optional)
-	AuthGroup string `envconfig:"AUTH_GROUP"`
-	// RBAC: Creators group name
-	CreatorsGroup string `envconfig:"GROUP_CREATORS"`
-	// RBAC: Operators group name
-	OperatorsGroup string `envconfig:"GROUP_OPERATORS"`
-	// RBAC: Admins group name
-	AdminsGroup string `envconfig:"GROUP_ADMINS"`
+	// RBAC configuration
+	RBAC RBACConfig `envconfig:"RBAC"`
+}
+
+type RBACConfig struct {
+	// Enable RBAC authorization
+	Enabled bool `envconfig:"ENABLED"`
+	// Creators group name
+	Creators string `envconfig:"CREATORS"`
+	// Operators group name
+	Operators string `envconfig:"OPERATORS"`
+	// Admins group name
+	Admins string `envconfig:"ADMINS"`
 }
 
 type Keycloak struct {
@@ -69,6 +74,36 @@ func (c *Config) Validate() error {
 	}
 	if p < 1024 || p > 50000 {
 		return fmt.Errorf("wrong port for http server")
+	}
+
+	if rbacErr := c.RBAC.Validate(); rbacErr != nil {
+		return rbacErr
+	}
+
+	return nil
+}
+
+func (r *RBACConfig) Validate() error {
+	if !r.Enabled {
+		return nil
+	}
+
+	var missing []string
+	if r.Creators == "" {
+		missing = append(missing, "SD_RBAC_CREATORS")
+	}
+	if r.Operators == "" {
+		missing = append(missing, "SD_RBAC_OPERATORS")
+	}
+	if r.Admins == "" {
+		missing = append(missing, "SD_RBAC_ADMINS")
+	}
+
+	if len(missing) > 0 {
+		return fmt.Errorf(
+			"RBAC is enabled but required groups are not configured: %s",
+			strings.Join(missing, ", "),
+		)
 	}
 
 	return nil
@@ -146,10 +181,24 @@ func mergeConfigs(env map[string]string, obj any, prefix string) error { //nolin
 		field := t.Field(i)
 		value := v.Field(i)
 
+		// Handle pointer to struct (e.g., *Keycloak)
 		if value.Kind() == reflect.Ptr && value.Elem().Kind() == reflect.Struct {
 			envValueTag := field.Tag.Get(envConfigTag)
 			confPrefix := fmt.Sprintf("%s_%s", prefix, envValueTag)
 			err := mergeConfigs(env, value.Interface(), confPrefix)
+			if err != nil {
+				return err
+			}
+
+			continue
+		}
+
+		// Handle embedded struct (e.g., RBACConfig)
+		// For struct values (not pointers), we need to pass a pointer
+		if value.Kind() == reflect.Struct {
+			envValueTag := field.Tag.Get(envConfigTag)
+			confPrefix := fmt.Sprintf("%s_%s", prefix, envValueTag)
+			err := mergeConfigs(env, value.Addr().Interface(), confPrefix)
 			if err != nil {
 				return err
 			}
@@ -211,10 +260,10 @@ func (c *Config) Log(logger *zap.Logger) {
 
 	logger.Info("Authentication configuration",
 		zap.Bool("authentication_disabled", c.AuthenticationDisabled),
-		zap.String("auth_group", c.AuthGroup),
-		zap.String("creators_group", c.CreatorsGroup),
-		zap.String("operators_group", c.OperatorsGroup),
-		zap.String("admins_group", c.AdminsGroup),
+		zap.Bool("rbac_enabled", c.RBAC.Enabled),
+		zap.String("creators_group", c.RBAC.Creators),
+		zap.String("operators_group", c.RBAC.Operators),
+		zap.String("admins_group", c.RBAC.Admins),
 		zap.String("secret_key_v1", maskSecret(c.SecretKeyV1)),
 	)
 

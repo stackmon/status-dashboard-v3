@@ -16,13 +16,16 @@ Three roles are supported, with highest privilege taking precedence when a user 
 
 ## Configuration
 
-Roles are mapped from IdP group names via environment variables:
+RBAC must be explicitly enabled. When enabled, all group mappings are required — the application will fail to start if any are missing.
 
-| Environment Variable | Default | Description |
-|---------------------|---------|-------------|
-| `SD_ADMINS_GROUP` | `admin-group` | IdP group for admin role |
-| `SD_OPERATORS_GROUP` | (none) | IdP group for operator role |
-| `SD_CREATORS_GROUP` | (none) | IdP group for creator role |
+| Environment Variable | Required | Description |
+|---------------------|----------|-------------|
+| `SD_RBAC_ENABLED` | Yes | Enable RBAC authorization (`true`/`false`) |
+| `SD_RBAC_ADMINS` | When RBAC enabled | IdP group for admin role |
+| `SD_RBAC_OPERATORS` | When RBAC enabled | IdP group for operator role |
+| `SD_RBAC_CREATORS` | When RBAC enabled | IdP group for creator role |
+
+When `SD_RBAC_ENABLED=false` (or not set), a warning is logged and write operations are denied.
 
 ## Permissions by Role
 
@@ -91,7 +94,7 @@ Events with status `pending_review` or `reviewed` are hidden from unauthenticate
 | `401 Unauthorized` | Missing or invalid JWT token |
 | `403 Forbidden` | Insufficient role permissions |
 | `403 Forbidden` | Attempting to modify event you don't own (sd_creators) |
-| `403 Forbidden` | Attempting to modify event not in `pending_review` (sd_creators) |
+| `409 Conflict` | Status transition not allowed for current role/state |
 | `409 Conflict` | Version mismatch (concurrent modification) |
 | `409 Conflict` | Event no longer in expected status |
 

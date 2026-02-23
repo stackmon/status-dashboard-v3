@@ -21,7 +21,6 @@ import (
 
 const (
 	eventContextKey = "event"
-	roleContextKey  = "role"
 )
 
 const (
@@ -181,13 +180,13 @@ func SetJWTClaims(
 
 		if errUserID := setUserIDFromClaims(claims, c, logger); errUserID != nil {
 			logger.Error("failed to set userID from claims", zap.Error(errUserID))
-			c.Abort()
+			apiErrors.RaiseNotAuthorizedErr(c, apiErrors.ErrAuthTokenInvalid)
 			return
 		}
 
 		if groupsErr := setGroupsFromClaims(claims, c, logger); groupsErr != nil {
 			logger.Error("failed to set groups from claims", zap.Error(groupsErr))
-			c.Abort()
+			apiErrors.RaiseNotAuthorizedErr(c, apiErrors.ErrAuthTokenInvalid)
 			return
 		}
 
@@ -243,7 +242,7 @@ func setGroupsFromClaims(claims jwt.MapClaims, c *gin.Context, logger *zap.Logge
 }
 
 // RBACAuthorizationMW resolves user roles from JWT claims for write operations (POST/PATCH).
-// Users without configured groups are rejected with 401.
+// Users without configured groups are rejected with 403 Forbidden.
 func RBACAuthorizationMW(rbacService *rbac.Service, logger *zap.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		logger.Debug("attempting to resolve user role")
@@ -264,12 +263,12 @@ func RBACAuthorizationMW(rbacService *rbac.Service, logger *zap.Logger) gin.Hand
 
 		if !rbacService.HasAuthorizedGroup(groups) {
 			logger.Warn("user does not belong to any configured RBAC group")
-			apiErrors.RaiseNotAuthorizedErr(c, apiErrors.ErrAuthNotAuthenticated)
+			apiErrors.RaiseForbiddenErr(c, apiErrors.ErrAuthForbidden)
 			return
 		}
 
 		role := rbacService.Resolve(groups)
-		c.Set(roleContextKey, role)
+		c.Set(v2.RoleContextKey, role)
 		logger.Debug("user role resolved", zap.Int("role", int(role)))
 
 		c.Next()

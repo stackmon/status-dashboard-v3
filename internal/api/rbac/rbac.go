@@ -27,6 +27,8 @@ func New(creatorsGroup, operatorsGroup, adminsGroup string) *Service {
 
 // HasAuthorizedGroup checks if the user belongs to any configured RBAC group.
 // Group names are normalized by trimming leading "/" prefix.
+// The non-empty guards are defense in depth — conf.Validate() ensures groups
+// are set when RBAC is enabled, but this package must remain safe standalone.
 func (s *Service) HasAuthorizedGroup(userGroups []string) bool {
 	for _, group := range userGroups {
 		normalizedGroup := strings.TrimPrefix(group, "/")
@@ -44,24 +46,26 @@ func (s *Service) HasAuthorizedGroup(userGroups []string) bool {
 	return false
 }
 
+// Resolve determines the highest RBAC role from the user's group membership.
+// The non-empty guards are defense in depth — see HasAuthorizedGroup.
 func (s *Service) Resolve(userGroups []string) Role {
 	currentRole := NoRole
 
 	for _, group := range userGroups {
 		normalizedGroup := strings.TrimPrefix(group, "/")
 
-		if normalizedGroup == s.adminsGroup {
+		if normalizedGroup == s.adminsGroup && s.adminsGroup != "" {
 			return Admin
 		}
 
-		if normalizedGroup == s.operatorsGroup {
+		if normalizedGroup == s.operatorsGroup && s.operatorsGroup != "" {
 			if Operator > currentRole {
 				currentRole = Operator
 			}
 			continue
 		}
 
-		if normalizedGroup == s.creatorsGroup {
+		if normalizedGroup == s.creatorsGroup && s.creatorsGroup != "" {
 			if Creator > currentRole {
 				currentRole = Creator
 			}

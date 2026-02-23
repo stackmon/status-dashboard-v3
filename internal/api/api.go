@@ -45,7 +45,11 @@ func New(cfg *conf.Config, log *zap.Logger, database *db.DB) (*API, error) {
 	r.Use(CORSMiddleware())
 	r.NoRoute(errors.Return404)
 
-	rbacService := rbac.New(cfg.CreatorsGroup, cfg.OperatorsGroup, cfg.AdminsGroup)
+	rbacService := rbac.New(cfg.RBAC.Creators, cfg.RBAC.Operators, cfg.RBAC.Admins)
+
+	if !cfg.RBAC.Enabled {
+		log.Warn("RBAC is disabled (SD_RBAC_ENABLED), write operations will be denied")
+	}
 
 	a := &API{
 		r:           r,

@@ -4,7 +4,6 @@ import (
 	"net/mail"
 	"strconv"
 	"strings"
-	"time"
 
 	apiErrors "github.com/stackmon/otc-status-dashboard/internal/api/errors"
 	"github.com/stackmon/otc-status-dashboard/internal/db"
@@ -114,10 +113,6 @@ func validateMaintenanceCreation(incData IncidentData) error {
 	}
 	if _, err := mail.ParseAddress(incData.ContactEmail); err != nil {
 		return apiErrors.ErrMaintenanceContactEmailInvalid
-	}
-
-	if !incData.StartDate.After(time.Now()) {
-		return apiErrors.ErrMaintenanceStartDateInPast
 	}
 
 	if incData.EndDate != nil && !incData.EndDate.After(incData.StartDate) {

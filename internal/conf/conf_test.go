@@ -1,0 +1,95 @@
+package conf
+
+import (
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+)
+
+func TestRBACConfig_Validate(t *testing.T) {
+	tests := []struct {
+		name      string
+		config    RBACConfig
+		expectErr bool
+		errSubstr string
+	}{
+		{
+			name:      "Disabled RBAC: no groups required",
+			config:    RBACConfig{Enabled: false},
+			expectErr: false,
+		},
+		{
+			name: "Enabled with all groups configured",
+			config: RBACConfig{
+				Enabled:   true,
+				Creators:  "sd_creators",
+				Operators: "sd_operators",
+				Admins:    "sd_admins",
+			},
+			expectErr: false,
+		},
+		{
+			name: "Enabled but missing Creators",
+			config: RBACConfig{
+				Enabled:   true,
+				Operators: "sd_operators",
+				Admins:    "sd_admins",
+			},
+			expectErr: true,
+			errSubstr: "SD_RBAC_CREATORS",
+		},
+		{
+			name: "Enabled but missing Operators",
+			config: RBACConfig{
+				Enabled:  true,
+				Creators: "sd_creators",
+				Admins:   "sd_admins",
+			},
+			expectErr: true,
+			errSubstr: "SD_RBAC_OPERATORS",
+		},
+		{
+			name: "Enabled but missing Admins",
+			config: RBACConfig{
+				Enabled:   true,
+				Creators:  "sd_creators",
+				Operators: "sd_operators",
+			},
+			expectErr: true,
+			errSubstr: "SD_RBAC_ADMINS",
+		},
+		{
+			name: "Enabled but all groups missing",
+			config: RBACConfig{
+				Enabled: true,
+			},
+			expectErr: true,
+			errSubstr: "SD_RBAC_CREATORS",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := tc.config.Validate()
+			if tc.expectErr {
+				assert.Error(t, err)
+				assert.Contains(t, err.Error(), tc.errSubstr)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestConfig_Validate_PropagatesRBACError(t *testing.T) {
+	cfg := &Config{
+		Port: "8000",
+		RBAC: RBACConfig{
+			Enabled: true,
+		},
+	}
+
+	err := cfg.Validate()
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "RBAC is enabled")
+}

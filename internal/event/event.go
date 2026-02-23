@@ -60,10 +60,10 @@ func IsIncidentClosedStatus(status Status) bool {
 // Maintenance section
 
 const (
-	MaintenancePendingReview Status = "pending review"
+	MaintenancePendingReview Status = "pending_review"
 	MaintenanceReviewed      Status = "reviewed"
 	MaintenancePlanned       Status = "planned"
-	MaintenanceInProgress    Status = "in progress"
+	MaintenanceInProgress    Status = "in_progress"
 	MaintenanceModified      Status = "modified"
 	MaintenanceCompleted     Status = "completed"
 	MaintenanceCancelled     Status = "cancelled"

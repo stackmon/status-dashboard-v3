@@ -14,7 +14,9 @@ var ErrIncidentInvalidType = errors.New("event type is invalid, must be 'mainten
 // Errors for creating incident
 
 var ErrIncidentSystemCreationWrongType = errors.New("system incident must be of type 'incident'")
-var ErrIncidentCreationMaintenanceExists = errors.New("event creation failed, component in maintenance")
+var ErrIncidentCreationMaintenanceExists = errors.New(
+	"event creation failed, component has active or planned maintenance",
+)
 var ErrIncidentCreationLowImpact = errors.New(
 	"incident creation failed, exists the incident with higher impact for component",
 )
@@ -42,10 +44,10 @@ var ErrUpdateDSNotExist = errors.New("update does not exist")
 
 var ErrMaintenanceContactEmailRequired = errors.New("contact_email is required for maintenance")
 var ErrMaintenanceContactEmailInvalid = errors.New("contact_email has invalid format")
-var ErrMaintenanceStartDateInPast = errors.New("start_date must be in the future for maintenance")
 var ErrMaintenanceEndDateBeforeStart = errors.New("end_date must be after start_date")
 var ErrMaintenanceDescriptionRequired = errors.New("description is required for maintenance")
 
 // Errors for version conflict (optimistic locking)
 
 var ErrVersionConflict = errors.New("version conflict: event has been modified by another user")
+var ErrMaintenanceStatusTransitionConflict = errors.New("status transition not allowed for current event state")

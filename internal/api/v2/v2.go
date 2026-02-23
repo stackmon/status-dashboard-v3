@@ -29,6 +29,7 @@ const (
 const (
 	UsernameContextKey     = "userID"
 	UserIDGroupsContextKey = "userIDGroups"
+	RoleContextKey         = "role"
 )
 
 type IncidentID struct {
@@ -370,18 +371,7 @@ func PostIncidentHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 			incData.System = &system
 		}
 
-		var result []*ProcessComponentResp
-		var err error
-		// Route to appropriate handler based on system field
-		if *incData.System {
-			log.Info("system incident detected, using system incident creation logic")
-			result, err = handleSystemIncidentCreation(dbInst, log, incData)
-		} else {
-			log.Info("regular incident detected, using regular incident creation logic")
-			userID := getUserIDFromContext(c)
-			result, err = handleRegularIncidentCreation(dbInst, log, incData, userID)
-		}
-
+		result, err := routeIncidentCreation(c, dbInst, log, incData)
 		if err != nil {
 			if errors.Is(err, apiErrors.ErrIncidentSystemCreationWrongType) {
 				logger.Warn("incident creation failed: invalid system incident type", zap.Error(err))
@@ -393,8 +383,27 @@ func PostIncidentHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 			return
 		}
 
-		c.JSON(http.StatusOK, PostIncidentResp{Result: result})
+		status := http.StatusOK
+		for _, r := range result {
+			if r.Error == apiErrors.ErrIncidentCreationMaintenanceExists.Error() {
+				status = http.StatusConflict
+				break
+			}
+		}
+		c.JSON(status, PostIncidentResp{Result: result})
 	}
+}
+
+func routeIncidentCreation(
+	c *gin.Context, dbInst *db.DB, log *zap.Logger, incData IncidentData,
+) ([]*ProcessComponentResp, error) {
+	if *incData.System {
+		log.Info("system incident detected, using system incident creation logic")
+		return handleSystemIncidentCreation(dbInst, log, incData)
+	}
+	log.Info("regular incident detected, using regular incident creation logic")
+	userID := getUserIDFromContext(c)
+	return handleRegularIncidentCreation(dbInst, log, incData, userID)
 }
 
 func handleSystemIncidentCreation(
@@ -1033,7 +1042,9 @@ func PatchIncidentHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 
 		storedIncident.Statuses = append(storedIncident.Statuses, status)
 		storedIncident.Status = incData.Status
-		storedIncident.Version = incData.Version
+		if incData.Version != nil {
+			storedIncident.Version = incData.Version
+		}
 
 		err := dbInst.ModifyIncident(storedIncident)
 		if err != nil {
@@ -1049,14 +1060,8 @@ func PatchIncidentHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 			return
 		}
 
-		if incData.Status == event.IncidentReopened {
-			err = dbInst.ReOpenIncident(storedIncident)
-			if err != nil {
-				logger.Error("incident reopen failed: database error",
-					zap.Uint("event_id", storedIncident.ID), zap.Error(err))
-				apiErrors.RaiseInternalErr(c, err)
-				return
-			}
+		if err = reopenIncident(c, dbInst, logger, storedIncident, incData.Status); err != nil {
+			return
 		}
 
 		inc, errDB := dbInst.GetIncident(int(storedIncident.ID))
@@ -1069,6 +1074,23 @@ func PatchIncidentHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 
 		c.JSON(http.StatusOK, toAPIEvent(inc, authorizedView))
 	}
+}
+
+func reopenIncident(
+	c *gin.Context, dbInst *db.DB, logger *zap.Logger,
+	storedIncident *db.Incident, status event.Status,
+) error {
+	if status != event.IncidentReopened {
+		return nil
+	}
+	err := dbInst.ReOpenIncident(storedIncident)
+	if err != nil {
+		logger.Error("incident reopen failed: database error",
+			zap.Uint("event_id", storedIncident.ID), zap.Error(err))
+		apiErrors.RaiseInternalErr(c, err)
+		return err
+	}
+	return nil
 }
 
 func validateEffectiveTypeAndImpact(effectiveType string, effectiveImpact int) error {
@@ -1692,7 +1714,7 @@ func mapEventUpdates(statuses []db.IncidentStatus) []EventUpdateData {
 }
 
 func getRoleFromContext(c *gin.Context, logger *zap.Logger) (rbac.Role, bool) {
-	roleVal, exists := c.Get("role")
+	roleVal, exists := c.Get(RoleContextKey)
 	if !exists {
 		apiErrors.RaiseForbiddenErr(c, apiErrors.ErrAuthForbidden)
 		return rbac.NoRole, false
@@ -1717,15 +1739,14 @@ func getUserIDFromContext(c *gin.Context) *string {
 	return nil
 }
 
-func resolveMaintenanceCreateStatus(c *gin.Context, role rbac.Role) event.Status {
+func resolveMaintenanceCreateStatus(role rbac.Role) (event.Status, error) {
 	switch {
-	case role >= rbac.Admin, role >= rbac.Operator:
-		return event.MaintenancePlanned
+	case role >= rbac.Operator:
+		return event.MaintenancePlanned, nil
 	case role >= rbac.Creator:
-		return event.MaintenancePendingReview
+		return event.MaintenancePendingReview, nil
 	default:
-		apiErrors.RaiseForbiddenErr(c, apiErrors.ErrAuthForbidden)
-		return ""
+		return "", apiErrors.ErrInsufficientRole
 	}
 }
 
@@ -1768,7 +1789,7 @@ func allowMaintenancePatchAsOperator(
 			zap.String("incoming_status", string(incoming.Status)),
 			zap.String("allowed_statuses", "reviewed, cancelled, pending review"),
 		)
-		apiErrors.RaiseForbiddenErr(c, apiErrors.ErrAuthForbidden)
+		apiErrors.RaiseConflictErr(c, apiErrors.ErrMaintenanceStatusTransitionConflict)
 		return false
 	}
 	// Operator tried to modify event not in pending review status
@@ -1776,7 +1797,7 @@ func allowMaintenancePatchAsOperator(
 		zap.String("stored_status", string(stored.Status)),
 		zap.String("incoming_status", string(incoming.Status)),
 	)
-	apiErrors.RaiseForbiddenErr(c, apiErrors.ErrAuthForbidden)
+	apiErrors.RaiseConflictErr(c, apiErrors.ErrMaintenanceStatusTransitionConflict)
 	return false
 }
 
@@ -1798,7 +1819,7 @@ func allowMaintenancePatchAsCreator(
 			zap.String("stored_status", string(stored.Status)),
 			zap.String("incoming_status", string(incoming.Status)),
 		)
-		apiErrors.RaiseForbiddenErr(c, apiErrors.ErrAuthForbidden)
+		apiErrors.RaiseConflictErr(c, apiErrors.ErrMaintenanceStatusTransitionConflict)
 		return false
 	}
 
@@ -1812,7 +1833,7 @@ func allowMaintenancePatchAsCreator(
 		zap.String("incoming_status", string(incoming.Status)),
 		zap.String("allowed_statuses", "pending review, cancelled"),
 	)
-	apiErrors.RaiseForbiddenErr(c, apiErrors.ErrAuthForbidden)
+	apiErrors.RaiseConflictErr(c, apiErrors.ErrMaintenanceStatusTransitionConflict)
 	return false
 }
 
@@ -1837,10 +1858,12 @@ func prepareIncidentCreate(c *gin.Context, logger *zap.Logger, incData *Incident
 		if !ok {
 			return false
 		}
-		incData.Status = resolveMaintenanceCreateStatus(c, role)
-		if incData.Status == "" {
+		status, err := resolveMaintenanceCreateStatus(role)
+		if err != nil {
+			apiErrors.RaiseForbiddenErr(c, err)
 			return false
 		}
+		incData.Status = status
 	}
 
 	return true
