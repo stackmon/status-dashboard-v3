@@ -12,6 +12,8 @@ import (
 	"github.com/stackmon/otc-status-dashboard/internal/api/rbac"
 	"github.com/stackmon/otc-status-dashboard/internal/db"
 	"github.com/stackmon/otc-status-dashboard/internal/event"
+
+	apiErrors "github.com/stackmon/otc-status-dashboard/internal/api/errors"
 )
 
 func TestResolveMaintenanceCreateStatus(t *testing.T) {
@@ -49,15 +51,13 @@ func TestResolveMaintenanceCreateStatus(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			gin.SetMode(gin.TestMode)
-			w := httptest.NewRecorder()
-			c, _ := gin.CreateTestContext(w)
-
-			status := resolveMaintenanceCreateStatus(c, tc.role)
+			status, err := resolveMaintenanceCreateStatus(tc.role)
 
 			assert.Equal(t, tc.expectedStatus, status)
 			if tc.expectForbid {
-				assert.Equal(t, 403, w.Code)
+				assert.ErrorIs(t, err, apiErrors.ErrInsufficientRole)
+			} else {
+				assert.NoError(t, err)
 			}
 		})
 	}
@@ -70,6 +70,7 @@ func TestAllowMaintenancePatch(t *testing.T) {
 		storedStatus   event.Status
 		incomingStatus event.Status
 		expectAllow    bool
+		expectStatus   int
 	}{
 		// Admin tests - always allowed
 		{
@@ -122,6 +123,7 @@ func TestAllowMaintenancePatch(t *testing.T) {
 			storedStatus:   event.MaintenanceReviewed,
 			incomingStatus: event.MaintenancePlanned,
 			expectAllow:    false,
+			expectStatus:   409,
 		},
 		{
 			name:           "Operator cannot patch planned status",
@@ -129,6 +131,7 @@ func TestAllowMaintenancePatch(t *testing.T) {
 			storedStatus:   event.MaintenancePlanned,
 			incomingStatus: event.MaintenanceCancelled,
 			expectAllow:    false,
+			expectStatus:   409,
 		},
 
 		// Creator tests
@@ -152,6 +155,7 @@ func TestAllowMaintenancePatch(t *testing.T) {
 			storedStatus:   event.MaintenancePendingReview,
 			incomingStatus: event.MaintenanceReviewed,
 			expectAllow:    false,
+			expectStatus:   409,
 		},
 		{
 			name:           "Creator cannot patch reviewed status",
@@ -159,6 +163,7 @@ func TestAllowMaintenancePatch(t *testing.T) {
 			storedStatus:   event.MaintenanceReviewed,
 			incomingStatus: event.MaintenancePendingReview,
 			expectAllow:    false,
+			expectStatus:   409,
 		},
 		{
 			name:           "Creator cannot patch planned status",
@@ -166,6 +171,7 @@ func TestAllowMaintenancePatch(t *testing.T) {
 			storedStatus:   event.MaintenancePlanned,
 			incomingStatus: event.MaintenanceCancelled,
 			expectAllow:    false,
+			expectStatus:   409,
 		},
 
 		// NoRole tests
@@ -175,6 +181,7 @@ func TestAllowMaintenancePatch(t *testing.T) {
 			storedStatus:   event.MaintenancePendingReview,
 			incomingStatus: event.MaintenancePendingReview,
 			expectAllow:    false,
+			expectStatus:   403,
 		},
 	}
 
@@ -201,7 +208,13 @@ func TestAllowMaintenancePatch(t *testing.T) {
 
 			assert.Equal(t, tc.expectAllow, result)
 			if !tc.expectAllow {
-				assert.Equal(t, 403, w.Code)
+				assert.Equal(t, tc.expectStatus, w.Code)
+				switch tc.expectStatus {
+				case 409:
+					assert.Contains(t, w.Body.String(), apiErrors.ErrMaintenanceStatusTransitionConflict.Error())
+				case 403:
+					assert.Contains(t, w.Body.String(), apiErrors.ErrAuthForbidden.Error())
+				}
 			}
 		})
 	}
@@ -266,7 +279,8 @@ func TestAllowMaintenancePatchAsOperator(t *testing.T) {
 
 			assert.Equal(t, tc.expectAllow, result)
 			if !tc.expectAllow {
-				assert.Equal(t, 403, w.Code)
+				assert.Equal(t, 409, w.Code)
+				assert.Contains(t, w.Body.String(), apiErrors.ErrMaintenanceStatusTransitionConflict.Error())
 			}
 		})
 	}
@@ -338,7 +352,8 @@ func TestAllowMaintenancePatchAsCreator(t *testing.T) {
 
 			assert.Equal(t, tc.expectAllow, result)
 			if !tc.expectAllow {
-				assert.Equal(t, 403, w.Code)
+				assert.Equal(t, 409, w.Code)
+				assert.Contains(t, w.Body.String(), apiErrors.ErrMaintenanceStatusTransitionConflict.Error())
 			}
 		})
 	}
@@ -472,39 +487,95 @@ func TestGetUserIDFromContext(t *testing.T) {
 
 func TestAllowMaintenancePatchAsCreatorOwnership(t *testing.T) {
 	otherUser := "other-user"
+	sameUser := "user-a"
+	emptyUser := ""
 
 	tests := []struct {
-		name        string
-		setUser     bool
-		userID      string
-		createdBy   *string
-		expectAllow bool
+		name           string
+		setUser        bool
+		userID         string
+		createdBy      *string
+		incomingStatus event.Status
+		expectAllow    bool
+		expectStatus   int
+		expectErrMsg   string
 	}{
 		{
-			name:        "No userID in context",
-			setUser:     false,
-			createdBy:   &otherUser,
-			expectAllow: false,
+			name:           "No userID in context",
+			setUser:        false,
+			createdBy:      &otherUser,
+			incomingStatus: event.MaintenancePendingReview,
+			expectAllow:    false,
+			expectStatus:   403,
+			expectErrMsg:   apiErrors.ErrAuthForbidden.Error(),
 		},
 		{
-			name:        "CreatedBy is nil",
-			setUser:     true,
-			userID:      "user-a",
-			createdBy:   nil,
-			expectAllow: false,
+			name:           "CreatedBy is nil",
+			setUser:        true,
+			userID:         "user-a",
+			createdBy:      nil,
+			incomingStatus: event.MaintenancePendingReview,
+			expectAllow:    false,
+			expectStatus:   403,
+			expectErrMsg:   apiErrors.ErrAuthForbidden.Error(),
 		},
 		{
-			name:        "Both nil: no userID and nil CreatedBy",
-			setUser:     false,
-			createdBy:   nil,
-			expectAllow: false,
+			name:           "Both nil: no userID and nil CreatedBy",
+			setUser:        false,
+			createdBy:      nil,
+			incomingStatus: event.MaintenancePendingReview,
+			expectAllow:    false,
+			expectStatus:   403,
+			expectErrMsg:   apiErrors.ErrAuthForbidden.Error(),
 		},
 		{
-			name:        "Mismatched users",
-			setUser:     true,
-			userID:      "user-a",
-			createdBy:   &otherUser,
-			expectAllow: false,
+			name:           "Mismatched users",
+			setUser:        true,
+			userID:         "user-a",
+			createdBy:      &otherUser,
+			incomingStatus: event.MaintenancePendingReview,
+			expectAllow:    false,
+			expectStatus:   403,
+			expectErrMsg:   apiErrors.ErrAuthForbidden.Error(),
+		},
+		{
+			name:           "Empty string userID vs non-empty CreatedBy",
+			setUser:        true,
+			userID:         "",
+			createdBy:      &otherUser,
+			incomingStatus: event.MaintenancePendingReview,
+			expectAllow:    false,
+			expectStatus:   403,
+			expectErrMsg:   apiErrors.ErrAuthForbidden.Error(),
+		},
+		{
+			name:           "Non-empty userID vs empty string CreatedBy",
+			setUser:        true,
+			userID:         "user-a",
+			createdBy:      &emptyUser,
+			incomingStatus: event.MaintenancePendingReview,
+			expectAllow:    false,
+			expectStatus:   403,
+			expectErrMsg:   apiErrors.ErrAuthForbidden.Error(),
+		},
+		// SUCCESS cases: owner patches own event
+		{
+			name:           "Owner updates pending_review (stays pending_review)",
+			setUser:        true,
+			userID:         "user-a",
+			createdBy:      &sameUser,
+			incomingStatus: event.MaintenancePendingReview,
+			expectAllow:    true,
+			expectStatus:   200,
+		},
+		{
+			name:           "Owner cancels pending_review event",
+			setUser:        true,
+			userID:         "user-a",
+			createdBy:      &sameUser,
+			incomingStatus: event.MaintenanceCancelled,
+			expectAllow:    true,
+			expectStatus:   200,
 		},
 	}
 
@@ -523,12 +594,16 @@ func TestAllowMaintenancePatchAsCreatorOwnership(t *testing.T) {
 				Status:    event.MaintenancePendingReview,
 				CreatedBy: tc.createdBy,
 			}
-			incoming := &PatchIncidentData{Status: event.MaintenancePendingReview}
+			incoming := &PatchIncidentData{Status: tc.incomingStatus}
 
 			result := allowMaintenancePatchAsCreator(c, logger, stored, incoming)
 
 			assert.Equal(t, tc.expectAllow, result)
-			assert.Equal(t, 403, w.Code)
+			assert.Equal(t, tc.expectStatus, w.Code)
+
+			if tc.expectErrMsg != "" {
+				assert.Contains(t, w.Body.String(), tc.expectErrMsg)
+			}
 		})
 	}
 }

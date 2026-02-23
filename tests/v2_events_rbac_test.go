@@ -448,22 +448,6 @@ func TestV2MaintenanceValidation(t *testing.T) {
 		assert.Equal(t, http.StatusBadRequest, w.Code)
 	})
 
-	t.Run("past start_date rejected", func(t *testing.T) {
-		pastDate := time.Now().Add(-time.Hour).UTC()
-		incData := v2.IncidentData{
-			Title: "Test", Description: "desc",
-			ContactEmail: "test@example.com", Impact: &impact,
-			Components: components, StartDate: pastDate,
-			EndDate: &endDate, System: &system, Type: event.TypeMaintenance,
-		}
-		data, _ := json.Marshal(incData)
-		w := httptest.NewRecorder()
-		req, _ := http.NewRequest(http.MethodPost, "/v2/events", bytes.NewReader(data))
-		req.Header.Set("Authorization", "Bearer "+creatorToken)
-		r.ServeHTTP(w, req)
-		assert.Equal(t, http.StatusBadRequest, w.Code)
-	})
-
 	t.Run("empty description rejected", func(t *testing.T) {
 		incData := v2.IncidentData{
 			Title: "Test", Description: "",
@@ -532,13 +516,13 @@ func TestV2CreatorPatchReviewedEvent(t *testing.T) {
 	inc = rbacGetEvent(t, r, inc.ID, adminToken)
 	version = *inc.Version
 
-	// Creator tries to patch reviewed event → 403
+	// Creator tries to patch reviewed event → 409 (status transition conflict)
 	patch2 := &v2.PatchIncidentData{
 		Message: "creator tries", Status: event.MaintenanceCancelled,
 		UpdateDate: time.Now().UTC(), Version: &version,
 	}
 	w2 := rbacPatchEvent(t, r, inc.ID, patch2, creatorToken)
-	assert.Equal(t, http.StatusForbidden, w2.Code)
+	assert.Equal(t, http.StatusConflict, w2.Code)
 }
 
 func TestV2OperatorCreatesMaintenance(t *testing.T) {

@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestRBACConfig_Validate(t *testing.T) {
@@ -72,10 +73,10 @@ func TestRBACConfig_Validate(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			err := tc.config.Validate()
 			if tc.expectErr {
-				assert.Error(t, err)
+				require.Error(t, err)
 				assert.Contains(t, err.Error(), tc.errSubstr)
 			} else {
-				assert.NoError(t, err)
+				require.NoError(t, err)
 			}
 		})
 	}
@@ -90,6 +91,6 @@ func TestConfig_Validate_PropagatesRBACError(t *testing.T) {
 	}
 
 	err := cfg.Validate()
-	assert.Error(t, err)
+	require.Error(t, err)
 	assert.Contains(t, err.Error(), "RBAC is enabled")
 }

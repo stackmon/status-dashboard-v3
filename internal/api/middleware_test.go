@@ -211,7 +211,7 @@ func TestRBACMiddleware_ValidGroups(t *testing.T) {
 			})
 			router.Use(RBACAuthorizationMW(rbacSvc, logger))
 			router.GET("/test", func(c *gin.Context) {
-				role, _ := c.Get(roleContextKey)
+				role, _ := c.Get(v2.RoleContextKey)
 				assert.Equal(t, tt.expectedRole, role)
 				c.Status(http.StatusOK)
 			})
@@ -240,16 +240,16 @@ func TestRBACMiddleware_InvalidGroups(t *testing.T) {
 			expectedStatus: http.StatusUnauthorized,
 		},
 		{
-			name:           "Empty groups array returns 401",
+			name:           "Empty groups array returns 403",
 			groups:         []string{},
 			setGroups:      true,
-			expectedStatus: http.StatusUnauthorized,
+			expectedStatus: http.StatusForbidden,
 		},
 		{
-			name:           "Unrecognized groups returns 401",
+			name:           "Unrecognized groups returns 403",
 			groups:         []string{"random_group", "other_group"},
 			setGroups:      true,
-			expectedStatus: http.StatusUnauthorized,
+			expectedStatus: http.StatusForbidden,
 		},
 	}
 

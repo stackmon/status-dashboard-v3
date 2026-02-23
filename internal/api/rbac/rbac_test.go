@@ -211,3 +211,41 @@ func TestService_HasAnyConfiguredGroup_EmptyConfig(t *testing.T) {
 		})
 	}
 }
+
+func TestService_Resolve_EmptyConfig(t *testing.T) {
+	svc := New("", "", "")
+
+	tests := []struct {
+		name     string
+		groups   []string
+		expected Role
+	}{
+		{
+			name:     "No groups configured, empty list returns NoRole",
+			groups:   []string{},
+			expected: NoRole,
+		},
+		{
+			name:     "No groups configured, known names still return NoRole",
+			groups:   []string{"sd_creators", "sd_operators", "sd_admins"},
+			expected: NoRole,
+		},
+		{
+			name:     "No groups configured, slash-prefixed returns NoRole",
+			groups:   []string{"/"},
+			expected: NoRole,
+		},
+		{
+			name:     "No groups configured, empty string group returns NoRole",
+			groups:   []string{""},
+			expected: NoRole,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := svc.Resolve(tt.groups)
+			assert.Equal(t, tt.expected, got)
+		})
+	}
+}

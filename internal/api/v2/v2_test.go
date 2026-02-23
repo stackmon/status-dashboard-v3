@@ -853,7 +853,7 @@ func TestPatchIncidentVersionConflict(t *testing.T) {
 	// Prepare PATCH request with version 1 (but DB has version 2)
 	requestBody := fmt.Sprintf(`{
 		"message": "Maintenance update",
-		"status": "in progress",
+		"status": "in_progress",
 		"update_date": "%s",
 		"version": %d
 	}`, updateDate, versionInRequest)

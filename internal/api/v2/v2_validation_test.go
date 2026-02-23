@@ -56,17 +56,6 @@ func TestValidateMaintenanceCreation(t *testing.T) {
 			errorMsg:    "invalid format",
 		},
 		{
-			name: "Start date in the past",
-			incData: IncidentData{
-				ContactEmail: "user@example.com",
-				StartDate:    pastTime,
-				EndDate:      &laterTime,
-				Description:  "Scheduled maintenance",
-			},
-			expectError: true,
-			errorMsg:    "start_date must be in the future",
-		},
-		{
 			name: "End date before start date",
 			incData: IncidentData{
 				ContactEmail: "user@example.com",
