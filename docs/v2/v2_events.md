@@ -55,7 +55,7 @@ This handler is responsible for fetching events from the database. It is used by
 
 - `type` (string): Filters events by type. Can be a single type or a comma-separated list (e.g., `incident,maintenance`).
 - `active` (boolean): If `true`, returns only active events.
-- `status` (string): Filters events by their current status (e.g., `resolved`, `in progress`).
+- `status` (string): Filters events by their current status (e.g., `resolved`, `in_progress`).
 - `start_date` (string): Filters events that start on or after this date (RFC3339 format: `YYYY-MM-DDTHH:MM:SSZ`).
 - `end_date` (string): Filters events that end on or before this date (RFC3339 format: `YYYY-MM-DDTHH:MM:SSZ`).
 - `impact` (integer): Filters events by impact level (0-3).
@@ -112,12 +112,12 @@ The handler returns a JSON object containing the list of events and pagination d
                 },
                 {
                     "id": 1,
-                    "status": "in progress",
+                    "status": "in_progress",
                     "text": "update message",
                     "timestamp": "2025-05-20T11:00:00Z"
                 }
             ],
-            "status": "in progress",
+            "status": "in_progress",
             "version": 3
         },
         ...

@@ -97,7 +97,7 @@ func (ch *Checker) CheckInfoEvents() error {
 	} else {
 		ch.lastInfoID = slices.Min(activeInfoEvents)
 		ch.log.Debug(
-			"set the last ID to the earliest planned or in progress info event",
+			"set the last ID to the earliest planned or in_progress info event",
 			zap.Uint("lastInfoID", ch.lastInfoID),
 		)
 	}

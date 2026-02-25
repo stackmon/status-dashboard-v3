@@ -33,7 +33,7 @@ func TestCalculateCurrentMntStatus(t *testing.T) {
 			expectedStatus: event.MaintenancePlanned,
 		},
 		{
-			name:           "Pending review stays pending review",
+			name:           "Pending review stays pending_review",
 			status:         event.MaintenancePendingReview,
 			startDate:      future,
 			endDate:        farFuture,
@@ -57,7 +57,7 @@ func TestCalculateCurrentMntStatus(t *testing.T) {
 			expectedStatus: event.MaintenancePlanned,
 		},
 		{
-			name:           "Planned with past start becomes in progress",
+			name:           "Planned with past start becomes in_progress",
 			status:         event.MaintenancePlanned,
 			startDate:      past,
 			endDate:        future,

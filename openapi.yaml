@@ -875,7 +875,7 @@ components:
             - "resolved"
             - "reopened"
             - "changed"
-            - "in progress"
+            - "in_progress"
             - "modified"
             - "completed"
             - "planned"
@@ -883,7 +883,7 @@ components:
             - "cancelled"
             - "pending_review"
             - "reviewed"
-          example: "in progress"
+          example: "in_progress"
         creator:
           type: string
           description: "User ID of the event creator. Only visible to authenticated users."
@@ -983,7 +983,7 @@ components:
         status:
           type: string
           enum:
-            - "in progress"
+            - "in_progress"
             - "modified"
             - "completed"
             - "analyzing"

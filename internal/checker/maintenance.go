@@ -102,7 +102,7 @@ func (ch *Checker) CheckMaintenance() error {
 	} else {
 		ch.lastMntID = slices.Min(activeMaintenances)
 		ch.log.Debug(
-			"set the last ID to the earliest planned or in progress maintenance",
+			"set the last ID to the earliest planned or in_progress maintenance",
 			zap.Uint("lastMntID", ch.lastMntID),
 		)
 	}
@@ -145,7 +145,7 @@ func calculateCurrentMntStatus(sHistory *MntStatusHistory, mn *db.Incident) even
 		return event.MaintenancePlanned
 	}
 
-	// If still pending review, don't auto-transition
+	// If still pending_review, don't auto-transition
 	if mn.Status == event.MaintenancePendingReview {
 		return event.MaintenancePendingReview
 	}

@@ -69,9 +69,9 @@ const (
 	MaintenanceCancelled     Status = "cancelled"
 )
 const (
-	maintenancePendingReviewText = "Maintenance is pending review."
+	maintenancePendingReviewText = "Maintenance is pending_review."
 	maintenancePlannedText       = "Maintenance is planned."
-	maintenanceInProgressText    = "Maintenance is in progress."
+	maintenanceInProgressText    = "Maintenance is in_progres."
 	maintenanceCompletedText     = "Maintenance is completed."
 )
 

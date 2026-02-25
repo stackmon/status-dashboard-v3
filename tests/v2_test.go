@@ -372,7 +372,7 @@ func TestV2PatchIncidentHandlerNegative(t *testing.T) {
 		"title": "OpenStack Upgrade in regions EU-DE/EU-NL",
 	 	"impact": 1,
 	 	"message": "Any message why the incident was updated.",
-	 	"status": "in progress",
+	 	"status": "in_progres",
 	 	"update_date": "2024-12-11T14:46:03.877Z",
 	 	"start_date": "2024-12-11T14:46:03.877Z",
 	 	"end_date": "2024-12-11T14:46:03.877Z",

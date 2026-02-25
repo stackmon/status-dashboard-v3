@@ -182,7 +182,7 @@ func TestV2PatchEventCreatorOwnership(t *testing.T) {
 		return 1
 	}
 
-	t.Run("creator can patch own event in pending review", func(t *testing.T) {
+	t.Run("creator can patch own event in pending_review", func(t *testing.T) {
 		truncateIncidents(t)
 
 		incData := makeMaintenanceData()
@@ -248,7 +248,7 @@ func TestV2PatchEventCreatorOwnership(t *testing.T) {
 		assert.Equal(t, http.StatusOK, w.Code)
 	})
 
-	t.Run("creator can cancel own event in pending review", func(t *testing.T) {
+	t.Run("creator can cancel own event in pending_review", func(t *testing.T) {
 		truncateIncidents(t)
 
 		incData := makeMaintenanceData()
@@ -286,7 +286,7 @@ func TestV2MaintenanceVisibility(t *testing.T) {
 
 	creatorToken := generateTestToken("user-a", []string{"sd_creators"})
 
-	// Create maintenance (pending review)
+	// Create maintenance (pending_review)
 	components := []int{1, 2}
 	impact := 0
 	system := false
@@ -303,7 +303,7 @@ func TestV2MaintenanceVisibility(t *testing.T) {
 	require.NotNil(t, result)
 	eventID := result.Result[0].IncidentID
 
-	t.Run("unauth GET list hides pending review maintenance", func(t *testing.T) {
+	t.Run("unauth GET list hides pending_review maintenance", func(t *testing.T) {
 		// GET /v2/events without token
 		w := httptest.NewRecorder()
 		req, _ := http.NewRequest(http.MethodGet, "/v2/events?limit=50&page=1", nil)
@@ -318,11 +318,11 @@ func TestV2MaintenanceVisibility(t *testing.T) {
 		require.NoError(t, err)
 		for _, ev := range resp.Data {
 			assert.NotEqual(t, event.MaintenancePendingReview, ev.Status,
-				"pending review event should not be visible to unauthenticated users")
+				"pending_review event should not be visible to unauthenticated users")
 		}
 	})
 
-	t.Run("unauth GET by ID returns 404 for pending review", func(t *testing.T) {
+	t.Run("unauth GET by ID returns 404 for pending_review", func(t *testing.T) {
 		url := fmt.Sprintf("/v2/events/%d", eventID)
 		w := httptest.NewRecorder()
 		req, _ := http.NewRequest(http.MethodGet, url, nil)
@@ -572,7 +572,7 @@ func TestV2MaintenanceFullWorkflow(t *testing.T) {
 		EndDate: &endDate, System: &system, Type: event.TypeMaintenance,
 	}
 
-	// Step 1: Creator creates → pending review
+	// Step 1: Creator creates → pending_review
 	result := rbacCreateEvent(t, r, &incData, creatorToken)
 	require.NotNil(t, result)
 	eventID := result.Result[0].IncidentID
@@ -593,7 +593,7 @@ func TestV2MaintenanceFullWorkflow(t *testing.T) {
 	assert.Equal(t, event.MaintenanceReviewed, inc.Updates[len(inc.Updates)-1].Status)
 	version = *inc.Version
 
-	// Step 3: Admin transitions reviewed → planned (operator can only act on pending review)
+	// Step 3: Admin transitions reviewed → planned (operator can only act on pending_review)
 	patch = &v2.PatchIncidentData{
 		Message: "scheduled", Status: event.MaintenancePlanned,
 		UpdateDate: time.Now().UTC(), Version: &version,
@@ -645,7 +645,7 @@ func TestV2HasExtendedViewBehavior(t *testing.T) {
 	startDate := time.Now().Add(time.Hour).UTC()
 	endDate := time.Now().Add(2 * time.Hour).UTC()
 
-	// Create one planned (admin) and one pending review (creator)
+	// Create one planned (admin) and one pending_review (creator)
 	plannedData := v2.IncidentData{
 		Title: "Planned event", Description: "visible to all",
 		ContactEmail: "admin@example.com", Impact: &impact,
@@ -693,7 +693,7 @@ func TestV2HasExtendedViewBehavior(t *testing.T) {
 
 		for _, ev := range resp.Data {
 			assert.NotEqual(t, event.MaintenancePendingReview, ev.Status,
-				"pending review events should be hidden from unauth")
+				"pending_review events should be hidden from unauth")
 		}
 		assert.GreaterOrEqual(t, len(resp.Data), 1, "should see at least the planned event")
 	})

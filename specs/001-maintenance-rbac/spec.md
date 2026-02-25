@@ -36,7 +36,7 @@
 
 ### User Story 1 - Creator Initiates Maintenance Event (Priority: P1)
 
-A user with sd_creators role needs to schedule a maintenance window for their service. They create a new maintenance event with all necessary details (service, time window, description, contact email), which automatically enters a pending review state awaiting operator approval.
+A user with sd_creators role needs to schedule a maintenance window for their service. They create a new maintenance event with all necessary details (service, time window, description, contact email), which automatically enters a pending_review state awaiting operator approval.
 
 **Why this priority**: This is the foundation of the maintenance workflow. Without the ability to create maintenance events, the entire feature is non-functional. This story delivers immediate value by allowing service owners to request maintenance windows.
 
@@ -167,9 +167,9 @@ The system enforces role-based permissions throughout the maintenance lifecycle.
 
 #### Status Workflow
 
-- **FR-022**: System MUST support the following status flow for sd_creators: pending review → reviewed → planned → [existing statuses]
+- **FR-022**: System MUST support the following status flow for sd_creators: pending_review → reviewed → planned → [existing statuses]
 - **FR-022-1**: System MUST NOT include maintenance events with "pending_review" or "reviewed" status in API responses for unauthenticated users
-- **FR-022a**: System MUST support direct "planned" status for events created by sd_operators and sd_admins users (bypassing pending review and reviewed statuses)
+- **FR-022a**: System MUST support direct "planned" status for events created by sd_operators and sd_admins users (bypassing pending_review and reviewed statuses)
 - **FR-022b**: System MUST support "cancelled" as a terminal status reachable from any other status, representing event removal/cancellation
 - **FR-023**: The internal checker goroutine in the existing "checker" module MUST automatically change status from "reviewed" to "planned" without performing additional validation
 - **FR-023a**: The checker goroutine MUST NOT perform any validation checks (including time window validation) when transitioning from "reviewed" to "planned"; all validation is completed at submission time before the event enters "pending_review" status
@@ -191,7 +191,7 @@ The system enforces role-based permissions throughout the maintenance lifecycle.
 
 ### Key Entities
 
-- **Maintenance Event**: Represents a scheduled or planned maintenance window for a service. Created via POST to `/v2/events` endpoint with type="maintenance" and modified via PATCH to `/v2/events/:eventID`. Core attributes include unique identifier, type (set to "maintenance" to distinguish from incidents), service identifier, time window (start/end), description, status (pending review/reviewed/planned/cancelled/etc.), creator (user_id from JWT), contact email, version (or timestamp field for optimistic locking), created timestamp, updated timestamp, and audit trail of status changes (stored in the existing `incident_status` table). The version/timestamp field enables conflict detection to prevent approval based on outdated event data. Events are never deleted via DELETE method; removal is accomplished by transitioning to "cancelled" status.
+- **Maintenance Event**: Represents a scheduled or planned maintenance window for a service. Created via POST to `/v2/events` endpoint with type="maintenance" and modified via PATCH to `/v2/events/:eventID`. Core attributes include unique identifier, type (set to "maintenance" to distinguish from incidents), service identifier, time window (start/end), description, status (pending_review/reviewed/planned/cancelled/etc.), creator (user_id from JWT), contact email, version (or timestamp field for optimistic locking), created timestamp, updated timestamp, and audit trail of status changes (stored in the existing `incident_status` table). The version/timestamp field enables conflict detection to prevent approval based on outdated event data. Events are never deleted via DELETE method; removal is accomplished by transitioning to "cancelled" status.
 
 - **User**: Represents an authenticated user in the system. Attributes include user_id (extracted from JWT token), roles (sd_admins, sd_creators, sd_operators, or combinations thereof), and authentication details. Users with existing "admin-group" membership are automatically granted sd_admins privileges. Users are related to Maintenance Events through the creator field.
 
@@ -204,7 +204,7 @@ The system enforces role-based permissions throughout the maintenance lifecycle.
 - **SC-001**: sd_creators users can successfully create a maintenance event and see it in "pending_review" status within 2 seconds
 - **SC-002**: sd_operators users see the updated badge count when new maintenance events enter "pending_review" status within 5 seconds of page refresh
 - **SC-003**: Unauthorized attempts are rejected with 401 (not authenticated), 403 (wrong role/not owner), or 409 (status transition conflict) 100% of the time
-- **SC-004**: The approval workflow (pending review → reviewed → planned) completes successfully for 100% of valid requests
+- **SC-004**: The approval workflow (pending_review → reviewed → planned) completes successfully for 100% of valid requests
 - **SC-005**: Creator information (user_id) and contact email are accurately captured and displayed for 100% of maintenance events
 - **SC-006**: System enforces status-based permissions correctly, preventing 100% of invalid state transitions
 - **SC-007**: All maintenance management API endpoints respond within 500ms under normal load (up to 100 concurrent users)

@@ -301,7 +301,7 @@ func GetIncidentHandler(dbInst *db.DB, logger *zap.Logger, svc *rbac.Service) gi
 		}
 
 		isAuth := hasExtendedView(c, svc)
-		// Hide pending review and reviewed maintenance from non-authenticated users
+		// Hide pending_review and reviewed maintenance from non-authenticated users
 		if !isAuth && r.Type == event.TypeMaintenance &&
 			(r.Status == event.MaintenancePendingReview || r.Status == event.MaintenanceReviewed) {
 			apiErrors.RaiseStatusNotFoundErr(c, apiErrors.ErrIncidentDSNotExist)
@@ -1774,8 +1774,8 @@ func allowMaintenancePatch(
 func allowMaintenancePatchAsOperator(
 	c *gin.Context, logger *zap.Logger, stored *db.Incident, incoming *PatchIncidentData,
 ) bool {
-	// sd_operators can only act on pending review maintenances.
-	// Approve (pending review -> reviewed) or cancel while pending.
+	// sd_operators can only act on pending_review maintenances.
+	// Approve (pending_review -> reviewed) or cancel while pending.
 	if stored.Status == event.MaintenancePendingReview {
 		switch incoming.Status { //nolint:exhaustive
 		case event.MaintenanceReviewed,
@@ -1783,17 +1783,17 @@ func allowMaintenancePatchAsOperator(
 			event.MaintenancePendingReview:
 			return true
 		}
-		// Operator tried invalid status transition from pending review
+		// Operator tried invalid status transition from pending_review
 		logger.Debug("maintenance patch denied: operator attempted invalid status transition",
 			zap.String("stored_status", string(stored.Status)),
 			zap.String("incoming_status", string(incoming.Status)),
-			zap.String("allowed_statuses", "reviewed, cancelled, pending review"),
+			zap.String("allowed_statuses", "reviewed, cancelled, pending_review"),
 		)
 		apiErrors.RaiseConflictErr(c, apiErrors.ErrMaintenanceStatusTransitionConflict)
 		return false
 	}
-	// Operator tried to modify event not in pending review status
-	logger.Debug("maintenance patch denied: operator can only modify events in 'pending review' status",
+	// Operator tried to modify event not in pending_review status
+	logger.Debug("maintenance patch denied: operator can only modify events in 'pending_review' status",
 		zap.String("stored_status", string(stored.Status)),
 		zap.String("incoming_status", string(incoming.Status)),
 	)
@@ -1815,7 +1815,7 @@ func allowMaintenancePatchAsCreator(
 	}
 
 	if stored.Status != event.MaintenancePendingReview {
-		logger.Debug("maintenance patch denied: creator can only modify events in 'pending review' status",
+		logger.Debug("maintenance patch denied: creator can only modify events in 'pending_review' status",
 			zap.String("stored_status", string(stored.Status)),
 			zap.String("incoming_status", string(incoming.Status)),
 		)
@@ -1831,7 +1831,7 @@ func allowMaintenancePatchAsCreator(
 	logger.Debug("maintenance patch denied: creator attempted invalid status transition",
 		zap.String("stored_status", string(stored.Status)),
 		zap.String("incoming_status", string(incoming.Status)),
-		zap.String("allowed_statuses", "pending review, cancelled"),
+		zap.String("allowed_statuses", "pending_review, cancelled"),
 	)
 	apiErrors.RaiseConflictErr(c, apiErrors.ErrMaintenanceStatusTransitionConflict)
 	return false
