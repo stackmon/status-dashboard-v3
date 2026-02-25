@@ -16,7 +16,8 @@ Three roles are supported, with highest privilege taking precedence when a user 
 
 ## Configuration
 
-RBAC must be explicitly disabled. When disabled, all group mappings are required — the application will fail to start if any are missing.
+RBAC is active by default. Set `SD_RBAC_DISABLED=true` to disable it. When active, all three group
+mappings are required — the application will fail to start if any are missing.
 
 | Environment Variable | Required | Description |
 |---------------------|----------|-------------|
@@ -58,22 +59,39 @@ Creator creates event
         │
         ▼
   ┌─────────────┐
-  │pending_review│ ◄── sd_creators can modify/cancel here
-  └──────┬──────┘
-         │ Operator approves
+  │pending_review│ ◄── sd_creators can modify/cancel (own events only)
+  └──────┬──────┘     sd_operators can approve or cancel
+         │ Operator/Admin approves
          ▼
   ┌─────────────┐
   │  reviewed   │
   └──────┬──────┘
-         │ Checker auto-transitions
+         │ Checker auto-transitions (no validation)
          ▼
   ┌─────────────┐
-  │   planned   │ ◄── sd_operators/sd_admins start here
+  │   planned   │ ◄── sd_operators/sd_admins bypass to here on creation
   └──────┬──────┘
-         │
+         │ Checker (StartDate reached)
          ▼
-    [active → completed]
+  ┌─────────────┐
+  │ in_progress │
+  └──────┬──────┘
+         │ Checker (EndDate reached)
+         ▼
+  ┌─────────────┐
+  │  completed  │  (terminal)
+  └─────────────┘
+
+cancelled  ◄── sd_admins: from any status
+           ◄── sd_operators: from pending_review only
+           ◄── sd_creators: from pending_review (own event) only
 ```
+
+> **Retroactive maintenance**: events may be created with dates in the past. The checker will
+> automatically transition them to `completed` and backfill intermediate status history with
+> correct timestamps. See [permissions.md](permissions.md) for the full workflow.
+
+For the complete status transition matrix and per-role rules, see [permissions.md](permissions.md).
 
 ## Field Visibility
 
