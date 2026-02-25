@@ -50,8 +50,8 @@ type Config struct {
 }
 
 type RBACConfig struct {
-	// Enable RBAC authorization
-	Enabled bool `envconfig:"ENABLED"`
+	// Disable RBAC authorization (default: false — RBAC is active)
+	Disabled bool `envconfig:"DISABLED"`
 	// Creators group name
 	Creators string `envconfig:"GROUP_CREATORS"`
 	// Operators group name
@@ -84,7 +84,7 @@ func (c *Config) Validate() error {
 }
 
 func (r *RBACConfig) Validate() error {
-	if !r.Enabled {
+	if r.Disabled {
 		return nil
 	}
 
@@ -260,7 +260,7 @@ func (c *Config) Log(logger *zap.Logger) {
 
 	logger.Info("Authentication configuration",
 		zap.Bool("authentication_disabled", c.AuthenticationDisabled),
-		zap.Bool("rbac_enabled", c.RBAC.Enabled),
+		zap.Bool("rbac_enabled", !c.RBAC.Disabled),
 		zap.String("creators_group", c.RBAC.Creators),
 		zap.String("operators_group", c.RBAC.Operators),
 		zap.String("admins_group", c.RBAC.Admins),

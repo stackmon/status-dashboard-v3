@@ -16,16 +16,16 @@ Three roles are supported, with highest privilege taking precedence when a user 
 
 ## Configuration
 
-RBAC must be explicitly enabled. When enabled, all group mappings are required — the application will fail to start if any are missing.
+RBAC must be explicitly disabled. When disabled, all group mappings are required — the application will fail to start if any are missing.
 
 | Environment Variable | Required | Description |
 |---------------------|----------|-------------|
-| `SD_RBAC_ENABLED` | Yes | Enable RBAC authorization (`true`/`false`) |
+| `SD_RBAC_DISABLED` | No | Disable RBAC authorization (`true`/`false`, default: `false`) |
 | `SD_RBAC_GROUP_ADMINS` | When RBAC enabled | IdP group for admin role |
 | `SD_RBAC_GROUP_OPERATORS` | When RBAC enabled | IdP group for operator role |
 | `SD_RBAC_GROUP_CREATORS` | When RBAC enabled | IdP group for creator role |
 
-When `SD_RBAC_ENABLED=false` (or not set), a warning is logged and write operations are denied.
+When `SD_RBAC_DISABLED=true`, a warning is logged and write operations are denied.
 
 ## Permissions by Role
 

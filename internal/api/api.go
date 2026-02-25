@@ -47,8 +47,8 @@ func New(cfg *conf.Config, log *zap.Logger, database *db.DB) (*API, error) {
 
 	rbacService := rbac.New(cfg.RBAC.Creators, cfg.RBAC.Operators, cfg.RBAC.Admins)
 
-	if !cfg.RBAC.Enabled {
-		log.Warn("RBAC is disabled (SD_RBAC_ENABLED), write operations will be denied")
+	if cfg.RBAC.Disabled {
+		log.Warn("RBAC is disabled (SD_RBAC_DISABLED=true), write operations will be denied")
 	}
 
 	a := &API{

@@ -16,13 +16,13 @@ func TestRBACConfig_Validate(t *testing.T) {
 	}{
 		{
 			name:      "Disabled RBAC: no groups required",
-			config:    RBACConfig{Enabled: false},
+			config:    RBACConfig{Disabled: true},
 			expectErr: false,
 		},
 		{
 			name: "Enabled with all groups configured",
 			config: RBACConfig{
-				Enabled:   true,
+				Disabled:  false,
 				Creators:  "sd_creators",
 				Operators: "sd_operators",
 				Admins:    "sd_admins",
@@ -32,7 +32,7 @@ func TestRBACConfig_Validate(t *testing.T) {
 		{
 			name: "Enabled but missing Creators",
 			config: RBACConfig{
-				Enabled:   true,
+				Disabled:  false,
 				Operators: "sd_operators",
 				Admins:    "sd_admins",
 			},
@@ -42,7 +42,7 @@ func TestRBACConfig_Validate(t *testing.T) {
 		{
 			name: "Enabled but missing Operators",
 			config: RBACConfig{
-				Enabled:  true,
+				Disabled: false,
 				Creators: "sd_creators",
 				Admins:   "sd_admins",
 			},
@@ -52,7 +52,7 @@ func TestRBACConfig_Validate(t *testing.T) {
 		{
 			name: "Enabled but missing Admins",
 			config: RBACConfig{
-				Enabled:   true,
+				Disabled:  false,
 				Creators:  "sd_creators",
 				Operators: "sd_operators",
 			},
@@ -62,7 +62,7 @@ func TestRBACConfig_Validate(t *testing.T) {
 		{
 			name: "Enabled but all groups missing",
 			config: RBACConfig{
-				Enabled: true,
+				Disabled: false,
 			},
 			expectErr: true,
 			errSubstr: "SD_RBAC_GROUP_CREATORS",
@@ -86,7 +86,7 @@ func TestConfig_Validate_PropagatesRBACError(t *testing.T) {
 	cfg := &Config{
 		Port: "8000",
 		RBAC: RBACConfig{
-			Enabled: true,
+			Disabled: false,
 		},
 	}
 
