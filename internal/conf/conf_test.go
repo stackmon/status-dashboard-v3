@@ -37,7 +37,7 @@ func TestRBACConfig_Validate(t *testing.T) {
 				Admins:    "sd_admins",
 			},
 			expectErr: true,
-			errSubstr: "SD_RBAC_CREATORS",
+			errSubstr: "SD_RBAC_GROUP_CREATORS",
 		},
 		{
 			name: "Enabled but missing Operators",
@@ -47,7 +47,7 @@ func TestRBACConfig_Validate(t *testing.T) {
 				Admins:   "sd_admins",
 			},
 			expectErr: true,
-			errSubstr: "SD_RBAC_OPERATORS",
+			errSubstr: "SD_RBAC_GROUP_OPERATORS",
 		},
 		{
 			name: "Enabled but missing Admins",
@@ -57,7 +57,7 @@ func TestRBACConfig_Validate(t *testing.T) {
 				Operators: "sd_operators",
 			},
 			expectErr: true,
-			errSubstr: "SD_RBAC_ADMINS",
+			errSubstr: "SD_RBAC_GROUP_ADMINS",
 		},
 		{
 			name: "Enabled but all groups missing",
@@ -65,7 +65,7 @@ func TestRBACConfig_Validate(t *testing.T) {
 				Enabled: true,
 			},
 			expectErr: true,
-			errSubstr: "SD_RBAC_CREATORS",
+			errSubstr: "SD_RBAC_GROUP_CREATORS",
 		},
 	}
 

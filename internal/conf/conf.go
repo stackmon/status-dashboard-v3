@@ -53,11 +53,11 @@ type RBACConfig struct {
 	// Enable RBAC authorization
 	Enabled bool `envconfig:"ENABLED"`
 	// Creators group name
-	Creators string `envconfig:"CREATORS"`
+	Creators string `envconfig:"GROUP_CREATORS"`
 	// Operators group name
-	Operators string `envconfig:"OPERATORS"`
+	Operators string `envconfig:"GROUP_OPERATORS"`
 	// Admins group name
-	Admins string `envconfig:"ADMINS"`
+	Admins string `envconfig:"GROUP_ADMINS"`
 }
 
 type Keycloak struct {
@@ -90,13 +90,13 @@ func (r *RBACConfig) Validate() error {
 
 	var missing []string
 	if r.Creators == "" {
-		missing = append(missing, "SD_RBAC_CREATORS")
+		missing = append(missing, "SD_RBAC_GROUP_CREATORS")
 	}
 	if r.Operators == "" {
-		missing = append(missing, "SD_RBAC_OPERATORS")
+		missing = append(missing, "SD_RBAC_GROUP_OPERATORS")
 	}
 	if r.Admins == "" {
-		missing = append(missing, "SD_RBAC_ADMINS")
+		missing = append(missing, "SD_RBAC_GROUP_ADMINS")
 	}
 
 	if len(missing) > 0 {
