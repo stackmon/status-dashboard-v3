@@ -95,7 +95,7 @@ func TestAllowMaintenancePatch(t *testing.T) {
 			expectAllow:    true,
 		},
 
-		// Operator tests
+		// Operator tests — unrestricted (event admin), same as Admin
 		{
 			name:           "Operator can approve pending review to reviewed",
 			role:           rbac.Operator,
@@ -118,20 +118,18 @@ func TestAllowMaintenancePatch(t *testing.T) {
 			expectAllow:    true,
 		},
 		{
-			name:           "Operator cannot patch reviewed status",
+			name:           "Operator can patch reviewed status",
 			role:           rbac.Operator,
 			storedStatus:   event.MaintenanceReviewed,
 			incomingStatus: event.MaintenancePlanned,
-			expectAllow:    false,
-			expectStatus:   409,
+			expectAllow:    true,
 		},
 		{
-			name:           "Operator cannot patch planned status",
+			name:           "Operator can patch planned status",
 			role:           rbac.Operator,
 			storedStatus:   event.MaintenancePlanned,
 			incomingStatus: event.MaintenanceCancelled,
-			expectAllow:    false,
-			expectStatus:   409,
+			expectAllow:    true,
 		},
 
 		// Creator tests
@@ -215,72 +213,6 @@ func TestAllowMaintenancePatch(t *testing.T) {
 				case 403:
 					assert.Contains(t, w.Body.String(), apiErrors.ErrAuthForbidden.Error())
 				}
-			}
-		})
-	}
-}
-
-func TestAllowMaintenancePatchAsOperator(t *testing.T) {
-	tests := []struct {
-		name           string
-		storedStatus   event.Status
-		incomingStatus event.Status
-		expectAllow    bool
-	}{
-		{
-			name:           "Approve: pending review to reviewed",
-			storedStatus:   event.MaintenancePendingReview,
-			incomingStatus: event.MaintenanceReviewed,
-			expectAllow:    true,
-		},
-		{
-			name:           "Cancel: pending review to cancelled",
-			storedStatus:   event.MaintenancePendingReview,
-			incomingStatus: event.MaintenanceCancelled,
-			expectAllow:    true,
-		},
-		{
-			name:           "Update: pending review stays pending review",
-			storedStatus:   event.MaintenancePendingReview,
-			incomingStatus: event.MaintenancePendingReview,
-			expectAllow:    true,
-		},
-		{
-			name:           "Forbidden: pending review to planned directly",
-			storedStatus:   event.MaintenancePendingReview,
-			incomingStatus: event.MaintenancePlanned,
-			expectAllow:    false,
-		},
-		{
-			name:           "Forbidden: reviewed status",
-			storedStatus:   event.MaintenanceReviewed,
-			incomingStatus: event.MaintenancePlanned,
-			expectAllow:    false,
-		},
-		{
-			name:           "Forbidden: planned status",
-			storedStatus:   event.MaintenancePlanned,
-			incomingStatus: event.MaintenanceInProgress,
-			expectAllow:    false,
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			gin.SetMode(gin.TestMode)
-			w := httptest.NewRecorder()
-			c, _ := gin.CreateTestContext(w)
-			logger := zap.NewNop()
-
-			stored := &db.Incident{Status: tc.storedStatus}
-			incoming := &PatchIncidentData{Status: tc.incomingStatus}
-
-			result := allowMaintenancePatchAsOperator(c, logger, stored, incoming)
-
-			assert.Equal(t, tc.expectAllow, result)
-			if !tc.expectAllow {
-				assert.Equal(t, 409, w.Code)
-				assert.Contains(t, w.Body.String(), apiErrors.ErrMaintenanceStatusTransitionConflict.Error())
 			}
 		})
 	}

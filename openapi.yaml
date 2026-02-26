@@ -23,19 +23,21 @@ info:
     - On successful update, the version is automatically incremented
     
     ## Role-Based Access Control (RBAC)
-    
-    The API implements RBAC with three roles (highest to lowest privilege):
-    
+
+    The API implements RBAC with three roles (highest to lowest privilege).
+    Role names are abstract application roles mapped from IdP group names via `SD_RBAC_GROUP_*`
+    environment variables.
+
     | Role | Permissions |
     |------|-------------|
-    | **sd_admins** | Unrestricted access to all operations, bypass status restrictions |
-    | **sd_operators** | View all events, approve pending_review → reviewed, create events (status: planned) |
-    | **sd_creators** | Create maintenance (status: pending_review), modify/cancel own pending_review events |
-    
-    Roles are determined from the JWT `groups` claim and mapped via environment variables:
-    - `SD_ADMINS_GROUP` (default: "admin-group")
-    - `SD_OPERATORS_GROUP`
-    - `SD_CREATORS_GROUP`
+    | `admin` | Unrestricted access to all operations; will gain additional system-level privileges in future releases |
+    | `operator` | Full CRUD access to all maintenance events (event admin) — unrestricted status transitions, create events (status: `planned`), cancel from any status |
+    | `creator` | Create maintenance events (status: `pending_review`), modify/cancel own events in `pending_review` only |
+
+    Roles are resolved from the JWT `groups` claim, matched against:
+    - `SD_RBAC_GROUP_ADMINS` — IdP group name that maps to the `admin` role
+    - `SD_RBAC_GROUP_OPERATORS` — IdP group name that maps to the `operator` role
+    - `SD_RBAC_GROUP_CREATORS` — IdP group name that maps to the `creator` role
     
     ### Error Responses
     - `401 Unauthorized` - Missing or invalid JWT token

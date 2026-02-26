@@ -6,13 +6,15 @@ The Status Dashboard implements RBAC for maintenance event management. Roles are
 
 ## Roles
 
-Three roles are supported, with highest privilege taking precedence when a user has multiple roles:
+Three application roles are supported, with highest privilege taking precedence when a user has multiple roles.
+Role names in this document refer to abstract application roles. Each role is mapped from an IdP group
+configured via the corresponding environment variable (e.g. `SD_RBAC_GROUP_ADMINS` → `admin` role).
 
 | Role | Priority | Description |
 |------|----------|-------------|
-| **sd_admins** | Highest | Full access to all operations |
-| **sd_operators** | Medium | Review and approve maintenance events |
-| **sd_creators** | Lowest | Create and manage own maintenance events |
+| `admin` | Highest | Full access to all operations; will gain additional system-level privileges in future releases |
+| `operator` | Medium | Full CRUD access to all maintenance events (event admin) |
+| `creator` | Lowest | Create and manage own maintenance events |
 
 ## Configuration
 
@@ -22,30 +24,30 @@ mappings are required — the application will fail to start if any are missing.
 | Environment Variable | Required | Description |
 |---------------------|----------|-------------|
 | `SD_RBAC_DISABLED` | No | Disable RBAC authorization (`true`/`false`, default: `false`) |
-| `SD_RBAC_GROUP_ADMINS` | When RBAC enabled | IdP group for admin role |
-| `SD_RBAC_GROUP_OPERATORS` | When RBAC enabled | IdP group for operator role |
-| `SD_RBAC_GROUP_CREATORS` | When RBAC enabled | IdP group for creator role |
+| `SD_RBAC_GROUP_ADMINS` | When RBAC enabled | IdP group name that maps to the `admin` role |
+| `SD_RBAC_GROUP_OPERATORS` | When RBAC enabled | IdP group name that maps to the `operator` role |
+| `SD_RBAC_GROUP_CREATORS` | When RBAC enabled | IdP group name that maps to the `creator` role |
 
 When `SD_RBAC_DISABLED=true`, a warning is logged and write operations are denied.
 
 ## Permissions by Role
 
-### sd_admins
+### `admin`
 
 - Unrestricted access to all maintenance operations
 - Bypass all status-based restrictions
 - Can transition events to any status
 - Events created with status `planned` (bypass review)
 
-### sd_operators
+### `operator`
 
+- Full CRUD access to all maintenance events (event admin)
+- Create events with status `planned` (bypass review workflow)
 - View all maintenance events regardless of status
-- Approve events: `pending_review` → `reviewed`
-- Create events with status `planned` (bypass review)
-- Cancel events in `pending_review` status
-- Update events in `pending_review` status
+- PATCH events from any status to any valid maintenance status
+- Cancel events from any status
 
-### sd_creators
+### `creator`
 
 - Create maintenance events (status: `pending_review`)
 - Modify **own** events only when status is `pending_review`
@@ -59,9 +61,9 @@ Creator creates event
         │
         ▼
   ┌─────────────┐
-  │pending_review│ ◄── sd_creators can modify/cancel (own events only)
-  └──────┬──────┘     sd_operators can approve or cancel
-         │ Operator/Admin approves
+  │pending_review│ ◄── creator can modify/cancel (own events only)
+  └──────┬──────┘     operator/admin can approve, modify, or cancel
+         │ operator/admin approves (or any PATCH by operator/admin)
          ▼
   ┌─────────────┐
   │  reviewed   │
@@ -69,7 +71,7 @@ Creator creates event
          │ Checker auto-transitions (no validation)
          ▼
   ┌─────────────┐
-  │   planned   │ ◄── sd_operators/sd_admins bypass to here on creation
+  │   planned   │ ◄── operator/admin bypass to here on creation
   └──────┬──────┘
          │ Checker (StartDate reached)
          ▼
@@ -82,9 +84,9 @@ Creator creates event
   │  completed  │  (terminal)
   └─────────────┘
 
-cancelled  ◄── sd_admins: from any status
-           ◄── sd_operators: from pending_review only
-           ◄── sd_creators: from pending_review (own event) only
+cancelled  ◄── admin: from any status
+           ◄── operator: from any status
+           ◄── creator: from pending_review (own event) only
 ```
 
 > **Retroactive maintenance**: events may be created with dates in the past. The checker will
@@ -111,7 +113,7 @@ Events with status `pending_review` or `reviewed` are hidden from unauthenticate
 |-----------|-----------|
 | `401 Unauthorized` | Missing or invalid JWT token |
 | `403 Forbidden` | Insufficient role permissions |
-| `403 Forbidden` | Attempting to modify event you don't own (sd_creators) |
+| `403 Forbidden` | Attempting to modify event you don't own (`creator` role) |
 | `409 Conflict` | Status transition not allowed for current role/state |
 | `409 Conflict` | Version mismatch (concurrent modification) |
 | `409 Conflict` | Event no longer in expected status |
@@ -128,4 +130,6 @@ The API expects JWT tokens with the following claims:
 ```
 
 - `preferred_username` → stored as event creator
-- `groups` → matched against configured role environment variables
+- `groups` → each value is matched against the configured `SD_RBAC_GROUP_*` environment variables to
+  resolve the application role. For example, if `SD_RBAC_GROUP_CREATORS=sd_creators`, then a token
+  containing `"sd_creators"` in `groups` grants the `creator` role.

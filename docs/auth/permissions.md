@@ -11,8 +11,9 @@ covering creation rules, PATCH status transitions, and automatic checker transit
 Admin (50) > Operator (30) > Creator (10) > NoRole (0)
 ```
 
-Roles are resolved from the JWT `groups` claim. When a user belongs to multiple groups, the highest
-matching role wins. See [rbac.md](rbac.md) for configuration details.
+Role names (`admin`, `operator`, `creator`) are abstract application roles resolved from IdP group
+names configured via `SD_RBAC_GROUP_ADMINS`, `SD_RBAC_GROUP_OPERATORS`, and `SD_RBAC_GROUP_CREATORS`
+environment variables. See [rbac.md](rbac.md) for configuration details.
 
 ---
 
@@ -22,9 +23,9 @@ matching role wins. See [rbac.md](rbac.md) for configuration details.
 
 | Role | Initial Status | Start Date Constraint | Notes |
 |------|---------------|----------------------|-------|
-| `sd_admins` | `planned` | No restriction — past or future allowed | Bypasses review workflow |
-| `sd_operators` | `planned` | No restriction — past or future allowed | Bypasses review workflow |
-| `sd_creators` | `pending_review` | No restriction — past or future allowed | Enters review workflow |
+| `admin` | `planned` | No restriction — past or future allowed | Bypasses review workflow |
+| `operator` | `planned` | No restriction — past or future allowed | Bypasses review workflow |
+| `creator` | `pending_review` | No restriction — past or future allowed | Enters review workflow |
 | Unauthenticated | — | — | 401 Unauthorized |
 
 > **Retroactive maintenance**: All roles may create maintenance events with start/end dates in the past.
@@ -48,7 +49,7 @@ The table below shows which target statuses are reachable from each stored statu
 
 Legend: ✅ allowed · ❌ 409 Conflict · 🚫 403 Forbidden
 
-#### sd_admins — unrestricted
+#### `admin` — unrestricted
 
 Any → any maintenance status is permitted. No stored-status check is performed.
 
@@ -62,22 +63,24 @@ Any → any maintenance status is permitted. No stored-status check is performed
 | `completed` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | `cancelled` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 
-#### sd_operators — restricted to `pending_review` source
+#### `operator` — unrestricted (event admin)
 
-Operators may only PATCH events that are currently in `pending_review`.
-Any other stored status returns **409 Conflict**.
+Operators are event admins and may perform all CRUD actions on maintenance events.
+Any status transition is permitted, identical to the `admin` role for maintenance events.
+The distinction from `admin` is that `admin` will gain additional system-level privileges in future
+releases; `operator` scope is limited to event management.
 
 | Current status (FROM ↓) \ Target status (TO →) | `pending_review` | `reviewed` | `planned` | `in_progress` | `modified` | `completed` | `cancelled` |
 |------------------------------------------------|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| `pending_review` | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ | ✅ |
-| `reviewed` | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
-| `planned` | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
-| `in_progress` | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
-| `modified` | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
-| `completed` | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
-| `cancelled` | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| `pending_review` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `reviewed` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `planned` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `in_progress` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `modified` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `completed` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `cancelled` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 
-#### sd_creators — restricted to own events in `pending_review`
+#### `creator` — restricted to own events in `pending_review`
 
 Creators may only PATCH their **own** events (ownership check: `user_id == created_by`).
 If the event belongs to another user: **403 Forbidden**.
@@ -120,7 +123,7 @@ The checker also backfills missing intermediate statuses (e.g., if an event jump
 Maintenance events may be created with start and/or end dates in the past. This supports the
 operational scenario of documenting maintenance that was performed but not registered in time.
 
-#### Path A — Admin or Operator creates with past dates
+#### Path A — `admin` or `operator` creates with past dates
 
 ```
 POST /v2/events  { start_date: <past>, end_date: <past> }
@@ -139,7 +142,7 @@ POST /v2/events  { start_date: <past>, end_date: <past> }
 Result: the event appears in history with correct timestamps, as if it had been recorded in real time.
 No manual PATCH is required after creation.
 
-#### Path B — Creator creates with past dates
+#### Path B — `creator` creates with past dates
 
 ```
 POST /v2/events → initial status: pending_review
@@ -157,19 +160,19 @@ POST /v2/events → initial status: pending_review
 ### Full Maintenance Status Flow Diagram
 
 ```
-[Creator POST]──► pending_review ◄──┐
-                      │ │            │ sd_creators: modify (own)
-         Operator/    │ │ sd_creators/
-         Admin        │ │ Operator/Admin → cancelled (terminal)
+[creator POST]──► pending_review ◄──┐
+                      │ │            │ creator: modify (own)
+         operator/    │ │ creator/
+         admin        │ │ operator/admin → cancelled (terminal)
          approves     │ │
                       ▼ │
                   reviewed
                       │
                checker (auto)
                       ▼
-[Operator/Admin POST]► planned ◄──────────────────────────────┐
+[operator/admin POST]► planned ◄──────────────────────────────┐
                       │                                        │
-               checker (StartDate)                    Admin can jump
+               checker (StartDate)                    admin/operator can jump
                       ▼                               to any status
                   in_progress
                       │
@@ -178,9 +181,9 @@ POST /v2/events → initial status: pending_review
                   completed (terminal)
 
 
-cancelled ◄── Admin: from any status
-cancelled ◄── Operator: from pending_review only
-cancelled ◄── Creator: from pending_review (own event) only
+cancelled ◄── admin: from any status
+cancelled ◄── operator: from any status
+cancelled ◄── creator: from pending_review (own event) only
 ```
 
 ---
