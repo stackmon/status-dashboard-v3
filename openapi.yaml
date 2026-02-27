@@ -988,7 +988,7 @@ components:
             - "in_progress"
             - "modified"
             - "completed"
-            - "analyzing"
+            - "analysing"
             - "fixing"
             - "impact changed"
             - "observing"
@@ -997,7 +997,9 @@ components:
             - "changed"
             - "planned"
             - "cancelled"
+            - "pending_review"
             - "reviewed"
+            - "active"
         update_date:
           type: string
           format: date-time

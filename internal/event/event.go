@@ -71,7 +71,7 @@ const (
 const (
 	maintenancePendingReviewText = "Maintenance is pending_review."
 	maintenancePlannedText       = "Maintenance is planned."
-	maintenanceInProgressText    = "Maintenance is in_progres."
+	maintenanceInProgressText    = "Maintenance is in_progress."
 	maintenanceCompletedText     = "Maintenance is completed."
 )
 
