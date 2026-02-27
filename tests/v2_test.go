@@ -37,6 +37,7 @@ func TestV2GetIncidentsHandler(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest(http.MethodGet, v2IncidentsEndpoint, nil)
+	req.Header.Set("Authorization", "Bearer "+adminToken)
 
 	r.ServeHTTP(w, req)
 
@@ -175,6 +176,7 @@ func TestV2PostIncidentsHandlerNegative(t *testing.T) {
 
 		w := httptest.NewRecorder()
 		req, _ := http.NewRequest(http.MethodPost, v2IncidentsEndpoint, strings.NewReader(c.JSON))
+		req.Header.Set("Authorization", "Bearer "+adminToken)
 		r.ServeHTTP(w, req)
 
 		assert.Equal(t, c.ExpectedCode, w.Code)
@@ -434,6 +436,7 @@ func TestV2PatchIncidentHandlerNegative(t *testing.T) {
 
 		w := httptest.NewRecorder()
 		req, _ := http.NewRequest(http.MethodPatch, url, strings.NewReader(c.JSON))
+		req.Header.Set("Authorization", "Bearer "+adminToken)
 		r.ServeHTTP(w, req)
 
 		assert.Equal(t, c.ExpectedCode, w.Code)
@@ -462,6 +465,7 @@ func TestV2PatchIncidentHandler(t *testing.T) {
 		url := fmt.Sprintf("/v2/incidents/%d", id)
 		w := httptest.NewRecorder()
 		req, _ := http.NewRequest(http.MethodPatch, url, bytes.NewReader(d))
+		req.Header.Set("Authorization", "Bearer "+adminToken)
 
 		r.ServeHTTP(w, req)
 		assert.Equal(t, 200, w.Code)
@@ -607,6 +611,7 @@ func TestV2PostIncidentExtractHandler(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest(http.MethodPost, v2IncidentsEndpoint+fmt.Sprintf("/%d/extract", result.Result[0].IncidentID), bytes.NewReader(data))
+	req.Header.Set("Authorization", "Bearer "+adminToken)
 	r.ServeHTTP(w, req)
 	require.Equal(t, http.StatusOK, w.Code)
 
@@ -632,6 +637,7 @@ func TestV2PostIncidentExtractHandler(t *testing.T) {
 
 	w = httptest.NewRecorder()
 	req, _ = http.NewRequest(http.MethodPost, v2IncidentsEndpoint+fmt.Sprintf("/%d/extract", result.Result[0].IncidentID), bytes.NewReader(data))
+	req.Header.Set("Authorization", "Bearer "+adminToken)
 	r.ServeHTTP(w, req)
 	require.Equal(t, http.StatusBadRequest, w.Code)
 	assert.JSONEq(t, `{"errMsg":"can not move all components to the new incident, keep at least one"}`, w.Body.String())
@@ -645,6 +651,7 @@ func v2CreateIncident(t *testing.T, r *gin.Engine, inc *v2.IncidentData) *v2.Pos
 
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest(http.MethodPost, v2IncidentsEndpoint, bytes.NewReader(data))
+	req.Header.Set("Authorization", "Bearer "+adminToken)
 	r.ServeHTTP(w, req)
 
 	if w.Code != http.StatusOK {
@@ -666,6 +673,7 @@ func v2GetIncident(t *testing.T, r *gin.Engine, id int) *v2.Incident {
 	url := fmt.Sprintf("/v2/incidents/%d", id)
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest(http.MethodGet, url, nil)
+	req.Header.Set("Authorization", "Bearer "+adminToken)
 
 	r.ServeHTTP(w, req)
 
@@ -682,6 +690,7 @@ func v2GetIncidents(t *testing.T, r *gin.Engine) []*v2.Incident {
 	url := "/v2/incidents"
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest(http.MethodGet, url, nil)
+	req.Header.Set("Authorization", "Bearer "+adminToken)
 
 	r.ServeHTTP(w, req)
 
@@ -721,6 +730,7 @@ func v2PatchIncident(t *testing.T, r *gin.Engine, inc *v2.Incident, status ...ev
 	url := fmt.Sprintf("/v2/incidents/%d", inc.ID)
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest(http.MethodPatch, url, bytes.NewReader(d))
+	req.Header.Set("Authorization", "Bearer "+adminToken)
 
 	r.ServeHTTP(w, req)
 
@@ -750,6 +760,7 @@ func TestV2CreateComponentAndList(t *testing.T) {
 	w := httptest.NewRecorder()
 	data, _ := json.Marshal(newComponent)
 	req, _ := http.NewRequest(http.MethodPost, "/v2/components", bytes.NewReader(data))
+	req.Header.Set("Authorization", "Bearer "+adminToken)
 	r.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusCreated, w.Code)
 
@@ -763,6 +774,7 @@ func TestV2CreateComponentAndList(t *testing.T) {
 	t.Log("Test case 2: Try to create duplicate component")
 	w = httptest.NewRecorder()
 	req, _ = http.NewRequest(http.MethodPost, "/v2/components", bytes.NewReader(data))
+	req.Header.Set("Authorization", "Bearer "+adminToken)
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
@@ -782,6 +794,7 @@ func TestV2CreateComponentAndList(t *testing.T) {
 	data, _ = json.Marshal(invalidComponent)
 	w = httptest.NewRecorder()
 	req, _ = http.NewRequest(http.MethodPost, "/v2/components", bytes.NewReader(data))
+	req.Header.Set("Authorization", "Bearer "+adminToken)
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
@@ -982,6 +995,7 @@ func TestV2GetIncidentsFilteredHandler(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			w := httptest.NewRecorder()
 			req, _ := http.NewRequest(http.MethodGet, v2IncidentsEndpoint, nil)
+			req.Header.Set("Authorization", "Bearer "+adminToken)
 
 			q := req.URL.Query()
 			for k, v := range tc.queryParams {
@@ -1395,6 +1409,7 @@ func TestV2PatchIncidentUpdateHandler(t *testing.T) {
 			url := fmt.Sprintf("/v2/incidents/%d/updates/%d", tc.incidentID, tc.updateIndex)
 			req, _ := http.NewRequest(http.MethodPatch, url, strings.NewReader(tc.body))
 			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("Authorization", "Bearer "+adminToken)
 
 			w := httptest.NewRecorder()
 			r.ServeHTTP(w, req)

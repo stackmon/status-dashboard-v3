@@ -353,7 +353,10 @@ func (db *DB) ReOpenIncident(inc *Incident) error {
 	return nil
 }
 
-// GetEventsByComponentID retrieves all events associated with a specific component ID.
+// GetEventsByComponentID retrieves all public events associated with a specific component ID.
+// Maintenance events in pending_review/reviewed status are excluded (require authentication).
+// Not affected to getActiveEventsForComponent (v2.go) because IsActive filter already contains
+// exceptions for "event.TypeMaintenance, event.MaintenancePendingReview, event.MaintenanceReviewed".
 // Supports optional filtering parameters: isActive, Types, LastCount.
 func (db *DB) GetEventsByComponentID(componentID uint, params ...*IncidentsParams) ([]*Incident, error) {
 	// Get all incidents for this component
@@ -366,6 +369,8 @@ func (db *DB) GetEventsByComponentID(componentID uint, params ...*IncidentsParam
 	r := db.g.Model(&Incident{}).
 		Joins("JOIN incident_component_relation icr ON icr.incident_id = incident.id").
 		Where("icr.component_id = ?", componentID).
+		Where("NOT (incident.type = ? AND incident.status IN (?, ?))",
+			event.TypeMaintenance, event.MaintenancePendingReview, event.MaintenanceReviewed).
 		Preload("Statuses").
 		Preload("Components", func(db *gorm.DB) *gorm.DB {
 			return db.Select("ID, Name")
@@ -403,7 +408,8 @@ func (db *DB) GetEventsByComponentID(componentID uint, params ...*IncidentsParam
 }
 
 func (db *DB) GetIncidentsByComponentAttr(attr *ComponentAttr, params ...*IncidentsParams) ([]*Incident, error) {
-	// Get all incidents for components with this attribute
+	// Get all public incidents for components with this attribute.
+	// Maintenance events in pending_review/reviewed status are excluded (require authentication).
 	var incidents []*Incident
 	var param IncidentsParams
 	if params != nil && params[0] != nil {
@@ -414,6 +420,8 @@ func (db *DB) GetIncidentsByComponentAttr(attr *ComponentAttr, params ...*Incide
 		Joins("JOIN incident_component_relation icr ON icr.incident_id = incident.id").
 		Joins("JOIN component_attribute ca ON ca.component_id = icr.component_id").
 		Where("ca.name = ? AND ca.value = ?", attr.Name, attr.Value).
+		Where("NOT (incident.type = ? AND incident.status IN (?, ?))",
+			event.TypeMaintenance, event.MaintenancePendingReview, event.MaintenanceReviewed).
 		Preload("Statuses").
 		Preload("Components", func(db *gorm.DB) *gorm.DB {
 			return db.Select("ID, Name")

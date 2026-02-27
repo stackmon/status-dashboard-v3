@@ -125,6 +125,11 @@ func initTests(t *testing.T) (*gin.Engine, *db.DB, *auth.Provider) {
 
 	logger, _ := zap.NewDevelopment()
 
+	// Provide RBAC group names so conf.LoadConf() validation passes.
+	t.Setenv("SD_RBAC_GROUP_CREATORS", creatorGroup)
+	t.Setenv("SD_RBAC_GROUP_OPERATORS", operatorGroup)
+	t.Setenv("SD_RBAC_GROUP_ADMINS", adminGroup)
+
 	cfg, err := conf.LoadConf()
 	require.NoError(t, err)
 
@@ -132,8 +137,8 @@ func initTests(t *testing.T) (*gin.Engine, *db.DB, *auth.Provider) {
 	require.NoError(t, err)
 
 	initRoutesAuth(t, r, oa2Prov, logger)
-	initRoutesV1(t, r, d, logger)
-	initRoutesV2(t, r, d, logger)
+	initRoutesV1(t, r, d, oa2Prov, logger)
+	initRoutesV2(t, r, d, oa2Prov, logger)
 
 	return r, d, oa2Prov
 }
@@ -150,65 +155,91 @@ func initRoutesAuth(t *testing.T, c *gin.Engine, oa2Prov *auth.Provider, logger 
 	authAPI.POST("logout", auth.PostTokenHandler(oa2Prov, logger))
 }
 
-func initRoutesV1(t *testing.T, c *gin.Engine, dbInst *db.DB, logger *zap.Logger) {
+func initRoutesV1(t *testing.T, c *gin.Engine, dbInst *db.DB, prov *auth.Provider, logger *zap.Logger) {
 	t.Helper()
 	t.Log("init routes for V1")
 
 	v1Api := c.Group("v1")
 
 	v1Api.GET("component_status", v1.GetComponentsStatusHandler(dbInst, logger))
-	v1Api.POST("component_status", v1.PostComponentStatusHandler(dbInst, logger))
+	v1Api.POST("component_status",
+		api.AuthenticationMW(prov, logger, testHMACSecret),
+		v1.PostComponentStatusHandler(dbInst, logger))
 
 	v1Api.GET("incidents", v1.GetIncidentsHandler(dbInst, logger))
 }
 
-func initRoutesV2(t *testing.T, c *gin.Engine, dbInst *db.DB, logger *zap.Logger) {
+func initRoutesV2(t *testing.T, c *gin.Engine, dbInst *db.DB, prov *auth.Provider, logger *zap.Logger) {
 	t.Helper()
 	t.Log("init routes for V2")
 
-	rbacSvc := rbac.New("", "", "sd_admins")
+	rbacSvc := rbac.New(creatorGroup, operatorGroup, adminGroup)
 
 	v2Api := c.Group("v2")
-	v2Api.Use(func(c *gin.Context) {
-		c.Set("role", rbac.Admin)
-		c.Set(v2.UserIDGroupsContextKey, []string{"sd_admins"})
-		c.Next()
-	})
 
 	v2Api.GET("components", v2.GetComponentsHandler(dbInst, logger))
-	v2Api.POST("components", v2.PostComponentHandler(dbInst, logger))
+	v2Api.POST("components",
+		api.AuthenticationMW(prov, logger, testHMACSecret),
+		v2.PostComponentHandler(dbInst, logger))
 	v2Api.GET("components/:id", v2.GetComponentHandler(dbInst, logger))
 
-	// Incidents routes are deprecated.
-	// They will be removed in the next iteration.
-	v2Api.GET("incidents", v2.GetIncidentsHandler(dbInst, logger, rbacSvc))
-	v2Api.POST("incidents", api.ValidateComponentsMW(dbInst, logger), v2.PostIncidentHandler(dbInst, logger))
+	// Incidents routes (deprecated).
+	v2Api.GET("incidents",
+		api.SetJWTClaims(prov, logger, testHMACSecret),
+		v2.GetIncidentsHandler(dbInst, logger, rbacSvc))
+	v2Api.POST("incidents",
+		api.AuthenticationMW(prov, logger, testHMACSecret),
+		api.RBACAuthorizationMW(rbacSvc, logger),
+		api.ValidateComponentsMW(dbInst, logger),
+		v2.PostIncidentHandler(dbInst, logger))
 	v2Api.GET("incidents/:eventID",
+		api.SetJWTClaims(prov, logger, testHMACSecret),
 		api.CheckEventExistenceMW(dbInst, logger),
 		v2.GetIncidentHandler(dbInst, logger, rbacSvc))
 	v2Api.PATCH("incidents/:eventID",
+		api.AuthenticationMW(prov, logger, testHMACSecret),
+		api.RBACAuthorizationMW(rbacSvc, logger),
 		api.CheckEventExistenceMW(dbInst, logger),
 		v2.PatchIncidentHandler(dbInst, logger))
 	v2Api.POST("incidents/:eventID/extract",
+		api.AuthenticationMW(prov, logger, testHMACSecret),
+		api.RBACAuthorizationMW(rbacSvc, logger),
 		api.CheckEventExistenceMW(dbInst, logger),
+		api.ValidateComponentsMW(dbInst, logger),
 		v2.PostIncidentExtractHandler(dbInst, logger))
 	v2Api.PATCH("incidents/:eventID/updates/:updateID",
+		api.AuthenticationMW(prov, logger, testHMACSecret),
+		api.RBACAuthorizationMW(rbacSvc, logger),
 		api.CheckEventExistenceMW(dbInst, logger),
 		v2.PatchEventUpdateTextHandler(dbInst, logger))
 
 	// Events routes.
-	v2Api.GET("events", v2.GetEventsHandler(dbInst, logger, rbacSvc))
-	v2Api.POST("events", api.ValidateComponentsMW(dbInst, logger), v2.PostIncidentHandler(dbInst, logger))
+	v2Api.GET("events",
+		api.SetJWTClaims(prov, logger, testHMACSecret),
+		v2.GetEventsHandler(dbInst, logger, rbacSvc))
+	v2Api.POST("events",
+		api.AuthenticationMW(prov, logger, testHMACSecret),
+		api.RBACAuthorizationMW(rbacSvc, logger),
+		api.ValidateComponentsMW(dbInst, logger),
+		v2.PostIncidentHandler(dbInst, logger))
 	v2Api.GET("events/:eventID",
+		api.SetJWTClaims(prov, logger, testHMACSecret),
 		api.CheckEventExistenceMW(dbInst, logger),
 		v2.GetIncidentHandler(dbInst, logger, rbacSvc))
 	v2Api.PATCH("events/:eventID",
+		api.AuthenticationMW(prov, logger, testHMACSecret),
+		api.RBACAuthorizationMW(rbacSvc, logger),
 		api.CheckEventExistenceMW(dbInst, logger),
 		v2.PatchIncidentHandler(dbInst, logger))
 	v2Api.POST("events/:eventID/extract",
+		api.AuthenticationMW(prov, logger, testHMACSecret),
+		api.RBACAuthorizationMW(rbacSvc, logger),
 		api.CheckEventExistenceMW(dbInst, logger),
+		api.ValidateComponentsMW(dbInst, logger),
 		v2.PostIncidentExtractHandler(dbInst, logger))
 	v2Api.PATCH("events/:eventID/updates/:updateID",
+		api.AuthenticationMW(prov, logger, testHMACSecret),
+		api.RBACAuthorizationMW(rbacSvc, logger),
 		api.CheckEventExistenceMW(dbInst, logger),
 		v2.PatchEventUpdateTextHandler(dbInst, logger))
 
@@ -229,4 +260,30 @@ func truncateIncidents(t *testing.T) {
 	require.NoError(t, err, "failed to get sql.DB from gorm for closing")
 	err = sqlDB.Close()
 	require.NoError(t, err, "failed to close gorm connection for truncation")
+}
+
+// restoreFixtureIncident re-inserts the dump_test.sql fixture incident
+// so that V1 GET tests see the expected data even after other tests modify the DB.
+func restoreFixtureIncident(t *testing.T) {
+	t.Helper()
+	truncateIncidents(t)
+
+	gormDB, err := gorm.Open(gormpostgres.Open(databaseURL), &gorm.Config{})
+	require.NoError(t, err)
+
+	sqls := []string{
+		`INSERT INTO incident (id, text, start_date, end_date, impact, type, system, status)
+		 VALUES (1, 'Closed incident without any update', '2025-05-22 10:12:42', '2025-05-22 11:12:42', 1, 'incident', true, 'resolved')`,
+		`INSERT INTO incident_component_relation (incident_id, component_id) VALUES (1, 1)`,
+		`INSERT INTO incident_status (incident_id, "timestamp", text, status)
+		 VALUES (1, '2025-05-22 11:12:42', 'close incident', 'resolved')`,
+		`SELECT setval('incident_id_seq', (SELECT COALESCE(MAX(id), 0) FROM incident))`,
+	}
+	for _, s := range sqls {
+		require.NoError(t, gormDB.Exec(s).Error)
+	}
+
+	sqlDB, err := gormDB.DB()
+	require.NoError(t, err)
+	require.NoError(t, sqlDB.Close())
 }

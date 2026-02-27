@@ -142,6 +142,7 @@ func TestV2PostEventsHandlerNegative(t *testing.T) {
 
 		w := httptest.NewRecorder()
 		req, _ := http.NewRequest(http.MethodPost, v2EventsEndpoint, strings.NewReader(c.JSON))
+		req.Header.Set("Authorization", "Bearer "+adminToken)
 		r.ServeHTTP(w, req)
 
 		assert.Equal(t, c.ExpectedCode, w.Code)
@@ -406,6 +407,7 @@ func TestV2PatchEventHandlerNegative(t *testing.T) {
 
 		w := httptest.NewRecorder()
 		req, _ := http.NewRequest(http.MethodPatch, url, strings.NewReader(c.JSON))
+		req.Header.Set("Authorization", "Bearer "+adminToken)
 		r.ServeHTTP(w, req)
 
 		assert.Equal(t, c.ExpectedCode, w.Code)
@@ -431,6 +433,7 @@ func TestV2PatchEventHandler(t *testing.T) {
 		url := fmt.Sprintf("/v2/events/%d", id)
 		w := httptest.NewRecorder()
 		req, _ := http.NewRequest(http.MethodPatch, url, bytes.NewReader(d))
+		req.Header.Set("Authorization", "Bearer "+adminToken)
 
 		r.ServeHTTP(w, req)
 		assert.Equal(t, 200, w.Code)
@@ -595,6 +598,7 @@ func TestV2PostEventExtractHandler(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest(http.MethodPost, v2EventsEndpoint+fmt.Sprintf("/%d/extract", result.Result[0].IncidentID), bytes.NewReader(data))
+	req.Header.Set("Authorization", "Bearer "+adminToken)
 	r.ServeHTTP(w, req)
 	require.Equal(t, http.StatusOK, w.Code)
 
@@ -620,6 +624,7 @@ func TestV2PostEventExtractHandler(t *testing.T) {
 
 	w = httptest.NewRecorder()
 	req, _ = http.NewRequest(http.MethodPost, v2EventsEndpoint+fmt.Sprintf("/%d/extract", result.Result[0].IncidentID), bytes.NewReader(data))
+	req.Header.Set("Authorization", "Bearer "+adminToken)
 	r.ServeHTTP(w, req)
 	require.Equal(t, http.StatusBadRequest, w.Code)
 	assert.JSONEq(t, `{"errMsg":"can not move all components to the new incident, keep at least one"}`, w.Body.String())
@@ -633,6 +638,7 @@ func v2CreateEvent(t *testing.T, r *gin.Engine, inc *v2.IncidentData) *v2.PostIn
 
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest(http.MethodPost, v2EventsEndpoint, bytes.NewReader(data))
+	req.Header.Set("Authorization", "Bearer "+adminToken)
 	r.ServeHTTP(w, req)
 
 	if w.Code != http.StatusOK {
@@ -654,6 +660,7 @@ func v2GetEvent(t *testing.T, r *gin.Engine, id int) *v2.Incident {
 	url := fmt.Sprintf("/v2/events/%d", id)
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest(http.MethodGet, url, nil)
+	req.Header.Set("Authorization", "Bearer "+adminToken)
 
 	r.ServeHTTP(w, req)
 
@@ -670,6 +677,7 @@ func v2GetEvents(t *testing.T, r *gin.Engine) []*v2.Incident {
 	url := "/v2/events?limit=50&page=1"
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest(http.MethodGet, url, nil)
+	req.Header.Set("Authorization", "Bearer "+adminToken)
 
 	r.ServeHTTP(w, req)
 
@@ -715,6 +723,7 @@ func v2PatchEvent(t *testing.T, r *gin.Engine, inc *v2.Incident, status ...event
 	url := fmt.Sprintf("/v2/events/%d", inc.ID)
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest(http.MethodPatch, url, bytes.NewReader(d))
+	req.Header.Set("Authorization", "Bearer "+adminToken)
 
 	r.ServeHTTP(w, req)
 
@@ -824,6 +833,7 @@ func TestV2GetEventsFilteredHandler(t *testing.T) { //nolint:gocognit
 		t.Run(tc.name, func(t *testing.T) {
 			w := httptest.NewRecorder()
 			req, _ := http.NewRequest(http.MethodGet, v2EventsEndpoint, nil)
+			req.Header.Set("Authorization", "Bearer "+adminToken)
 
 			q := req.URL.Query()
 			// Add pagination to get all results in one page
@@ -922,6 +932,7 @@ func TestV2GetEventsHandler(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			w := httptest.NewRecorder()
 			req, _ := http.NewRequest(http.MethodGet, v2EventsEndpoint+tc.queryParams, nil)
+			req.Header.Set("Authorization", "Bearer "+adminToken)
 			r.ServeHTTP(w, req)
 
 			assert.Equal(t, tc.expectedStatusCode, w.Code)
@@ -1232,6 +1243,7 @@ func TestV2PatchEventUpdateHandler(t *testing.T) {
 			url := fmt.Sprintf("/v2/events/%d/updates/%d", tc.incidentID, tc.updateIndex)
 			req, _ := http.NewRequest(http.MethodPatch, url, strings.NewReader(tc.body))
 			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("Authorization", "Bearer "+adminToken)
 
 			w := httptest.NewRecorder()
 			r.ServeHTTP(w, req)

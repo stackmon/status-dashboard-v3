@@ -745,6 +745,7 @@ func v2CreateIncidentWithStatus(t *testing.T, r *gin.Engine, inc *v2.IncidentDat
 
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest(http.MethodPost, v2IncidentsEndpoint, bytes.NewReader(data))
+	req.Header.Set("Authorization", "Bearer "+adminToken)
 	r.ServeHTTP(w, req)
 
 	if w.Code != http.StatusOK {
