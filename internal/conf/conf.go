@@ -20,6 +20,10 @@ const (
 	DefaultWebURL   = "http://localhost:9000"
 	DefaultHostname = "localhost"
 	DefaultPort     = "8000"
+
+	// MinSecretKeyLength is the minimum required length for the HMAC secret key.
+	// HMAC-SHA256 requires at least 32 bytes for cryptographic strength.
+	MinSecretKeyLength = 32
 )
 
 type Config struct {
@@ -41,22 +45,18 @@ type Config struct {
 	// Web URL for the app
 	// Example: https://web.example.com
 	WebURL string `envconfig:"WEB_URL"`
-	// Disable authentication for any reasons it doesn't work with hostname like "*prod*"
-	AuthenticationDisabled bool `envconfig:"AUTHENTICATION_DISABLED"`
-	// Secret key for V1 authentication (deprecated)
+	// Secret key for local HMAC authentication (dev, tests, service-to-service)
 	SecretKeyV1 string `envconfig:"SECRET_KEY"`
 	// RBAC configuration
 	RBAC RBACConfig `envconfig:"RBAC"`
 }
 
 type RBACConfig struct {
-	// Disable RBAC authorization (default: false — RBAC is active)
-	Disabled bool `envconfig:"DISABLED"`
 	// Creators group name
 	Creators string `envconfig:"GROUP_CREATORS"`
 	// Operators group name
 	Operators string `envconfig:"GROUP_OPERATORS"`
-	// Admins group name
+	// Admins group name (mandatory)
 	Admins string `envconfig:"GROUP_ADMINS"`
 }
 
@@ -76,6 +76,10 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("wrong port for http server")
 	}
 
+	if provErr := c.validateProviders(); provErr != nil {
+		return provErr
+	}
+
 	if rbacErr := c.RBAC.Validate(); rbacErr != nil {
 		return rbacErr
 	}
@@ -83,29 +87,28 @@ func (c *Config) Validate() error {
 	return nil
 }
 
+// validateProviders ensures at least one authentication provider is configured.
+func (c *Config) validateProviders() error {
+	hasKeycloak := c.Keycloak != nil && c.Keycloak.URL != "" && c.Keycloak.Realm != "" &&
+		c.Keycloak.ClientID != "" && c.Keycloak.ClientSecret != ""
+	hasLocal := c.SecretKeyV1 != ""
+
+	if !hasKeycloak && !hasLocal {
+		return fmt.Errorf("at least one authentication provider must be configured: " +
+			"set SD_KEYCLOAK_* for Keycloak or SD_SECRET_KEY for local HMAC")
+	}
+
+	if hasLocal && len(c.SecretKeyV1) < MinSecretKeyLength {
+		return fmt.Errorf("SD_SECRET_KEY must be at least %d characters for HMAC-SHA256 security", MinSecretKeyLength)
+	}
+
+	return nil
+}
+
 func (r *RBACConfig) Validate() error {
-	if r.Disabled {
-		return nil
-	}
-
-	var missing []string
-	if r.Creators == "" {
-		missing = append(missing, "SD_RBAC_GROUP_CREATORS")
-	}
-	if r.Operators == "" {
-		missing = append(missing, "SD_RBAC_GROUP_OPERATORS")
-	}
 	if r.Admins == "" {
-		missing = append(missing, "SD_RBAC_GROUP_ADMINS")
+		return fmt.Errorf("SD_RBAC_GROUP_ADMINS is required")
 	}
-
-	if len(missing) > 0 {
-		return fmt.Errorf(
-			"RBAC is enabled but required groups are not configured: %s",
-			strings.Join(missing, ", "),
-		)
-	}
-
 	return nil
 }
 
@@ -259,8 +262,8 @@ func (c *Config) Log(logger *zap.Logger) {
 	)
 
 	logger.Info("Authentication configuration",
-		zap.Bool("authentication_disabled", c.AuthenticationDisabled),
-		zap.Bool("rbac_enabled", !c.RBAC.Disabled),
+		zap.Bool("keycloak_configured", c.Keycloak != nil && c.Keycloak.URL != ""),
+		zap.Bool("local_hmac_configured", c.SecretKeyV1 != ""),
 		zap.String("creators_group", c.RBAC.Creators),
 		zap.String("operators_group", c.RBAC.Operators),
 		zap.String("admins_group", c.RBAC.Admins),
