@@ -1007,7 +1007,12 @@ func PatchIncidentHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		logger.Debug("update incident")
 
-		storedIncident := getEventFromContext(c, logger)
+		storedIncident, ok := getEventFromContext(c)
+		if !ok {
+			logger.Error("event not found or invalid type in context")
+			apiErrors.RaiseInternalErr(c, errors.New("internal context error"))
+			return
+		}
 
 		var incData PatchIncidentData
 		if err := c.ShouldBindBodyWithJSON(&incData); err != nil {
@@ -1060,6 +1065,13 @@ func PatchIncidentHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 			return
 		}
 
+		logger.Info("maintenance status transition",
+			zap.Uint("eventID", storedIncident.ID),
+			zap.String("to_status", string(incData.Status)),
+			zap.Stringp("userID", userID),
+			zap.Time("timestamp", incData.UpdateDate),
+		)
+
 		if err = reopenIncident(c, dbInst, logger, storedIncident, incData.Status); err != nil {
 			return
 		}
@@ -1083,6 +1095,9 @@ func reopenIncident(
 	if status != event.IncidentReopened {
 		return nil
 	}
+	logger.Info("reopening incident",
+		zap.Uint("event_id", storedIncident.ID),
+	)
 	err := dbInst.ReOpenIncident(storedIncident)
 	if err != nil {
 		logger.Error("incident reopen failed: database error",
@@ -1220,7 +1235,12 @@ type PostIncidentSeparateData struct {
 func PostIncidentExtractHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		logger.Debug("start to extract components to the new incident")
-		storedInc := getEventFromContext(c, logger)
+		storedInc, ok := getEventFromContext(c)
+		if !ok {
+			logger.Error("event not found or invalid type in context")
+			apiErrors.RaiseInternalErr(c, errors.New("internal context error"))
+			return
+		}
 
 		var incData PostIncidentSeparateData
 		if err := c.ShouldBindBodyWithJSON(&incData); err != nil {
@@ -1867,19 +1887,11 @@ func prepareIncidentPatch(
 	return true
 }
 
-func getEventFromContext(c *gin.Context, logger *zap.Logger) *db.Incident {
+func getEventFromContext(c *gin.Context) (*db.Incident, bool) {
 	val, exists := c.Get("event")
 	if !exists {
-		logger.Error("event not found in context")
-		apiErrors.RaiseInternalErr(c, errors.New("event not found in context"))
-		return nil
+		return nil, false
 	}
-
 	evnt, ok := val.(*db.Incident)
-	if !ok {
-		logger.Error("invalid type in context")
-		apiErrors.RaiseInternalErr(c, errors.New("invalid type in context"))
-		return nil
-	}
-	return evnt
+	return evnt, ok
 }

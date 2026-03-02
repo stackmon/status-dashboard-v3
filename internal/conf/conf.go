@@ -70,7 +70,7 @@ type Keycloak struct {
 func (c *Config) Validate() error {
 	p, err := strconv.Atoi(c.Port)
 	if err != nil {
-		return fmt.Errorf("wront SD_PORT format, should be a number in range 1025:50000")
+		return fmt.Errorf("wrong SD_PORT format, should be a number in range 1025:50000")
 	}
 	if p < 1024 || p > 50000 {
 		return fmt.Errorf("wrong port for http server")
