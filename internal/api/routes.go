@@ -15,13 +15,15 @@ const (
 )
 
 func (a *API) InitRoutes() {
-	authAPI := a.r.Group(authGroupPath)
-	{
-		authAPI.GET("login", auth.GetLoginPageHandler(a.oa2Prov, a.log))
-		authAPI.GET("callback", auth.GetCallbackHandler(a.oa2Prov, a.log))
-		authAPI.POST("token", auth.PostTokenHandler(a.oa2Prov, a.log))
-		authAPI.PUT("logout", auth.PutLogoutHandler(a.oa2Prov, a.log))
-		authAPI.POST("refresh", auth.PostRefreshHandler(a.oa2Prov, a.log))
+	if a.oa2Prov != nil {
+		authAPI := a.r.Group(authGroupPath)
+		{
+			authAPI.GET("login", auth.GetLoginPageHandler(a.oa2Prov, a.log))
+			authAPI.GET("callback", auth.GetCallbackHandler(a.oa2Prov, a.log))
+			authAPI.POST("token", auth.PostTokenHandler(a.oa2Prov, a.log))
+			authAPI.PUT("logout", auth.PutLogoutHandler(a.oa2Prov, a.log))
+			authAPI.POST("refresh", auth.PostRefreshHandler(a.oa2Prov, a.log))
+		}
 	}
 
 	v1API := a.r.Group(v1Group)

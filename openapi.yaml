@@ -7,6 +7,12 @@ info:
     
     ## Authentication & Field Visibility
     
+    The API supports two simultaneous identity providers:
+    - **Keycloak (RSA)**: RS256 tokens validated against JWKS public key. Audience (`aud`) claim must match the configured client ID.
+    - **Local HMAC**: HS256/HS384/HS512 tokens validated against `SD_SECRET_KEY` (≥ 32 characters). Used for development, tests, and service-to-service calls.
+    
+    At least one provider must be configured. The `alg` header in the JWT determines which provider validates the token.
+    
     Some fields are only visible to authenticated users:
     - `creator` - User ID of the event creator
     - `contact_email` - Contact email for maintenance events
@@ -35,9 +41,11 @@ info:
     | `creator` | Create maintenance events (status: `pending_review`), modify/cancel own events in `pending_review` only |
 
     Roles are resolved from the JWT `groups` claim, matched against:
-    - `SD_RBAC_GROUP_ADMINS` — IdP group name that maps to the `admin` role
-    - `SD_RBAC_GROUP_OPERATORS` — IdP group name that maps to the `operator` role
-    - `SD_RBAC_GROUP_CREATORS` — IdP group name that maps to the `creator` role
+    - `SD_RBAC_GROUP_ADMINS` (mandatory) — IdP group name that maps to the `admin` role
+    - `SD_RBAC_GROUP_OPERATORS` (optional) — IdP group name that maps to the `operator` role
+    - `SD_RBAC_GROUP_CREATORS` (optional) — IdP group name that maps to the `creator` role
+    
+    RBAC is always active — there is no disable toggle.
     
     ### Error Responses
     - `401 Unauthorized` - Missing or invalid JWT token
@@ -1256,4 +1264,7 @@ components:
       type: http
       scheme: bearer
       bearerFormat: JWT
-      description: JWT token from Keycloak. Include in Authorization header as "Bearer <token>"
+      description: |
+        JWT token from Keycloak (RS256) or Local HMAC (HS256/HS384/HS512).
+        Include in Authorization header as "Bearer <token>".
+        RSA tokens are additionally validated against the Keycloak client_id audience claim.

@@ -125,7 +125,8 @@ func initTests(t *testing.T) (*gin.Engine, *db.DB, *auth.Provider) {
 
 	logger, _ := zap.NewDevelopment()
 
-	// Provide RBAC group names so conf.LoadConf() validation passes.
+	// Provide RBAC group names and local HMAC secret so conf.Validate() passes.
+	t.Setenv("SD_SECRET_KEY", testHMACSecret)
 	t.Setenv("SD_RBAC_GROUP_CREATORS", creatorGroup)
 	t.Setenv("SD_RBAC_GROUP_OPERATORS", operatorGroup)
 	t.Setenv("SD_RBAC_GROUP_ADMINS", adminGroup)
@@ -133,8 +134,12 @@ func initTests(t *testing.T) (*gin.Engine, *db.DB, *auth.Provider) {
 	cfg, err := conf.LoadConf()
 	require.NoError(t, err)
 
-	oa2Prov, err := auth.NewProvider(cfg.Keycloak.URL, cfg.Keycloak.Realm, cfg.Keycloak.ClientID, cfg.Keycloak.ClientSecret, cfg.Hostname, cfg.WebURL)
-	require.NoError(t, err)
+	// Create Keycloak provider only when configured (mirrors production api.go logic).
+	var oa2Prov *auth.Provider
+	if cfg.Keycloak != nil && cfg.Keycloak.URL != "" {
+		oa2Prov, err = auth.NewProvider(cfg.Keycloak.URL, cfg.Keycloak.Realm, cfg.Keycloak.ClientID, cfg.Keycloak.ClientSecret, cfg.Hostname, cfg.WebURL)
+		require.NoError(t, err)
+	}
 
 	initRoutesAuth(t, r, oa2Prov, logger)
 	initRoutesV1(t, r, d, oa2Prov, logger)
@@ -145,6 +150,10 @@ func initTests(t *testing.T) (*gin.Engine, *db.DB, *auth.Provider) {
 
 func initRoutesAuth(t *testing.T, c *gin.Engine, oa2Prov *auth.Provider, logger *zap.Logger) {
 	t.Helper()
+	if oa2Prov == nil {
+		t.Log("skipping auth routes: no Keycloak provider configured")
+		return
+	}
 	t.Log("init routes for auth")
 
 	authAPI := c.Group("auth")

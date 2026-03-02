@@ -27,9 +27,8 @@ func New(cfg *conf.Config, log *zap.Logger, database *db.DB) (*API, error) {
 		gin.SetMode(gin.ReleaseMode)
 	}
 
-	oa2Prov := &auth.Provider{Disabled: true}
-
-	if !cfg.AuthenticationDisabled {
+	var oa2Prov *auth.Provider
+	if cfg.Keycloak != nil && cfg.Keycloak.URL != "" {
 		var err error
 		if oa2Prov, err = auth.NewProvider(
 			cfg.Keycloak.URL, cfg.Keycloak.Realm, cfg.Keycloak.ClientID,
@@ -46,10 +45,6 @@ func New(cfg *conf.Config, log *zap.Logger, database *db.DB) (*API, error) {
 	r.NoRoute(errors.Return404)
 
 	rbacService := rbac.New(cfg.RBAC.Creators, cfg.RBAC.Operators, cfg.RBAC.Admins)
-
-	if cfg.RBAC.Disabled {
-		log.Warn("RBAC is disabled (SD_RBAC_DISABLED=true), write operations will be denied")
-	}
 
 	a := &API{
 		r:           r,

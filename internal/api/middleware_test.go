@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"reflect"
 	"testing"
+	"time"
 	"unsafe"
 
 	"net/http"
@@ -27,6 +28,10 @@ func setRealmPublicKey(prov *auth.Provider, key *rsa.PublicKey) {
 	field := val.FieldByName("realmPublicKey")
 	ptrToField := reflect.NewAt(field.Type(), unsafe.Pointer(field.UnsafeAddr())).Elem()
 	ptrToField.Set(reflect.ValueOf(key))
+
+	fetchedField := val.FieldByName("keyFetchedAt")
+	ptrToFetched := reflect.NewAt(fetchedField.Type(), unsafe.Pointer(fetchedField.UnsafeAddr())).Elem()
+	ptrToFetched.Set(reflect.ValueOf(time.Now()))
 }
 
 func TestParseToken_HMAC_Success(t *testing.T) {
@@ -154,10 +159,7 @@ func TestAuthenticationMW_RSA_ValidToken(t *testing.T) {
 	require.NoError(t, err, "failed to sign rsa token")
 
 	prov := &auth.Provider{}
-	val := reflect.ValueOf(prov).Elem()
-	field := val.FieldByName("realmPublicKey")
-	ptrToField := reflect.NewAt(field.Type(), unsafe.Pointer(field.UnsafeAddr())).Elem()
-	ptrToField.Set(reflect.ValueOf(&priv.PublicKey))
+	setRealmPublicKey(prov, &priv.PublicKey)
 
 	logger := zaptest.NewLogger(t)
 
@@ -422,77 +424,73 @@ func TestSetUserIDFromClaims(t *testing.T) {
 	}
 }
 
-func TestSetJWTClaims_HMAC(t *testing.T) {
-	secret := "test-jwt-claims-secret"
+func TestSetJWTClaims_NoHeader_Passes(t *testing.T) {
 	logger := zaptest.NewLogger(t)
 	prov := &auth.Provider{}
 
-	t.Run("no auth header continues with nil userID", func(t *testing.T) {
-		var capturedUserID interface{}
-		var uidExists bool
+	mw := SetJWTClaims(prov, logger, "secret")
+	w := performRequestWithAuth(mw, "")
+	assert.Equal(t, http.StatusOK, w.Code)
+}
 
-		router := gin.New()
-		router.Use(SetJWTClaims(prov, logger, secret))
-		router.GET("/test", func(c *gin.Context) {
-			capturedUserID, uidExists = c.Get(v2.UsernameContextKey)
-			c.Status(http.StatusOK)
-		})
+func TestSetJWTClaims_ValidToken_SetsClaims(t *testing.T) {
+	secret := "optional-auth-secret"
+	logger := zaptest.NewLogger(t)
+	prov := &auth.Provider{}
 
-		req := httptest.NewRequest(http.MethodGet, "/test", nil)
-		w := httptest.NewRecorder()
-		router.ServeHTTP(w, req)
+	claims := jwt.MapClaims{
+		"preferred_username": "opt-user",
+		"groups":             []interface{}{"sd_creators"},
+	}
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	signed, err := token.SignedString([]byte(secret))
+	require.NoError(t, err)
 
-		assert.Equal(t, http.StatusOK, w.Code)
-		assert.True(t, uidExists)
-		assert.Nil(t, capturedUserID)
+	var capturedUserID interface{}
+	var capturedGroups interface{}
+
+	router := gin.New()
+	router.Use(SetJWTClaims(prov, logger, secret))
+	router.GET("/test", func(c *gin.Context) {
+		capturedUserID, _ = c.Get(v2.UsernameContextKey)
+		capturedGroups, _ = c.Get(v2.UserIDGroupsContextKey)
+		c.Status(http.StatusOK)
 	})
 
-	t.Run("valid HMAC token sets userID and groups", func(t *testing.T) {
-		var capturedUserID interface{}
-		var capturedGroups interface{}
+	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	req.Header.Set("Authorization", "Bearer "+signed)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
 
-		claims := jwt.MapClaims{
-			"preferred_username": "jwt-user",
-			"groups":             []interface{}{"sd_creators"},
-		}
-		token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-		signed, err := token.SignedString([]byte(secret))
-		require.NoError(t, err)
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, "opt-user", capturedUserID)
+	groups, ok := capturedGroups.([]string)
+	require.True(t, ok)
+	assert.Equal(t, []string{"sd_creators"}, groups)
+}
 
-		router := gin.New()
-		router.Use(SetJWTClaims(prov, logger, secret))
-		router.GET("/test", func(c *gin.Context) {
-			capturedUserID, _ = c.Get(v2.UsernameContextKey)
-			capturedGroups, _ = c.Get(v2.UserIDGroupsContextKey)
-			c.Status(http.StatusOK)
-		})
+func TestSetJWTClaims_InvalidToken_Returns401(t *testing.T) {
+	logger := zaptest.NewLogger(t)
+	prov := &auth.Provider{}
 
-		req := httptest.NewRequest(http.MethodGet, "/test", nil)
-		req.Header.Set("Authorization", "Bearer "+signed)
-		w := httptest.NewRecorder()
-		router.ServeHTTP(w, req)
+	mw := SetJWTClaims(prov, logger, "secret")
+	w := performRequestWithAuth(mw, "Bearer invalid-token")
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+}
 
-		assert.Equal(t, http.StatusOK, w.Code)
-		assert.Equal(t, "jwt-user", capturedUserID)
-		groups, ok := capturedGroups.([]string)
-		require.True(t, ok)
-		assert.Equal(t, []string{"sd_creators"}, groups)
-	})
+func TestParseToken_RSA_NilProvider_ReturnsError(t *testing.T) {
+	priv, err := rsa.GenerateKey(rand.Reader, 2048)
+	require.NoError(t, err)
 
-	t.Run("invalid token returns 401", func(t *testing.T) {
-		router := gin.New()
-		router.Use(SetJWTClaims(prov, logger, secret))
-		router.GET("/test", func(c *gin.Context) {
-			c.Status(http.StatusOK)
-		})
+	token := jwt.NewWithClaims(jwt.SigningMethodRS256, jwt.MapClaims{"sub": "rsa-user"})
+	signed, err := token.SignedString(priv)
+	require.NoError(t, err)
 
-		req := httptest.NewRequest(http.MethodGet, "/test", nil)
-		req.Header.Set("Authorization", "Bearer invalid-token")
-		w := httptest.NewRecorder()
-		router.ServeHTTP(w, req)
+	logger := zaptest.NewLogger(t)
 
-		assert.Equal(t, http.StatusUnauthorized, w.Code)
-	})
+	_, err = parseToken(signed, "", nil, logger)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "Keycloak provider is not configured")
 }
 
 func TestCheckEventExistenceMW(t *testing.T) {
@@ -555,5 +553,61 @@ func TestErrorHandle(t *testing.T) {
 		router.ServeHTTP(w, req)
 		assert.Equal(t, http.StatusInternalServerError, w.Code)
 		assert.NotContains(t, w.Body.String(), "database connection lost")
+	})
+}
+
+func TestValidateAudience(t *testing.T) {
+	logger := zaptest.NewLogger(t)
+
+	t.Run("empty expected audience skips check", func(t *testing.T) {
+		claims := jwt.MapClaims{"aud": "anything"}
+		err := validateAudience(claims, "", logger)
+		assert.NoError(t, err)
+	})
+
+	t.Run("matching single audience", func(t *testing.T) {
+		claims := jwt.MapClaims{"aud": "my-client"}
+		err := validateAudience(claims, "my-client", logger)
+		assert.NoError(t, err)
+	})
+
+	t.Run("matching in multiple audiences", func(t *testing.T) {
+		claims := jwt.MapClaims{"aud": []interface{}{"other-client", "my-client"}}
+		err := validateAudience(claims, "my-client", logger)
+		assert.NoError(t, err)
+	})
+
+	t.Run("no match", func(t *testing.T) {
+		claims := jwt.MapClaims{"aud": "wrong-client"}
+		err := validateAudience(claims, "my-client", logger)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "audience mismatch")
+	})
+
+	t.Run("missing audience claim", func(t *testing.T) {
+		claims := jwt.MapClaims{"sub": "user"}
+		err := validateAudience(claims, "my-client", logger)
+		assert.Error(t, err)
+	})
+}
+
+func TestIdpTypeFromMethod(t *testing.T) {
+	assert.Equal(t, "local_hmac", idpTypeFromMethod(jwt.SigningMethodHS256))
+	assert.Equal(t, "local_hmac", idpTypeFromMethod(jwt.SigningMethodHS384))
+	assert.Equal(t, "keycloak", idpTypeFromMethod(jwt.SigningMethodRS256))
+	assert.Equal(t, "unknown", idpTypeFromMethod(jwt.SigningMethodES256))
+}
+
+func TestAuthAudit_DoesNotPanic(t *testing.T) {
+	logger := zaptest.NewLogger(t)
+
+	assert.NotPanics(t, func() {
+		authAudit(logger, "token_validate", "success", "local_hmac", "user1", "")
+	})
+	assert.NotPanics(t, func() {
+		authAudit(logger, "token_validate", "failure", "", "", "parse_error")
+	})
+	assert.NotPanics(t, func() {
+		authAudit(logger, "authorization", "denied", "", "user2", "no_matching_rbac_group")
 	})
 }

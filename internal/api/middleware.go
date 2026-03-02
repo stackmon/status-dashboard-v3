@@ -65,14 +65,17 @@ func parseToken(tokenString string, secretKey string, prov *auth.Provider, logge
 	return jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
 		switch token.Method.(type) {
 		case *jwt.SigningMethodHMAC:
-			logger.Info("HMAC token detected, using secret key for validation")
+			logger.Debug("selecting HMAC key for token validation")
 			if secretKey == "" {
 				return nil, fmt.Errorf("secret key is not configured for HMAC token validation")
 			}
 			return []byte(secretKey), nil
 
 		case *jwt.SigningMethodRSA:
-			logger.Info("RSA token detected, using Keycloak public key for validation")
+			logger.Debug("selecting RSA key for token validation")
+			if prov == nil {
+				return nil, fmt.Errorf("RSA token received but Keycloak provider is not configured")
+			}
 			key, err := prov.GetPublicKey()
 			if err != nil {
 				return nil, fmt.Errorf("error while getting public key: %w", err)
@@ -85,56 +88,133 @@ func parseToken(tokenString string, secretKey string, prov *auth.Provider, logge
 	})
 }
 
+// idpTypeFromMethod returns a string identifying the IdP based on JWT signing method.
+func idpTypeFromMethod(method jwt.SigningMethod) string {
+	switch method.(type) {
+	case *jwt.SigningMethodHMAC:
+		return "local_hmac"
+	case *jwt.SigningMethodRSA:
+		return "keycloak"
+	default:
+		return "unknown"
+	}
+}
+
+// authAudit emits a structured audit log event for authentication/authorization decisions.
+// All fields follow a consistent schema for SIEM integration.
+func authAudit(logger *zap.Logger, action, result, idpType, username, reason string) {
+	fields := []zap.Field{
+		zap.String("event", "auth_audit"),
+		zap.String("action", action),
+		zap.String("result", result),
+	}
+	if idpType != "" {
+		fields = append(fields, zap.String("idp_type", idpType))
+	}
+	if username != "" {
+		fields = append(fields, zap.String("username", username))
+	}
+	if reason != "" {
+		fields = append(fields, zap.String("reason", reason))
+	}
+
+	if result == "success" {
+		logger.Info("auth_audit", fields...)
+	} else {
+		logger.Warn("auth_audit", fields...)
+	}
+}
+
+// validateAndSetClaims parses the raw Bearer token, validates it, and sets
+// preferred_username and groups into the gin context. Returns an error on any failure.
+func validateAndSetClaims(
+	rawToken, secretKey string,
+	prov *auth.Provider,
+	c *gin.Context,
+	logger *zap.Logger,
+) error {
+	token, err := parseToken(rawToken, secretKey, prov, logger)
+	if err != nil {
+		authAudit(logger, "token_validate", "failure", "", "", err.Error())
+		return apiErrors.ErrAuthNotAuthenticated
+	}
+
+	if !token.Valid {
+		authAudit(logger, "token_validate", "failure", idpTypeFromMethod(token.Method), "", "invalid_token")
+		return apiErrors.ErrAuthTokenInvalid
+	}
+
+	idpType := idpTypeFromMethod(token.Method)
+
+	claims, ok := token.Claims.(jwt.MapClaims)
+	if !ok {
+		authAudit(logger, "token_validate", "failure", idpType, "", "claims_extraction_failed")
+		return apiErrors.ErrAuthTokenInvalid
+	}
+
+	// Validate audience for RSA (Keycloak) tokens to prevent cross-service token reuse.
+	if _, isRSA := token.Method.(*jwt.SigningMethodRSA); isRSA && prov != nil {
+		if audErr := validateAudience(claims, prov.ClientID(), logger); audErr != nil {
+			authAudit(logger, "token_validate", "failure", idpType, "", "audience_mismatch")
+			return apiErrors.ErrAuthTokenInvalid
+		}
+	}
+
+	if errUserID := setUserIDFromClaims(claims, c, logger); errUserID != nil {
+		authAudit(logger, "token_validate", "failure", idpType, "", "missing_username_claim")
+		return apiErrors.ErrAuthTokenInvalid
+	}
+
+	username, _ := c.Get(v2.UsernameContextKey)
+	usernameStr, _ := username.(string)
+
+	if groupsErr := setGroupsFromClaims(claims, c, logger); groupsErr != nil {
+		authAudit(logger, "token_validate", "failure", idpType, usernameStr, "missing_groups_claim")
+		return apiErrors.ErrAuthTokenInvalid
+	}
+
+	authAudit(logger, "token_validate", "success", idpType, usernameStr, "")
+	return nil
+}
+
+// validateAudience checks that the JWT audience claim contains the expected client ID.
+func validateAudience(claims jwt.MapClaims, expectedAudience string, logger *zap.Logger) error {
+	if expectedAudience == "" {
+		return nil
+	}
+
+	audiences, err := claims.GetAudience()
+	if err != nil || len(audiences) == 0 {
+		logger.Error("audience claim missing or invalid in RSA token")
+		return fmt.Errorf("missing audience claim")
+	}
+
+	for _, aud := range audiences {
+		if aud == expectedAudience {
+			return nil
+		}
+	}
+
+	logger.Error("audience mismatch in RSA token",
+		zap.Strings("token_aud", audiences),
+		zap.String("expected_aud", expectedAudience))
+	return fmt.Errorf("audience mismatch")
+}
+
 // AuthenticationMW validates JWT tokens.
 // Missing or invalid tokens result in 401.
 func AuthenticationMW(prov *auth.Provider, logger *zap.Logger, secretKey string) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if prov.Disabled {
-			logger.Info("authentication is disabled")
-			c.Next()
-			return
-		}
-
-		logger.Info("start to process authentication request")
-
 		authHeader := c.GetHeader("Authorization")
 		if authHeader == "" {
-			logger.Debug("authentication failed: missing Authorization header")
+			authAudit(logger, "token_validate", "failure", "", "", "missing_authorization_header")
 			apiErrors.RaiseNotAuthorizedErr(c, apiErrors.ErrAuthNotAuthenticated)
 			return
 		}
 
 		rawToken := strings.TrimPrefix(authHeader, "Bearer ")
-		token, err := parseToken(rawToken, secretKey, prov, logger)
-
-		if err != nil {
-			logger.Error("token parsing error", zap.Error(err))
-			apiErrors.RaiseNotAuthorizedErr(c, apiErrors.ErrAuthNotAuthenticated)
-			return
-		}
-
-		if !token.Valid {
-			logger.Error("token validation error", zap.Error(err))
-			apiErrors.RaiseNotAuthorizedErr(c, apiErrors.ErrAuthTokenInvalid)
-			return
-		}
-
-		claims, ok := token.Claims.(jwt.MapClaims)
-		if !ok {
-			logger.Error("authentication failed: unable to extract claims from token")
-			apiErrors.RaiseNotAuthorizedErr(c, apiErrors.ErrAuthNotAuthenticated)
-			return
-		}
-
-		if errUserID := setUserIDFromClaims(claims, c, logger); errUserID != nil {
-			logger.Error("failed to set userID from claims", zap.Error(errUserID))
-			apiErrors.RaiseNotAuthorizedErr(c, apiErrors.ErrAuthTokenInvalid)
-			return
-		}
-
-		if groupsErr := setGroupsFromClaims(claims, c, logger); groupsErr != nil {
-			logger.Error("failed to set groups from claims", zap.Error(groupsErr))
-			apiErrors.RaiseNotAuthorizedErr(c, apiErrors.ErrAuthTokenInvalid)
+		if err := validateAndSetClaims(rawToken, secretKey, prov, c, logger); err != nil {
+			apiErrors.RaiseNotAuthorizedErr(c, err)
 			return
 		}
 
@@ -142,51 +222,20 @@ func AuthenticationMW(prov *auth.Provider, logger *zap.Logger, secretKey string)
 	}
 }
 
-func SetJWTClaims(
-	prov *auth.Provider, logger *zap.Logger, secretKey string,
-) gin.HandlerFunc {
+// SetJWTClaims performs soft authentication for public-read endpoints.
+// If no Authorization header is present, the request proceeds anonymously.
+// If a token is present but invalid/forged, access is denied (401).
+func SetJWTClaims(prov *auth.Provider, logger *zap.Logger, secretKey string) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		logger.Info("start to retrieve JWT claims from the token")
-
 		authHeader := c.GetHeader("Authorization")
 		if authHeader == "" {
-			logger.Info("jwt header is empty, skipping JWT claims retrieval")
-			c.Set(v2.UsernameContextKey, nil)
 			c.Next()
 			return
 		}
 
 		rawToken := strings.TrimPrefix(authHeader, "Bearer ")
-		token, err := parseToken(rawToken, secretKey, prov, logger)
-
-		if err != nil {
-			logger.Error("token parsing error", zap.Error(err))
-			apiErrors.RaiseNotAuthorizedErr(c, apiErrors.ErrAuthNotAuthenticated)
-			return
-		}
-
-		if !token.Valid {
-			logger.Error("token validation error", zap.Error(err))
-			apiErrors.RaiseNotAuthorizedErr(c, apiErrors.ErrAuthNotAuthenticated)
-			return
-		}
-
-		claims, ok := token.Claims.(jwt.MapClaims)
-		if !ok {
-			logger.Error("authentication failed: unable to extract claims from token")
-			apiErrors.RaiseNotAuthorizedErr(c, apiErrors.ErrAuthTokenInvalid)
-			return
-		}
-
-		if errUserID := setUserIDFromClaims(claims, c, logger); errUserID != nil {
-			logger.Error("failed to set userID from claims", zap.Error(errUserID))
-			apiErrors.RaiseNotAuthorizedErr(c, apiErrors.ErrAuthTokenInvalid)
-			return
-		}
-
-		if groupsErr := setGroupsFromClaims(claims, c, logger); groupsErr != nil {
-			logger.Error("failed to set groups from claims", zap.Error(groupsErr))
-			apiErrors.RaiseNotAuthorizedErr(c, apiErrors.ErrAuthTokenInvalid)
+		if err := validateAndSetClaims(rawToken, secretKey, prov, c, logger); err != nil {
+			apiErrors.RaiseNotAuthorizedErr(c, err)
 			return
 		}
 
@@ -245,31 +294,32 @@ func setGroupsFromClaims(claims jwt.MapClaims, c *gin.Context, logger *zap.Logge
 // Users without configured groups are rejected with 403 Forbidden.
 func RBACAuthorizationMW(rbacService *rbac.Service, logger *zap.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		logger.Debug("attempting to resolve user role")
-
 		groupsVal, exists := c.Get(v2.UserIDGroupsContextKey)
 		if !exists {
-			logger.Warn("authorization failed: user groups not found in context")
+			authAudit(logger, "authorization", "denied", "", "", "groups_not_in_context")
 			apiErrors.RaiseNotAuthorizedErr(c, apiErrors.ErrAuthNotAuthenticated)
 			return
 		}
 
 		groups, ok := groupsVal.([]string)
 		if !ok {
-			logger.Error("authorization failed: user groups in context have unexpected type")
+			authAudit(logger, "authorization", "denied", "", "", "groups_invalid_type")
 			apiErrors.RaiseNotAuthorizedErr(c, apiErrors.ErrAuthNotAuthenticated)
 			return
 		}
 
+		username, _ := c.Get(v2.UsernameContextKey)
+		usernameStr, _ := username.(string)
+
 		if !rbacService.HasAuthorizedGroup(groups) {
-			logger.Warn("user does not belong to any configured RBAC group")
+			authAudit(logger, "authorization", "denied", "", usernameStr, "no_matching_rbac_group")
 			apiErrors.RaiseForbiddenErr(c, apiErrors.ErrAuthForbidden)
 			return
 		}
 
 		role := rbacService.Resolve(groups)
 		c.Set(v2.RoleContextKey, role)
-		logger.Debug("user role resolved", zap.Int("role", int(role)))
+		authAudit(logger, "authorization", "success", "", usernameStr, fmt.Sprintf("role=%d", int(role)))
 
 		c.Next()
 	}

@@ -26,7 +26,7 @@ import (
 )
 
 const (
-	testHMACSecret = "test-secret-key-for-rbac-tests"
+	testHMACSecret = "test-secret-key-for-rbac-tests!!"
 
 	creatorGroup  = "sd_creators"
 	operatorGroup = "sd_operators"

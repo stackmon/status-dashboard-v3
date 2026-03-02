@@ -41,12 +41,13 @@ golangci-lint run ./tests/
 | RBAC — Workflow | 1 | 7 | 11 | 18 |
 | RBAC — Version Conflict | 1 | 5 | 7 | 12 |
 | RBAC — Token Validation | 1 | 3 | 2 | 5 |
+| RBAC — Admin-Only Config | 1 | 4 | 10 | 14 |
 | Auth (OAuth flow) | 1 | 1 | 0 | 1 |
 | V1 API | 1 | 5 | 0 | 5 |
 | V2 Events API | 1 | 10 | 17 | 27 |
 | V2 Incidents API (deprecated) | 1 | 13 | 22 | 35 |
 | V2 System Incidents | 1 | 11 | 2 | 13 |
-| **Total** | **12** | **67** | **106** | **171** |
+| **Total** | **13** | **71** | **116** | **187** |
 
 ---
 
@@ -244,6 +245,43 @@ Tests verify that each role can only perform the actions allowed by the
 
 ---
 
+### 7. Admin-Only Configuration (`rbac_admin_only_test.go`)
+
+Tests verify correct behavior when only `SD_RBAC_GROUP_ADMINS` is configured
+(creator and operator groups are empty strings).
+
+#### Admin CRUD — `TestAdminOnly_AdminCRUD`
+
+| # | Subtest | Scenario | Expected | Notes |
+|---|---------|----------|----------|-------|
+| 1 | `admin POST creates event` | Admin creates maintenance event | 200 | Only recognized role |
+| 2 | `admin GET list returns events` | Admin lists events | Non-empty list | — |
+| 3 | `admin GET single event` | Admin retrieves event by ID | 200 | — |
+| 4 | `admin PATCH transitions event` | Admin changes event status | 200 | — |
+
+#### Creator Rejected — `TestAdminOnly_CreatorRejected`
+
+| # | Subtest | Scenario | Expected | Notes |
+|---|---------|----------|----------|-------|
+| 1 | `creator POST rejected with 403` | Creator group not configured | 403 | No matching RBAC group |
+| 2 | `creator PATCH rejected with 403` | Creator attempts PATCH | 403 | — |
+
+#### Operator Rejected — `TestAdminOnly_OperatorRejected`
+
+| # | Subtest | Scenario | Expected | Notes |
+|---|---------|----------|----------|-------|
+| 1 | `operator POST rejected with 403` | Operator group not configured | 403 | No matching RBAC group |
+| 2 | `operator PATCH rejected with 403` | Operator attempts PATCH | 403 | — |
+
+#### Unauthenticated GET — `TestAdminOnly_UnauthenticatedGET`
+
+| # | Subtest | Scenario | Expected | Notes |
+|---|---------|----------|----------|-------|
+| 1 | `unauth GET list succeeds` | Unauthenticated list request | Non-empty list | Soft-auth allows read |
+| 2 | `unauth GET single event succeeds` | Unauthenticated get by ID | 200 | Planned events visible |
+
+---
+
 ## API Endpoint Test Coverage
 
 ### V1 API (`v1_test.go`)
@@ -374,6 +412,7 @@ or future test additions):
 | File | Category | Tests |
 |------|----------|-------|
 | `auth_test.go` | OAuth | `TestAuth` |
+| `rbac_admin_only_test.go` | RBAC | `TestAdminOnly_AdminCRUD`, `TestAdminOnly_CreatorRejected`, `TestAdminOnly_OperatorRejected`, `TestAdminOnly_UnauthenticatedGET` |
 | `rbac_creation_test.go` | RBAC | `TestCreation_RoleInitialStatus`, `TestCreation_IncidentByRoles`, `TestCreation_MaintenanceValidation` |
 | `rbac_permissions_test.go` | RBAC | `TestPermissions_OperatorPatchMatrix`, `TestPermissions_AdminPatchMatrix`, `TestPermissions_CreatorPatchRestrictions`, `TestPermissions_NoRoleRejected`, `TestPermissions_UnauthenticatedRejected` |
 | `rbac_token_test.go` | RBAC | `TestToken_InvalidSignature`, `TestToken_InvalidGroupsClaim`, `TestToken_ValidClaimsSucceeds` |
@@ -384,3 +423,24 @@ or future test additions):
 | `v2_events_test.go` | V2 Events | `TestV2PostEventsHandlerNegative`, `TestV2PostEventsHandler`, `TestV2PatchEventHandlerNegative`, `TestV2PatchEventHandler`, `TestV2PostEventExtractHandler`, `TestV2GetEventsFilteredHandler`, `TestV2GetEventsHandler`, `TestV2PostEventsMaintenanceHandler`, `TestV2PostEventsInfoWithExistingEventsHandler`, `TestV2PatchEventUpdateHandler` |
 | `v2_system_incident_test.go` | V2 System | `TestV2SystemIncidentCreationWrongType`, `TestV2SystemIncidentCreationNoActiveEvents`, `TestV2SystemIncidentCreationWithMaintenance`, `TestV2SystemIncidentCreationWithNonSystemIncident`, `TestV2SystemIncidentSameImpact`, `TestV2SystemIncidentHigherImpact`, `TestV2SystemIncidentLowerImpactSingleComponent`, `TestV2SystemIncidentLowerImpactMultiComponent`, `TestV2SystemIncidentReuseExisting`, `TestV2SystemIncidentMultipleComponents`, `TestV2SystemIncidentMixedScenarios` |
 | `v2_test.go` | V2 Incidents (deprecated) | `TestV2GetIncidentsHandler`, `TestV2GetComponentsHandler`, `TestV2PostIncidentsHandlerNegative`, `TestV2PostIncidentsHandler`, `TestV2PatchIncidentHandlerNegative`, `TestV2PatchIncidentHandler`, `TestV2PostIncidentExtractHandler`, `TestV2CreateComponentAndList`, `TestV2GetIncidentsFilteredHandler`, `TestV2PostMaintenanceHandler`, `TestV2PostInfoWithExistingEventsHandler`, `TestV2GetComponentsAvailability`, `TestV2PatchIncidentUpdateHandler` |
+
+---
+
+## Unit Test Coverage
+
+Unit tests run without external dependencies (no database, no Keycloak).
+
+**Run command:**
+
+```bash
+go test ./internal/... -count=1
+```
+
+### Coverage Summary
+
+| Package | Coverage | Key Test Files |
+|---------|----------|---------------|
+| `internal/conf` | 74.5% | `conf_test.go` — Validate, MinSecretKeyLength, PortValidation, FillDefaults, maskSecret, sanitizeDBString, mergeConfigs, Log |
+| `internal/api` | 53.5% | `middleware_test.go` — parseToken (HMAC/RSA), AuthenticationMW, SetJWTClaims, RBAC authorization, validateAudience, idpTypeFromMethod, authAudit |
+| `internal/api/rbac` | 100% | `rbac_test.go` — HasAuthorizedGroup, role resolution |
+| `internal/api/auth` | 76.5% | `auth_test.go` — ClientID, PutGetToken, LoginHandler, TokenHandler, LogoutHandler, RefreshHandler, PublicKey caching, retry with backoff, all-retries-fail; `storage_test.go` — CRUD, overwrite, concurrent access |

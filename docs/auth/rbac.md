@@ -18,17 +18,15 @@ configured via the corresponding environment variable (e.g. `SD_RBAC_GROUP_ADMIN
 
 ## Configuration
 
-RBAC is active by default. Set `SD_RBAC_DISABLED=true` to disable it. When active, all three group
-mappings are required — the application will fail to start if any are missing.
+RBAC is always active — there is no disable toggle. `SD_RBAC_GROUP_ADMINS` is mandatory;
+`SD_RBAC_GROUP_OPERATORS` and `SD_RBAC_GROUP_CREATORS` are optional (when omitted, no user
+can match the corresponding role).
 
 | Environment Variable | Required | Description |
 |---------------------|----------|-------------|
-| `SD_RBAC_DISABLED` | No | Disable RBAC authorization (`true`/`false`, default: `false`) |
-| `SD_RBAC_GROUP_ADMINS` | When RBAC enabled | IdP group name that maps to the `admin` role |
-| `SD_RBAC_GROUP_OPERATORS` | When RBAC enabled | IdP group name that maps to the `operator` role |
-| `SD_RBAC_GROUP_CREATORS` | When RBAC enabled | IdP group name that maps to the `creator` role |
-
-When `SD_RBAC_DISABLED=true`, a warning is logged and write operations are denied.
+| `SD_RBAC_GROUP_ADMINS` | **Yes** | IdP group name that maps to the `admin` role |
+| `SD_RBAC_GROUP_OPERATORS` | No | IdP group name that maps to the `operator` role |
+| `SD_RBAC_GROUP_CREATORS` | No | IdP group name that maps to the `creator` role |
 
 ## Permissions by Role
 
@@ -133,3 +131,49 @@ The API expects JWT tokens with the following claims:
 - `groups` → each value is matched against the configured `SD_RBAC_GROUP_*` environment variables to
   resolve the application role. For example, if `SD_RBAC_GROUP_CREATORS=sd_creators`, then a token
   containing `"sd_creators"` in `groups` grants the `creator` role.
+
+## Dual-IdP Authentication
+
+The application supports two simultaneous identity providers:
+
+| Provider | JWT Algorithm | Key Source | Use Case |
+|----------|-------------|------------|----------|
+| **Keycloak (RSA)** | RS256 | JWKS endpoint → public key | Production SSO |
+| **Local (HMAC)** | HS256 / HS384 / HS512 | `SD_SECRET_KEY` env var | Dev, tests, service-to-service |
+
+`parseToken` dispatches on `token.Method`: `*jwt.SigningMethodHMAC` → secret key,
+`*jwt.SigningMethodRSA` → Keycloak public key. At least one provider must be configured;
+`conf.Validate()` fails otherwise.
+
+### Security Hardening
+
+- **Audience validation**: RSA tokens are validated against `aud` claim (Keycloak `client_id`).
+  HMAC tokens skip audience check.
+- **Minimum secret key length**: `SD_SECRET_KEY` must be ≥ 32 characters (HMAC-SHA256 requirement).
+- **No bypasses**: `SD_AUTHENTICATION_DISABLED` and `SD_RBAC_DISABLED` toggles have been removed.
+
+### Audit Logging
+
+All authentication events are logged in structured SIEM-ready format:
+
+```json
+{
+  "event": "auth_audit",
+  "action": "authenticate",
+  "result": "success",
+  "idp_type": "keycloak",
+  "username": "user@example.com",
+  "reason": ""
+}
+```
+
+Fields: `event`, `action` (authenticate / authorize), `result` (success / failure),
+`idp_type` (local_hmac / keycloak / unknown), `username`, `reason`.
+
+### Keycloak Resilience
+
+The Keycloak public key is cached with a 1-hour TTL. On cache miss or TTL expiry:
+
+1. **Retry**: 3 attempts with exponential backoff (0ms, 500ms, 1s)
+2. **Fallback**: If retry fails but a cached key exists, the stale key is used
+3. **Thread-safety**: `sync.RWMutex` with double-checked locking prevents thundering herd
