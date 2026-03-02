@@ -63,6 +63,12 @@ func (ch *Checker) CheckMaintenance() error {
 
 	var activeMaintenances []uint
 	for _, mn := range maintenances {
+		// Draft maintenances are not processed by the checker — they await
+		// manual approval (reviewed) or rejection (cancelled) via the API.
+		if mn.Status == event.MaintenancePendingReview {
+			continue
+		}
+
 		sHistory := calculateMntStatusHistory(mn)
 		actualStatus := calculateCurrentMntStatus(sHistory, mn)
 
@@ -143,11 +149,6 @@ func calculateCurrentMntStatus(sHistory *MntStatusHistory, mn *db.Incident) even
 	// If current status is "reviewed", transition to "planned" (checker auto-approval)
 	if mn.Status == event.MaintenanceReviewed {
 		return event.MaintenancePlanned
-	}
-
-	// If still pending_review, don't auto-transition
-	if mn.Status == event.MaintenancePendingReview {
-		return event.MaintenancePendingReview
 	}
 
 	now := time.Now().UTC()

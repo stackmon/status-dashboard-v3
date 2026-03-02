@@ -33,14 +33,6 @@ func TestCalculateCurrentMntStatus(t *testing.T) {
 			expectedStatus: event.MaintenancePlanned,
 		},
 		{
-			name:           "Pending review stays pending_review",
-			status:         event.MaintenancePendingReview,
-			startDate:      future,
-			endDate:        farFuture,
-			history:        &MntStatusHistory{},
-			expectedStatus: event.MaintenancePendingReview,
-		},
-		{
 			name:           "Cancelled overrides reviewed",
 			status:         event.MaintenanceReviewed,
 			startDate:      future,
