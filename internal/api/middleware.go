@@ -152,14 +152,6 @@ func validateAndSetClaims(
 		return apiErrors.ErrAuthTokenInvalid
 	}
 
-	// Validate audience for RSA (Keycloak) tokens to prevent cross-service token reuse.
-	if _, isRSA := token.Method.(*jwt.SigningMethodRSA); isRSA && prov != nil {
-		if audErr := validateAudience(claims, prov.ClientID(), logger); audErr != nil {
-			authAudit(logger, "token_validate", "failure", idpType, "", "audience_mismatch")
-			return apiErrors.ErrAuthTokenInvalid
-		}
-	}
-
 	if errUserID := setUserIDFromClaims(claims, c, logger); errUserID != nil {
 		authAudit(logger, "token_validate", "failure", idpType, "", "missing_username_claim")
 		return apiErrors.ErrAuthTokenInvalid
@@ -175,30 +167,6 @@ func validateAndSetClaims(
 
 	authAudit(logger, "token_validate", "success", idpType, usernameStr, "")
 	return nil
-}
-
-// validateAudience checks that the JWT audience claim contains the expected client ID.
-func validateAudience(claims jwt.MapClaims, expectedAudience string, logger *zap.Logger) error {
-	if expectedAudience == "" {
-		return nil
-	}
-
-	audiences, err := claims.GetAudience()
-	if err != nil || len(audiences) == 0 {
-		logger.Error("audience claim missing or invalid in RSA token")
-		return fmt.Errorf("missing audience claim")
-	}
-
-	for _, aud := range audiences {
-		if aud == expectedAudience {
-			return nil
-		}
-	}
-
-	logger.Error("audience mismatch in RSA token",
-		zap.Strings("token_aud", audiences),
-		zap.String("expected_aud", expectedAudience))
-	return fmt.Errorf("audience mismatch")
 }
 
 // AuthenticationMW validates JWT tokens.

@@ -1267,4 +1267,3 @@ components:
       description: |
         JWT token from Keycloak (RS256) or Local HMAC (HS256/HS384/HS512).
         Include in Authorization header as "Bearer <token>".
-        RSA tokens are additionally validated against the Keycloak client_id audience claim.

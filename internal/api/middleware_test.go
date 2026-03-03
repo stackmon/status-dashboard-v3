@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"reflect"
 	"testing"
-	"time"
 	"unsafe"
 
 	"net/http"
@@ -28,10 +27,6 @@ func setRealmPublicKey(prov *auth.Provider, key *rsa.PublicKey) {
 	field := val.FieldByName("realmPublicKey")
 	ptrToField := reflect.NewAt(field.Type(), unsafe.Pointer(field.UnsafeAddr())).Elem()
 	ptrToField.Set(reflect.ValueOf(key))
-
-	fetchedField := val.FieldByName("keyFetchedAt")
-	ptrToFetched := reflect.NewAt(fetchedField.Type(), unsafe.Pointer(fetchedField.UnsafeAddr())).Elem()
-	ptrToFetched.Set(reflect.ValueOf(time.Now()))
 }
 
 func TestParseToken_HMAC_Success(t *testing.T) {
@@ -553,41 +548,6 @@ func TestErrorHandle(t *testing.T) {
 		router.ServeHTTP(w, req)
 		assert.Equal(t, http.StatusInternalServerError, w.Code)
 		assert.NotContains(t, w.Body.String(), "database connection lost")
-	})
-}
-
-func TestValidateAudience(t *testing.T) {
-	logger := zaptest.NewLogger(t)
-
-	t.Run("empty expected audience skips check", func(t *testing.T) {
-		claims := jwt.MapClaims{"aud": "anything"}
-		err := validateAudience(claims, "", logger)
-		assert.NoError(t, err)
-	})
-
-	t.Run("matching single audience", func(t *testing.T) {
-		claims := jwt.MapClaims{"aud": "my-client"}
-		err := validateAudience(claims, "my-client", logger)
-		assert.NoError(t, err)
-	})
-
-	t.Run("matching in multiple audiences", func(t *testing.T) {
-		claims := jwt.MapClaims{"aud": []interface{}{"other-client", "my-client"}}
-		err := validateAudience(claims, "my-client", logger)
-		assert.NoError(t, err)
-	})
-
-	t.Run("no match", func(t *testing.T) {
-		claims := jwt.MapClaims{"aud": "wrong-client"}
-		err := validateAudience(claims, "my-client", logger)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "audience mismatch")
-	})
-
-	t.Run("missing audience claim", func(t *testing.T) {
-		claims := jwt.MapClaims{"sub": "user"}
-		err := validateAudience(claims, "my-client", logger)
-		assert.Error(t, err)
 	})
 }
 

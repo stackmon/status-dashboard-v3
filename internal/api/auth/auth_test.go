@@ -53,18 +53,6 @@ func newTestProvider(t *testing.T, kcHandler http.HandlerFunc) (*Provider, *http
 	return prov, ts
 }
 
-func TestProvider_ClientID(t *testing.T) {
-	t.Run("with config", func(t *testing.T) {
-		p := &Provider{conf: &oauth2.Config{ClientID: "my-client"}}
-		assert.Equal(t, "my-client", p.ClientID())
-	})
-
-	t.Run("nil config", func(t *testing.T) {
-		p := &Provider{}
-		assert.Empty(t, p.ClientID())
-	})
-}
-
 func TestProvider_PutGetToken(t *testing.T) {
 	prov := &Provider{storage: newInternalStorage()}
 
@@ -381,80 +369,4 @@ func TestNewKeycloak_Endpoints(t *testing.T) {
 	ep := kc.Endpoint()
 	assert.Equal(t, kc.authURL, ep.AuthURL)
 	assert.Equal(t, kc.tokenURL, ep.TokenURL)
-}
-
-func TestProvider_GetPublicKey_Caches(t *testing.T) {
-	callCount := 0
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		callCount++
-		jwks := `{
-			"keys": [{
-				"kty": "RSA", "alg": "RS256", "use": "sig", "kid": "k1",
-				"n": "0vx7agoebGcQSuuPiLJXZptN9nndrQmbXEps2aiAFbWhM78LhWx4cbbfAAtVT86zwu1RK7aPFFxuhDR1L6tSoc_BJECPebWKRXjBZCiFV4n3oknjhMstn64tZ_2W-5JsGY4Hc5n9yBXArwl93lqt7_RN5w6Cf0h4QyQ5v-65YGjQR0_FDW2QvzqY368QQMicAtaSqzs8KJZgnYb9c7d0zgdAZHzu6qMQvRL5hajrn1n91CbOpbISD08qNLyrdkt-bFTWhAI4vMQFh6WeZu0fM4lFd2NcRwr3XPksINHaQ-G_xBniIqbw0Ls1jF44-csFCur-kEgU8awapJzKnqDKgw",
-				"e": "AQAB"
-			}]
-		}`
-		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, jwks)
-	}))
-	defer ts.Close()
-
-	prov := &Provider{
-		kc: &Keycloak{httpClient: ts.Client(), jwksURL: ts.URL + "/certs"},
-	}
-
-	key1, err := prov.GetPublicKey()
-	require.NoError(t, err)
-
-	key2, err := prov.GetPublicKey()
-	require.NoError(t, err)
-
-	assert.Equal(t, key1, key2)
-	assert.Equal(t, 1, callCount, "fetchPublicKey should be called only once (cached)")
-}
-
-func TestProvider_GetPublicKey_RetryOnFailure(t *testing.T) {
-	callCount := 0
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		callCount++
-		// First 2 attempts fail, third succeeds
-		if callCount < 3 {
-			w.WriteHeader(http.StatusServiceUnavailable)
-			return
-		}
-		jwks := `{
-			"keys": [{
-				"kty": "RSA", "alg": "RS256", "use": "sig", "kid": "k1",
-				"n": "0vx7agoebGcQSuuPiLJXZptN9nndrQmbXEps2aiAFbWhM78LhWx4cbbfAAtVT86zwu1RK7aPFFxuhDR1L6tSoc_BJECPebWKRXjBZCiFV4n3oknjhMstn64tZ_2W-5JsGY4Hc5n9yBXArwl93lqt7_RN5w6Cf0h4QyQ5v-65YGjQR0_FDW2QvzqY368QQMicAtaSqzs8KJZgnYb9c7d0zgdAZHzu6qMQvRL5hajrn1n91CbOpbISD08qNLyrdkt-bFTWhAI4vMQFh6WeZu0fM4lFd2NcRwr3XPksINHaQ-G_xBniIqbw0Ls1jF44-csFCur-kEgU8awapJzKnqDKgw",
-				"e": "AQAB"
-			}]
-		}`
-		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, jwks)
-	}))
-	defer ts.Close()
-
-	prov := &Provider{
-		kc: &Keycloak{httpClient: ts.Client(), jwksURL: ts.URL + "/certs"},
-	}
-
-	key, err := prov.GetPublicKey()
-	require.NoError(t, err)
-	assert.NotNil(t, key)
-	assert.Equal(t, 3, callCount, "should have retried 3 times")
-}
-
-func TestProvider_GetPublicKey_AllRetriesFail(t *testing.T) {
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusServiceUnavailable)
-	}))
-	defer ts.Close()
-
-	prov := &Provider{
-		kc: &Keycloak{httpClient: ts.Client(), jwksURL: ts.URL + "/certs"},
-	}
-
-	_, err := prov.GetPublicKey()
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to fetch public key after")
 }

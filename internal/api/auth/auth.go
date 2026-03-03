@@ -10,7 +10,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"sync"
 	"time"
 
 	"github.com/coreos/go-oidc/v3/oidc"
@@ -24,13 +23,6 @@ import (
 
 const (
 	authCallbackURL = "auth/callback"
-
-	// publicKeyTTL controls how often the cached Keycloak public key is refreshed.
-	publicKeyTTL = 1 * time.Hour
-	// publicKeyMaxRetries is the number of JWKS fetch attempts before giving up.
-	publicKeyMaxRetries = 3
-	// publicKeyRetryBaseInterval is the base delay for exponential backoff between retries.
-	publicKeyRetryBaseInterval = 500 * time.Millisecond
 )
 
 type Provider struct {
@@ -38,9 +30,7 @@ type Provider struct {
 	kc             *Keycloak
 	conf           *oauth2.Config
 	storage        *internalStorage
-	mu             sync.RWMutex
 	realmPublicKey *rsa.PublicKey
-	keyFetchedAt   time.Time
 }
 
 func NewProvider(
@@ -91,58 +81,17 @@ func (p *Provider) GetToken(key string) (TokenRepr, bool) {
 	return token, true
 }
 
-// ClientID returns the OAuth2 client ID used for audience validation.
-func (p *Provider) ClientID() string {
-	if p.conf == nil {
-		return ""
-	}
-	return p.conf.ClientID
-}
-
 func (p *Provider) GetPublicKey() (*rsa.PublicKey, error) {
-	p.mu.RLock()
-	if p.realmPublicKey != nil && time.Since(p.keyFetchedAt) < publicKeyTTL {
-		defer p.mu.RUnlock()
-		return p.realmPublicKey, nil
-	}
-	p.mu.RUnlock()
-
-	return p.fetchAndCachePublicKey()
-}
-
-// fetchAndCachePublicKey fetches the public key with retry and exponential backoff.
-// If a cached key exists and refresh fails, the cached key is returned as fallback.
-func (p *Provider) fetchAndCachePublicKey() (*rsa.PublicKey, error) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	// Double-check after acquiring write lock.
-	if p.realmPublicKey != nil && time.Since(p.keyFetchedAt) < publicKeyTTL {
-		return p.realmPublicKey, nil
-	}
-
-	var lastErr error
-	for attempt := range publicKeyMaxRetries {
-		if attempt > 0 {
-			backoff := time.Duration(1<<uint(attempt-1)) * publicKeyRetryBaseInterval
-			time.Sleep(backoff)
-		}
-
-		key, err := p.kc.fetchPublicKey()
-		if err == nil {
-			p.realmPublicKey = key
-			p.keyFetchedAt = time.Now()
-			return key, nil
-		}
-		lastErr = err
-	}
-
-	// Graceful degradation: if a previously cached key exists, use it as fallback.
 	if p.realmPublicKey != nil {
 		return p.realmPublicKey, nil
 	}
 
-	return nil, fmt.Errorf("failed to fetch public key after %d attempts: %w", publicKeyMaxRetries, lastErr)
+	pKey, err := p.kc.fetchPublicKey()
+	if err != nil {
+		return nil, err
+	}
+	p.realmPublicKey = pKey
+	return pKey, nil
 }
 
 func (p *Provider) revokeToken(refreshToken string) error {

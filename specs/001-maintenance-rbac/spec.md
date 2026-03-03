@@ -188,7 +188,7 @@ by its future system-level privileges (settings, configuration, etc.) beyond eve
 
 #### Authorization and Security
 
-- **FR-026**: System MUST validate JWT tokens on all maintenance management endpoints. Token validation MUST support both RSA (Keycloak) and HMAC (local) signing methods simultaneously, selecting the verification key based on the JWT `alg` header. RSA tokens MUST additionally be validated against the Keycloak `client_id` audience claim.
+- **FR-026**: System MUST validate JWT tokens on all maintenance management endpoints. Token validation MUST support both RSA (Keycloak) and HMAC (local) signing methods simultaneously, selecting the verification key based on the JWT `alg` header.
 - **FR-027**: System MUST return 401 Unauthorized for requests without valid JWT tokens
 - **FR-028**: System MUST return 403 Forbidden when users attempt actions not permitted for their role, and 409 Conflict when an authorized user attempts a status transition not allowed by the current event state
 - **FR-029**: System MUST validate that the user_id in the JWT token matches the creator's user_id when enforcing creator-specific permissions
