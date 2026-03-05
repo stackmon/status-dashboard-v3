@@ -141,7 +141,7 @@ func TestVersionFieldExposedToAuthenticated(t *testing.T) {
 		assert.Nil(t, apiEvent.Version, "Version should be hidden for unauthenticated users")
 	})
 
-	t.Run("Version exposed for authenticated incident event", func(t *testing.T) {
+	t.Run("Version NOT exposed for authenticated incident event", func(t *testing.T) {
 		impact2 := 2 // incident
 		incidentEvent := &db.Incident{
 			ID:          2,
@@ -160,11 +160,10 @@ func TestVersionFieldExposedToAuthenticated(t *testing.T) {
 		}
 
 		apiEvent := toAPIEvent(incidentEvent, true) // authenticated
-		require.NotNil(t, apiEvent.Version, "Version should be exposed for incidents too")
-		assert.Equal(t, version, *apiEvent.Version, "Version value should match for incidents")
+		assert.Nil(t, apiEvent.Version, "Version should NOT be exposed for non-maintenance events")
 	})
 
-	t.Run("Version exposed for authenticated info event", func(t *testing.T) {
+	t.Run("Version NOT exposed for authenticated info event", func(t *testing.T) {
 		infoEvent := &db.Incident{
 			ID:          3,
 			Text:        &[]string{"Info event"}[0],
@@ -182,7 +181,6 @@ func TestVersionFieldExposedToAuthenticated(t *testing.T) {
 		}
 
 		apiEvent := toAPIEvent(infoEvent, true) // authenticated
-		require.NotNil(t, apiEvent.Version, "Version should be exposed for info events too")
-		assert.Equal(t, version, *apiEvent.Version, "Version value should match for info events")
+		assert.Nil(t, apiEvent.Version, "Version should NOT be exposed for non-maintenance events")
 	})
 }

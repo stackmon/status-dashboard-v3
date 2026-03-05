@@ -279,7 +279,7 @@ func createMaintenanceFeedItems(maintenance *db.Incident, baseURL string) []*fee
 		var title string
 		var description string
 
-		switch s.Status { //nolint:exhaustive
+		switch s.Status {
 		case event.MaintenancePlanned:
 			title = fmt.Sprintf("Maintenance planned for %s", compShortNames)
 			description = fmt.Sprintf("A maintenance is planned for %s between %s UTC and %s UTC: %s",

@@ -101,7 +101,7 @@ Some fields are only visible to authenticated users:
 |-------|------------|
 | `creator` | Authenticated only |
 | `contact_email` | Authenticated only |
-| `version` | Authenticated only |
+| `version` | Authenticated only (maintenance events only) |
 
 Events with status `pending_review` or `reviewed` are hidden from unauthenticated users.
 

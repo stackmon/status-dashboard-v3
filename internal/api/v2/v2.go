@@ -343,7 +343,11 @@ func toAPIEvent(inc *db.Incident, isAuth bool) *Incident {
 		if inc.CreatedBy != nil {
 			incData.CreatedBy = *inc.CreatedBy
 		}
-		incData.Version = inc.Version
+		// Version field is part of the maintenance optimistic-locking contract;
+		// it is not meaningful (and should not be leaked) for other event types.
+		if inc.Type == event.TypeMaintenance {
+			incData.Version = inc.Version
+		}
 	}
 
 	return &Incident{IncidentID{ID: int(inc.ID)}, incData}

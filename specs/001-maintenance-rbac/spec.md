@@ -2,7 +2,7 @@
 
 **Feature Branch**: `001-maintenance-rbac`  
 **Created**: 2025-01-21  
-**Status**: Draft  
+**Status**: Review  
 **Input**: User description: "Create a feature specification for RBAC (Role-Based Access Control) for maintenance management in a Go backend Status Dashboard project."
 
 ## Clarifications

@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"go.uber.org/zap"
 
 	"github.com/stackmon/otc-status-dashboard/internal/db"
 	"github.com/stackmon/otc-status-dashboard/internal/event"
@@ -76,6 +77,48 @@ func TestCalculateCurrentMntStatus(t *testing.T) {
 
 			result := calculateCurrentMntStatus(tc.history, mn)
 			assert.Equal(t, tc.expectedStatus, result)
+		})
+	}
+}
+
+// TestFixMntMissedStatuses_Cancelled verifies that fixMntMissedStatuses does
+// NOT fabricate a "planned" audit entry when a maintenance is cancelled before
+// it ever entered the regular workflow (i.e. cancelled from pending_review),
+// but DOES add the "planned" entry when the event progressed past reviewed.
+func TestFixMntMissedStatuses_Cancelled(t *testing.T) {
+	startDate := time.Now().UTC().Add(24 * time.Hour)
+
+	tests := []struct {
+		name           string
+		history        *MntStatusHistory
+		wantNewEntries int
+	}{
+		{
+			name:           "cancelled from pending_review adds NO planned entry",
+			history:        &MntStatusHistory{hasCancelled: true},
+			wantNewEntries: 0,
+		},
+		{
+			name:           "cancelled after reviewed adds planned entry",
+			history:        &MntStatusHistory{hasReviewed: true, hasCancelled: true},
+			wantNewEntries: 1,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ch := &Checker{log: zap.NewNop()}
+			mnt := &db.Incident{
+				StartDate: &startDate,
+				Statuses:  []db.IncidentStatus{},
+			}
+
+			initialLen := len(mnt.Statuses)
+			ch.fixMntMissedStatuses(event.MaintenanceCancelled, tc.history, mnt)
+
+			added := len(mnt.Statuses) - initialLen
+			assert.Equal(t, tc.wantNewEntries, added,
+				"unexpected number of new status entries for case: %s", tc.name)
 		})
 	}
 }

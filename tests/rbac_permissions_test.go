@@ -22,7 +22,7 @@ func advanceFromPlanned(t *testing.T, r *gin.Engine, eventID int, target event.S
 
 // pathFromPlanned returns the intermediate transitions from planned → target.
 func pathFromPlanned(target event.Status) []event.Status {
-	switch target { //nolint:exhaustive
+	switch target {
 	case event.MaintenancePlanned:
 		return nil
 	case event.MaintenanceInProgress:

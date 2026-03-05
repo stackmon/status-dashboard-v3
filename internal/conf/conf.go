@@ -213,7 +213,7 @@ func mergeConfigs(env map[string]string, obj any, prefix string) error { //nolin
 			envValueTag := field.Tag.Get(envConfigTag)
 			mapKey := strings.ToUpper(fmt.Sprintf("%s_%s", prefix, envValueTag))
 
-			//nolint:exhaustive
+			//nolint:nolintlint
 			switch value.Kind() {
 			case reflect.String:
 				value.SetString(env[mapKey])

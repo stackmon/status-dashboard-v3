@@ -208,9 +208,9 @@ Tests verify that each role can only perform the actions allowed by the
 
 | # | Subtest | Role | Scenario | Expected | Spec Ref |
 |---|---------|------|----------|----------|----------|
-| 1 | `creator nil version rejected` | creator | PATCH without version field | 409 | FR-015-2 |
-| 2 | `operator nil version rejected` | operator | PATCH without version field | 409 | FR-015-2 |
-| 3 | `admin nil version rejected` | admin | PATCH without version field | 409 | FR-015-2 |
+| 1 | `creator nil version rejected` | creator | PATCH without version field | 400 | FR-015-2 |
+| 2 | `operator nil version rejected` | operator | PATCH without version field | 400 | FR-015-2 |
+| 3 | `admin nil version rejected` | admin | PATCH without version field | 400 | FR-015-2 |
 
 #### Wrong Version on Maintenance PATCH — `TestVersion_WrongVersionOnMaintenancePatch`
 

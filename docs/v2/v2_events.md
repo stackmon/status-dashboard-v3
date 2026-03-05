@@ -6,12 +6,12 @@ The `/v2/events` endpoint provides full event management capabilities, including
 
 ### Optimistic Locking
 
-All PATCH operations on events use **optimistic locking** to prevent concurrent update conflicts:
+Maintenance PATCH operations use **optimistic locking** to prevent concurrent update conflicts:
 
-- The `version` field is included in GET responses for authenticated users
-- PATCH requests must include the current `version` number
+- The `version` field is included in GET responses for authenticated users on maintenance events
+- PATCH requests for maintenance events must include the current `version` number
 - If the version doesn't match (event was modified by another user), a `409 Conflict` is returned
-- The version is automatically incremented on each successful update
+- The version is automatically incremented on each successful maintenance update
 
 This ensures data integrity when multiple users are working with the same events.
 
@@ -117,8 +117,7 @@ The handler returns a JSON object containing the list of events and pagination d
                     "timestamp": "2025-05-20T11:00:00Z"
                 }
             ],
-            "status": "in_progress",
-            "version": 3
+            "status": "in_progress"
         },
         ...
     ],
@@ -131,7 +130,7 @@ The handler returns a JSON object containing the list of events and pagination d
 }
 ```
 
-**Note**: The `version` field is only included in responses for authenticated users. It is used for optimistic locking when updating events.
+**Note**: The `version` field is only included in responses for authenticated users and only for maintenance events. It is used for optimistic locking when updating maintenance events.
 
 ### Pagination Object Details
 
@@ -190,8 +189,8 @@ Updates an existing event.
 
 This endpoint uses optimistic locking to prevent concurrent update conflicts:
 
-1. **Fetch the current version**: When you GET an event (as an authenticated user), the response includes a `version` field
-2. **Include version in PATCH**: Your PATCH request must include this `version` number
+1. **Fetch the current version**: When you GET a maintenance event (as an authenticated user), the response includes a `version` field
+2. **Include version in PATCH**: Your PATCH request for maintenance events must include this `version` number
 3. **Conflict detection**: If another user has modified the event in the meantime, the version will not match and you'll receive a `409 Conflict` error
 4. **Retry logic**: On 409, fetch the latest version of the event and retry with the new version number
 
@@ -223,13 +222,13 @@ This ensures that concurrent updates don't overwrite each other's changes.
 - `message`: Explanation of the update
 - `status`: New status for the event
 - `update_date`: Timestamp of the update
-- `version`: Current version number (for optimistic locking)
+- `version`: Current version number (required for maintenance updates; optional for incident/info)
 
 ### Response
 
 **Success (200 OK):**
 
-Returns the updated event with incremented version number.
+Returns the updated event. For maintenance updates, the response includes an incremented `version` number.
 
 ```json
 {

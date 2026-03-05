@@ -229,7 +229,7 @@ Any authenticated user may patch info events to any of these statuses.
 | Condition | `pending_review` / `reviewed` maintenance | `creator` field | `contact_email` field | `version` field |
 |-----------|:-----------------------------------------:|:---------------:|:--------------------:|:---------------:|
 | Unauthenticated | Hidden (404) | Hidden | Hidden | Hidden |
-| Authenticated (any role) | Visible | Visible | Visible | Visible |
+| Authenticated (any role) | Visible | Visible | Visible | Visible for maintenance events only |
 
 ---
 
