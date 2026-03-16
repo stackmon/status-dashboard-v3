@@ -6,8 +6,8 @@ on:
   workflow_dispatch:
 
 env:
-  ORG: opentelekomcloud
-  PROJECT: status-dashboard-v3-api
+  ORG: stackmon
+  PROJECT: status-dashboard-v3
 
 jobs:
   push_if_tag:
