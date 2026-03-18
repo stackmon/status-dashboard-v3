@@ -459,8 +459,6 @@ func TestV2PatchEventHandler(t *testing.T) {
 	require.NotNil(t, resp, "v2CreateEvent returned nil")
 	incID := resp.Result[0].IncidentID
 
-	_ = v2GetEvent(t, r, incID)
-
 	newTitle := "patched incident title"
 	newDescription := "patched incident description"
 	t.Logf("patching incident title, from %s to %s", title, newTitle)

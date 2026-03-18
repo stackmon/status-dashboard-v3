@@ -1019,7 +1019,7 @@ components:
         version:
           type: integer
           format: int32
-          description: "Current version number for optimistic locking on maintenance events. Required for maintenance PATCH requests; optional for incident/info events."
+          description: "Current version number for optimistic locking. Required for maintenance PATCH requests; ignored for incident and info events."
           example: 1
     IncidentPostExtract:
       type: object

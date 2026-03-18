@@ -135,12 +135,12 @@ func validateAndSetClaims(
 ) error {
 	token, err := parseToken(rawToken, secretKey, prov, logger)
 	if err != nil {
-		authAudit(logger, "token_validate", "failure", "", "", err.Error())
+		authAudit(logger, "token_validation", "failure", "", "", err.Error())
 		return apiErrors.ErrAuthNotAuthenticated
 	}
 
 	if !token.Valid {
-		authAudit(logger, "token_validate", "failure", idpTypeFromMethod(token.Method), "", "invalid_token")
+		authAudit(logger, "token_validation", "failure", idpTypeFromMethod(token.Method), "", "invalid_token")
 		return apiErrors.ErrAuthTokenInvalid
 	}
 
@@ -148,12 +148,12 @@ func validateAndSetClaims(
 
 	claims, ok := token.Claims.(jwt.MapClaims)
 	if !ok {
-		authAudit(logger, "token_validate", "failure", idpType, "", "claims_extraction_failed")
+		authAudit(logger, "token_validation", "failure", idpType, "", "claims_extraction_failed")
 		return apiErrors.ErrAuthTokenInvalid
 	}
 
 	if errUserID := setUserIDFromClaims(claims, c, logger); errUserID != nil {
-		authAudit(logger, "token_validate", "failure", idpType, "", "missing_username_claim")
+		authAudit(logger, "token_validation", "failure", idpType, "", "missing_username_claim")
 		return apiErrors.ErrAuthTokenInvalid
 	}
 
@@ -161,11 +161,11 @@ func validateAndSetClaims(
 	usernameStr, _ := username.(string)
 
 	if groupsErr := setGroupsFromClaims(claims, c, logger); groupsErr != nil {
-		authAudit(logger, "token_validate", "failure", idpType, usernameStr, "missing_groups_claim")
+		authAudit(logger, "token_validation", "failure", idpType, usernameStr, "missing_groups_claim")
 		return apiErrors.ErrAuthTokenInvalid
 	}
 
-	authAudit(logger, "token_validate", "success", idpType, usernameStr, "")
+	authAudit(logger, "token_validation", "success", idpType, usernameStr, "")
 	return nil
 }
 
@@ -175,7 +175,7 @@ func AuthenticationMW(prov *auth.Provider, logger *zap.Logger, secretKey string)
 	return func(c *gin.Context) {
 		authHeader := c.GetHeader("Authorization")
 		if authHeader == "" {
-			authAudit(logger, "token_validate", "failure", "", "", "missing_authorization_header")
+			authAudit(logger, "token_validation", "failure", "", "", "missing_authorization_header")
 			apiErrors.RaiseNotAuthorizedErr(c, apiErrors.ErrAuthNotAuthenticated)
 			return
 		}

@@ -562,10 +562,10 @@ func TestAuthAudit_DoesNotPanic(t *testing.T) {
 	logger := zaptest.NewLogger(t)
 
 	assert.NotPanics(t, func() {
-		authAudit(logger, "token_validate", "success", "local_hmac", "user1", "")
+		authAudit(logger, "token_validation", "success", "local_hmac", "user1", "")
 	})
 	assert.NotPanics(t, func() {
-		authAudit(logger, "token_validate", "failure", "", "", "parse_error")
+		authAudit(logger, "token_validation", "failure", "", "", "parse_error")
 	})
 	assert.NotPanics(t, func() {
 		authAudit(logger, "authorization", "denied", "", "user2", "no_matching_rbac_group")

@@ -147,8 +147,6 @@ The application supports two simultaneous identity providers:
 
 ### Security Hardening
 
-- **Audience validation**: RSA tokens are validated against `aud` claim (Keycloak `client_id`).
-  HMAC tokens skip audience check.
 - **Minimum secret key length**: `SD_SECRET_KEY` must be ≥ 32 characters (HMAC-SHA256 requirement).
 - **No bypasses**: `SD_AUTHENTICATION_DISABLED` and `SD_RBAC_DISABLED` toggles have been removed.
 
@@ -159,21 +157,12 @@ All authentication events are logged in structured SIEM-ready format:
 ```json
 {
   "event": "auth_audit",
-  "action": "authenticate",
+  "action": "token_validation",
   "result": "success",
   "idp_type": "keycloak",
-  "username": "user@example.com",
-  "reason": ""
+  "username": "user@example.com"
 }
 ```
 
-Fields: `event`, `action` (authenticate / authorize), `result` (success / failure),
-`idp_type` (local_hmac / keycloak / unknown), `username`, `reason`.
-
-### Keycloak Resilience
-
-The Keycloak public key is cached with a 1-hour TTL. On cache miss or TTL expiry:
-
-1. **Retry**: 3 attempts with exponential backoff (0ms, 500ms, 1s)
-2. **Fallback**: If retry fails but a cached key exists, the stale key is used
-3. **Thread-safety**: `sync.RWMutex` with double-checked locking prevents thundering herd
+Fields: `event`, `action` (`token_validation` / `authorization`), `result` (`success` / `failure` / `denied`),
+`idp_type` (`local_hmac` / `keycloak` / `unknown`), `username`, `reason` (omitted when empty).
