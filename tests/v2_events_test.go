@@ -459,9 +459,7 @@ func TestV2PatchEventHandler(t *testing.T) {
 	require.NotNil(t, resp, "v2CreateEvent returned nil")
 	incID := resp.Result[0].IncidentID
 
-	currentIncident := v2GetEvent(t, r, incID)
-	require.NotNil(t, currentIncident.Version, "Version should be returned after GET")
-	currentVersion := *currentIncident.Version
+	_ = v2GetEvent(t, r, incID)
 
 	newTitle := "patched incident title"
 	newDescription := "patched incident description"
@@ -473,41 +471,32 @@ func TestV2PatchEventHandler(t *testing.T) {
 		Message:     "update title",
 		Status:      "analysing",
 		UpdateDate:  time.Now().UTC(),
-		Version:     &currentVersion,
 	}
 
 	inc := internalPatch(incID, &pData)
 	assert.Equal(t, newTitle, inc.Title)
 	assert.Equal(t, newDescription, inc.Description)
-	// Update version after successful patch (should be incremented to 2)
-	require.NotNil(t, inc.Version, "Version should be returned after PATCH")
-	currentVersion = *inc.Version
+	assert.Nil(t, inc.Version, "Version must not be exposed for non-maintenance events")
 
 	newImpact := 2
 	t.Logf("patching incident impact, from %d to %d", impact, newImpact)
 
 	pData.Impact = &newImpact
 	pData.Status = event.IncidentImpactChanged
-	pData.Version = &currentVersion
 
 	inc = internalPatch(incID, &pData)
 	assert.Equal(t, newImpact, *inc.Impact)
-	// Update version after successful patch
-	require.NotNil(t, inc.Version, "Version should be returned after PATCH")
-	currentVersion = *inc.Version
+	assert.Nil(t, inc.Version, "Version must not be exposed for non-maintenance events")
 
 	t.Logf("close incident")
 	pData.Status = event.IncidentResolved
 	updateDate := time.Now().UTC()
 	pData.UpdateDate = updateDate
-	pData.Version = &currentVersion
 
 	inc = internalPatch(incID, &pData)
 	require.NotNil(t, inc.EndDate)
 	assert.Equal(t, updateDate.Truncate(time.Microsecond), inc.EndDate.Truncate(time.Microsecond))
-	// Update version after successful patch
-	require.NotNil(t, inc.Version, "Version should be returned after PATCH")
-	currentVersion = *inc.Version
+	assert.Nil(t, inc.Version, "Version must not be exposed for non-maintenance events")
 
 	t.Logf("patching closed incident, change start date and end date")
 	startDate = time.Now().AddDate(0, 0, -1).UTC()
@@ -516,33 +505,26 @@ func TestV2PatchEventHandler(t *testing.T) {
 	pData.Status = event.IncidentChanged
 	pData.StartDate = &startDate
 	pData.EndDate = &endDate
-	pData.Version = &currentVersion
 
 	inc = internalPatch(incID, &pData)
 	assert.Equal(t, startDate.Truncate(time.Microsecond), inc.StartDate)
 	assert.Equal(t, event.IncidentChanged, inc.Status)
 	require.NotNil(t, inc.EndDate)
 	assert.Equal(t, endDate.Truncate(time.Microsecond), inc.EndDate.Truncate(time.Microsecond))
-	// Update version after successful patch
-	require.NotNil(t, inc.Version, "Version should be returned after PATCH")
-	currentVersion = *inc.Version
+	assert.Nil(t, inc.Version, "Version must not be exposed for non-maintenance events")
 
 	t.Logf("reopen closed incident")
 
 	pData.Status = event.IncidentReopened
 	pData.StartDate = nil
 	pData.EndDate = nil
-	pData.Version = &currentVersion
 	inc = internalPatch(incID, &pData)
 	assert.Nil(t, inc.EndDate)
-	// Update version after successful patch
-	require.NotNil(t, inc.Version, "Version should be returned after PATCH")
-	currentVersion = *inc.Version
+	assert.Nil(t, inc.Version, "Version must not be exposed for non-maintenance events")
 
 	t.Logf("final close the test incident")
 
 	pData.Status = event.IncidentResolved
-	pData.Version = &currentVersion
 	inc = internalPatch(incID, &pData)
 	assert.Equal(t, event.IncidentResolved, inc.Status)
 	assert.NotNil(t, inc.EndDate)

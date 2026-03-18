@@ -192,11 +192,11 @@ func createIncidentFeedItems(incident *db.Incident, baseURL string) []*feeds.Ite
 
 	var description strings.Builder
 	startDate := *incident.StartDate
-	description.WriteString(fmt.Sprintf("A %s was detected at %s UTC for ", impact, startDate.Format(time.DateTime)))
+	fmt.Fprintf(&description, "A %s was detected at %s UTC for ", impact, startDate.Format(time.DateTime))
 
 	for i := range len(incident.Components) {
 		c := incident.Components[i]
-		description.WriteString(fmt.Sprintf("%s in %s", c.Name, c.Region()))
+		fmt.Fprintf(&description, "%s in %s", c.Name, c.Region())
 		if i != len(incident.Components)-1 {
 			description.WriteString(", ")
 		} else {
@@ -206,7 +206,7 @@ func createIncidentFeedItems(incident *db.Incident, baseURL string) []*feeds.Ite
 
 	if incident.Description != nil && *incident.Description != "" {
 		// Append the main description if it exists.
-		description.WriteString(fmt.Sprintf(" %s", *incident.Description))
+		fmt.Fprintf(&description, " %s", *incident.Description)
 	}
 
 	item := &feeds.Item{
