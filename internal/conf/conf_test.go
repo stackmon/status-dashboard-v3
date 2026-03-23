@@ -35,7 +35,7 @@ func TestRBACConfig_Validate(t *testing.T) {
 			name:      "Missing Admins fails validation",
 			config:    RBACConfig{},
 			expectErr: true,
-			errSubstr: "SD_RBAC_GROUP_ADMINS",
+			errSubstr: "SD_RBAC_GROUPS_ADMINS",
 		},
 		{
 			name: "Missing Admins but other groups set fails",
@@ -44,7 +44,7 @@ func TestRBACConfig_Validate(t *testing.T) {
 				Operators: "sd_operators",
 			},
 			expectErr: true,
-			errSubstr: "SD_RBAC_GROUP_ADMINS",
+			errSubstr: "SD_RBAC_GROUPS_ADMINS",
 		},
 	}
 
@@ -70,7 +70,7 @@ func TestConfig_Validate_PropagatesRBACError(t *testing.T) {
 
 	err := cfg.Validate()
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "SD_RBAC_GROUP_ADMINS")
+	assert.Contains(t, err.Error(), "SD_RBAC_GROUPS_ADMINS")
 }
 
 func TestConfig_Validate_RequiresProvider(t *testing.T) {
@@ -318,7 +318,7 @@ func TestMergeConfigs(t *testing.T) {
 	t.Run("merges into embedded struct (RBACConfig)", func(t *testing.T) {
 		c := &Config{Keycloak: &Keycloak{}}
 		env := map[string]string{
-			"SD_RBAC_GROUP_ADMINS": "my-admins",
+			"SD_RBAC_GROUPS_ADMINS": "my-admins",
 		}
 		err := mergeConfigs(env, c, "SD")
 		require.NoError(t, err)

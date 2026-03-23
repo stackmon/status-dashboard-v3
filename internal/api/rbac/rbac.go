@@ -12,64 +12,70 @@ const (
 )
 
 type Service struct {
-	creatorsGroup  string
-	operatorsGroup string
-	adminsGroup    string
+	admins    map[string]struct{}
+	operators map[string]struct{}
+	creators  map[string]struct{}
+}
+
+func parseGroups(input string) map[string]struct{} {
+	m := make(map[string]struct{})
+	for _, part := range strings.Split(input, ",") {
+		part = strings.TrimSpace(part)
+		part = strings.TrimPrefix(part, "/")
+		if part != "" {
+			m[part] = struct{}{}
+		}
+	}
+	return m
 }
 
 func New(creatorsGroup, operatorsGroup, adminsGroup string) *Service {
 	return &Service{
-		creatorsGroup:  creatorsGroup,
-		operatorsGroup: operatorsGroup,
-		adminsGroup:    adminsGroup,
+		creators:  parseGroups(creatorsGroup),
+		operators: parseGroups(operatorsGroup),
+		admins:    parseGroups(adminsGroup),
 	}
 }
 
-// HasAuthorizedGroup checks if the user belongs to any configured RBAC group.
-// Group names are normalized by trimming leading "/" prefix.
+func (s *Service) roleForGroup(group string) Role {
+	if _, ok := s.admins[group]; ok {
+		return Admin
+	}
+	if _, ok := s.operators[group]; ok {
+		return Operator
+	}
+	if _, ok := s.creators[group]; ok {
+		return Creator
+	}
+	return NoRole
+}
+
+func normalizeGroup(group string) string {
+	return strings.TrimPrefix(group, "/")
+}
+
 func (s *Service) HasAuthorizedGroup(userGroups []string) bool {
 	for _, group := range userGroups {
-		normalizedGroup := strings.TrimPrefix(group, "/")
-
-		if s.adminsGroup != "" && normalizedGroup == s.adminsGroup {
-			return true
-		}
-		if s.operatorsGroup != "" && normalizedGroup == s.operatorsGroup {
-			return true
-		}
-		if s.creatorsGroup != "" && normalizedGroup == s.creatorsGroup {
+		g := normalizeGroup(group)
+		if s.roleForGroup(g) != NoRole {
 			return true
 		}
 	}
 	return false
 }
 
-// Resolve determines the highest RBAC role from the user's group membership.
-func (s *Service) Resolve(userGroups []string) Role {
+func (s *Service) ResolveRole(userGroups []string) Role {
 	currentRole := NoRole
-
 	for _, group := range userGroups {
-		normalizedGroup := strings.TrimPrefix(group, "/")
-
-		if s.adminsGroup != "" && normalizedGroup == s.adminsGroup {
+		g := normalizeGroup(group)
+		r := s.roleForGroup(g)
+		if r == Admin {
 			return Admin
 		}
-
-		if s.operatorsGroup != "" && normalizedGroup == s.operatorsGroup {
-			if Operator > currentRole {
-				currentRole = Operator
-			}
-			continue
-		}
-
-		if s.creatorsGroup != "" && normalizedGroup == s.creatorsGroup {
-			if Creator > currentRole {
-				currentRole = Creator
-			}
-			continue
+		if r > currentRole {
+			currentRole = r
 		}
 	}
-
 	return currentRole
 }
 

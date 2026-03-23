@@ -247,7 +247,7 @@ Tests verify that each role can only perform the actions allowed by the
 
 ### 7. Admin-Only Configuration (`rbac_admin_only_test.go`)
 
-Tests verify correct behavior when only `SD_RBAC_GROUP_ADMINS` is configured
+Tests verify correct behavior when only `SD_RBAC_GROUPS_ADMINS` is configured
 (creator and operator groups are empty strings).
 
 #### Admin CRUD — `TestAdminOnly_AdminCRUD`
@@ -354,7 +354,7 @@ test(s) that verify it.
 | Requirement | Description | Covered By |
 |-------------|-------------|------------|
 | FR-002 | Extract groups from JWT `groups` claim | `TestToken_InvalidGroupsClaim` |
-| FR-002a | Map IdP groups via SD_RBAC_GROUP_* env vars | `TestToken_ValidClaimsSucceeds` |
+| FR-002a | Map IdP groups via SD_RBAC_GROUPS_* env vars | `TestToken_ValidClaimsSucceeds` |
 | FR-004 | Creator can create maintenance events | `TestCreation_RoleInitialStatus` |
 | FR-005 | Creator → pending_review initial status | `TestCreation_RoleInitialStatus/creator_creates_maintenance_with_pending_review_status` |
 | FR-005a | Operator → planned initial status | `TestCreation_RoleInitialStatus/operator_creates_maintenance_with_planned_status` |

@@ -12,7 +12,7 @@ Admin (50) > Operator (30) > Creator (10) > NoRole (0)
 ```
 
 Role names (`admin`, `operator`, `creator`) are abstract application roles resolved from IdP group
-names configured via `SD_RBAC_GROUP_ADMINS`, `SD_RBAC_GROUP_OPERATORS`, and `SD_RBAC_GROUP_CREATORS`
+names configured via `SD_RBAC_GROUPS_ADMINS`, `SD_RBAC_GROUPS_OPERATORS`, and `SD_RBAC_GROUPS_CREATORS`
 environment variables. See [rbac.md](rbac.md) for configuration details.
 
 ---

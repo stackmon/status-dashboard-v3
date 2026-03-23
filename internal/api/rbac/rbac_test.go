@@ -73,7 +73,7 @@ func TestService_Resolve(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := svc.Resolve(tt.groups)
+			got := svc.ResolveRole(tt.groups)
 			assert.Equal(t, tt.expected, got)
 		})
 	}
@@ -212,6 +212,89 @@ func TestService_HasAnyConfiguredGroup_EmptyConfig(t *testing.T) {
 	}
 }
 
+func TestParseGroups(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected map[string]struct{}
+	}{
+		{
+			name:     "empty string returns empty map",
+			input:    "",
+			expected: map[string]struct{}{},
+		},
+		{
+			name:     "single group",
+			input:    "sd_admins",
+			expected: map[string]struct{}{"sd_admins": {}},
+		},
+		{
+			name:     "comma-separated groups (Vault real case)",
+			input:    "sd-admins,status-dashboard",
+			expected: map[string]struct{}{"sd-admins": {}, "status-dashboard": {}},
+		},
+		{
+			name:     "spaces around commas are trimmed",
+			input:    "sd_admins , status-dashboard",
+			expected: map[string]struct{}{"sd_admins": {}, "status-dashboard": {}},
+		},
+		{
+			name:     "leading slash in configured group is normalized",
+			input:    "/sd_admins,/status-dashboard",
+			expected: map[string]struct{}{"sd_admins": {}, "status-dashboard": {}},
+		},
+		{
+			name:     "empty entries from double commas are ignored",
+			input:    "sd_admins,,status-dashboard",
+			expected: map[string]struct{}{"sd_admins": {}, "status-dashboard": {}},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := parseGroups(tt.input)
+			assert.Equal(t, tt.expected, got)
+		})
+	}
+}
+
+// TestService_CommaSeparatedConfig reproduces the real Vault scenario:
+// SD_RBAC_GROUPS_ADMINS="sd-admins,status-dashboard"
+// where Keycloak sends groups with a leading "/" prefix.
+func TestService_CommaSeparatedConfig(t *testing.T) {
+	// Mirrors Vault value: rbacgroupadmins = "sd-admins,status-dashboard"
+	svc := New("sd_creators", "sd_operators", "sd-admins,status-dashboard")
+
+	// Real token claims from preprod Keycloak (truncated for brevity)
+	keycloakGroups := []string{
+		"/argocd-admin",
+		"/backstage",
+		"/gitea-admin",
+		"/gitea-users",
+		"/grafana-admin",
+		"/status-dashboard",
+		"offline_access",
+		"uma_authorization",
+		"default-roles-eco",
+	}
+
+	t.Run("user with /status-dashboard is authorized", func(t *testing.T) {
+		assert.True(t, svc.HasAuthorizedGroup(keycloakGroups))
+	})
+
+	t.Run("user with /status-dashboard resolves to Admin", func(t *testing.T) {
+		assert.Equal(t, Admin, svc.ResolveRole(keycloakGroups))
+	})
+
+	t.Run("user with /sd-admins also resolves to Admin", func(t *testing.T) {
+		assert.Equal(t, Admin, svc.ResolveRole([]string{"/sd-admins", "other-group"}))
+	})
+
+	t.Run("user without any matching group is denied", func(t *testing.T) {
+		assert.False(t, svc.HasAuthorizedGroup([]string{"/argocd-admin", "offline_access"}))
+	})
+}
+
 func TestService_Resolve_EmptyConfig(t *testing.T) {
 	svc := New("", "", "")
 
@@ -244,7 +327,7 @@ func TestService_Resolve_EmptyConfig(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := svc.Resolve(tt.groups)
+			got := svc.ResolveRole(tt.groups)
 			assert.Equal(t, tt.expected, got)
 		})
 	}

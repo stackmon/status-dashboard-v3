@@ -53,11 +53,11 @@ type Config struct {
 
 type RBACConfig struct {
 	// Creators group name
-	Creators string `envconfig:"GROUP_CREATORS"`
+	Creators string `envconfig:"GROUPS_CREATORS"`
 	// Operators group name
-	Operators string `envconfig:"GROUP_OPERATORS"`
+	Operators string `envconfig:"GROUPS_OPERATORS"`
 	// Admins group name (mandatory)
-	Admins string `envconfig:"GROUP_ADMINS"`
+	Admins string `envconfig:"GROUPS_ADMINS"`
 }
 
 type Keycloak struct {
@@ -107,7 +107,7 @@ func (c *Config) validateProviders() error {
 
 func (r *RBACConfig) Validate() error {
 	if r.Admins == "" {
-		return fmt.Errorf("SD_RBAC_GROUP_ADMINS is required")
+		return fmt.Errorf("SD_RBAC_GROUPS_ADMINS is required")
 	}
 	return nil
 }

@@ -8,7 +8,7 @@ The Status Dashboard implements RBAC for maintenance event management. Roles are
 
 Three application roles are supported, with highest privilege taking precedence when a user has multiple roles.
 Role names in this document refer to abstract application roles. Each role is mapped from an IdP group
-configured via the corresponding environment variable (e.g. `SD_RBAC_GROUP_ADMINS` → `admin` role).
+configured via the corresponding environment variable (e.g. `SD_RBAC_GROUPS_ADMINS` → `admin` role).
 
 | Role | Priority | Description |
 |------|----------|-------------|
@@ -18,15 +18,26 @@ configured via the corresponding environment variable (e.g. `SD_RBAC_GROUP_ADMIN
 
 ## Configuration
 
-RBAC is always active — there is no disable toggle. `SD_RBAC_GROUP_ADMINS` is mandatory;
-`SD_RBAC_GROUP_OPERATORS` and `SD_RBAC_GROUP_CREATORS` are optional (when omitted, no user
+RBAC is always active — there is no disable toggle. `SD_RBAC_GROUPS_ADMINS` is mandatory;
+`SD_RBAC_GROUPS_OPERATORS` and `SD_RBAC_GROUPS_CREATORS` are optional (when omitted, no user
 can match the corresponding role).
+
+Each variable accepts either a single group name or a **comma-separated list** of group names.
+All listed groups are mapped to the same role. Group names are matched case-sensitively after
+stripping a leading `/` (Keycloak sends groups with a `/` prefix by default).
 
 | Environment Variable | Required | Description |
 |---------------------|----------|-------------|
-| `SD_RBAC_GROUP_ADMINS` | **Yes** | IdP group name that maps to the `admin` role |
-| `SD_RBAC_GROUP_OPERATORS` | No | IdP group name that maps to the `operator` role |
-| `SD_RBAC_GROUP_CREATORS` | No | IdP group name that maps to the `creator` role |
+| `SD_RBAC_GROUPS_ADMINS` | **Yes** | Group name(s) that map to the `admin` role |
+| `SD_RBAC_GROUPS_OPERATORS` | No | Group name(s) that map to the `operator` role |
+| `SD_RBAC_GROUPS_CREATORS` | No | Group name(s) that map to the `creator` role |
+
+**Example** — mapping multiple Keycloak groups to the `admin` role:
+```
+SD_RBAC_GROUPS_ADMINS=sd-admins,status-dashboard
+```
+A token containing either `/sd-admins` or `/status-dashboard` in its `groups` claim will be
+granted the `admin` role.
 
 ## Permissions by Role
 
@@ -128,9 +139,11 @@ The API expects JWT tokens with the following claims:
 ```
 
 - `preferred_username` → stored as event creator
-- `groups` → each value is matched against the configured `SD_RBAC_GROUP_*` environment variables to
-  resolve the application role. For example, if `SD_RBAC_GROUP_CREATORS=sd_creators`, then a token
-  containing `"sd_creators"` in `groups` grants the `creator` role.
+- `groups` → each value is matched against the configured `SD_RBAC_GROUPS_*` environment variables to
+  resolve the application role. Leading `/` prefix is stripped before comparison (Keycloak sends
+  groups as `/group-name`). For example, if `SD_RBAC_GROUPS_ADMINS=sd-admins,status-dashboard`, then
+  a token containing either `/sd-admins` or `/status-dashboard` (or without `/`) in `groups` grants
+  the `admin` role.
 
 ## Dual-IdP Authentication
 

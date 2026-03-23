@@ -285,7 +285,7 @@ func RBACAuthorizationMW(rbacService *rbac.Service, logger *zap.Logger) gin.Hand
 			return
 		}
 
-		role := rbacService.Resolve(groups)
+		role := rbacService.ResolveRole(groups)
 		c.Set(v2.RoleContextKey, role)
 		authAudit(logger, "authorization", "success", "", usernameStr, fmt.Sprintf("role=%d", int(role)))
 
