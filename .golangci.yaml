@@ -188,9 +188,11 @@ linters:
         source: //noinspection
       - linters:
           - bodyclose
+          - cyclop
           - dupl
           - funlen
           - gochecknoglobals
+          - gocognit
           - goconst
           - gosec
           - lll
