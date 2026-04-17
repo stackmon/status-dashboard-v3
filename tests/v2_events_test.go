@@ -672,7 +672,7 @@ func v2PatchEvent(t *testing.T, r *gin.Engine, inc *v2.Incident, status ...event
 	assert.Equal(t, 200, w.Code)
 }
 
-func TestV2GetEventsFilteredHandler(t *testing.T) { //nolint:gocognit
+func TestV2GetEventsFilteredHandler(t *testing.T) {
 	t.Log("start to test GET /v2/events with filters and pagination")
 	r, _, _ := initTests(t)
 
