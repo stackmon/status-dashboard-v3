@@ -45,8 +45,9 @@ USER appuser
 
 WORKDIR /usr/src/app
 
-# Copy the binary from the build stage
+# Copy the binary and OpenAPI spec from the build stage
 COPY --from=build --chown=appuser:appuser /usr/local/bin/app .
+COPY --chown=appuser:appuser openapi.yaml .
 
 # Expose the port
 EXPOSE 8000
