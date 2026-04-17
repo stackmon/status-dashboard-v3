@@ -28,6 +28,7 @@ func filteredOpenAPIHandler() gin.HandlerFunc {
 		}
 
 		stripNonGetMethods(spec)
+		stripAuthDetails(spec)
 		overrideServerURL(spec, c.Request)
 
 		c.JSON(http.StatusOK, spec)
@@ -136,5 +137,84 @@ func overrideServerURL(spec map[string]interface{}, r *http.Request) {
 		map[string]interface{}{
 			"url": fmt.Sprintf("%s://%s", scheme, r.Host),
 		},
+	}
+}
+
+// stripAuthDetails removes authentication-related content from the spec:
+// security block, securitySchemes, Token* schemas, and auth description.
+func stripAuthDetails(spec map[string]interface{}) {
+	delete(spec, "security")
+
+	stripInfoDescription(spec)
+	stripAuthSchemas(spec)
+}
+
+func stripInfoDescription(spec map[string]interface{}) {
+	info, isMap := spec["info"].(map[string]interface{})
+	if !isMap {
+		return
+	}
+
+	desc, isString := info["description"].(string)
+	if !isString {
+		return
+	}
+
+	if idx := strings.Index(desc, "## Authentication"); idx >= 0 {
+		info["description"] = strings.TrimSpace(desc[:idx])
+	}
+}
+
+func stripAuthSchemas(spec map[string]interface{}) {
+	components, isMap := spec["components"].(map[string]interface{})
+	if !isMap {
+		return
+	}
+
+	delete(components, "securitySchemes")
+
+	schemas, isMap := components["schemas"].(map[string]interface{})
+	if !isMap {
+		return
+	}
+
+	for name, schema := range schemas {
+		if strings.HasPrefix(name, "Token") {
+			delete(schemas, name)
+			continue
+		}
+		stripRBACFields(schema)
+	}
+}
+
+func stripRBACFields(schema interface{}) {
+	schemaMap, isMap := schema.(map[string]interface{})
+	if !isMap {
+		return
+	}
+
+	rbacFields := map[string]struct{}{
+		"creator":       {},
+		"contact_email": {},
+		"version":       {},
+	}
+
+	if props, ok := schemaMap["properties"].(map[string]interface{}); ok {
+		for field := range rbacFields {
+			delete(props, field)
+		}
+	}
+
+	if required, ok := schemaMap["required"].([]interface{}); ok {
+		var kept []interface{}
+		for _, r := range required {
+			if name, isStr := r.(string); isStr {
+				if _, hidden := rbacFields[name]; hidden {
+					continue
+				}
+			}
+			kept = append(kept, r)
+		}
+		schemaMap["required"] = kept
 	}
 }
