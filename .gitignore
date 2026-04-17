@@ -13,3 +13,4 @@ bin/
 .env
 .vscode
 __debug*
+*.out
