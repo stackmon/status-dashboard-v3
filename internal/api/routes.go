@@ -1,6 +1,9 @@
 package api
 
 import (
+	swaggerFiles "github.com/swaggo/files"
+	ginSwagger "github.com/swaggo/gin-swagger"
+
 	"github.com/stackmon/otc-status-dashboard/internal/api/auth"
 	"github.com/stackmon/otc-status-dashboard/internal/api/rss"
 	v1 "github.com/stackmon/otc-status-dashboard/internal/api/v1"
@@ -103,4 +106,9 @@ func (a *API) InitRoutes() {
 	{
 		rssFEED.GET("/", rss.HandleRSS(a.db, a.log))
 	}
+
+	a.r.GET("/openapi.json", filteredOpenAPIHandler())
+	a.r.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler,
+		ginSwagger.URL("/openapi.json"),
+	))
 }
