@@ -23,7 +23,6 @@ const (
 
 const (
 	authorizedView = true
-	publicView     = false
 )
 
 const (
@@ -1137,6 +1136,10 @@ func validateStatusesPatch(incoming *PatchIncidentData, stored *db.Incident) err
 		return apiErrors.ErrIncidentPatchIncidentStatus
 	}
 
+	if stored.Type == event.TypeMaintenance && !event.IsValidTransition(stored.Type, stored.Status, incoming.Status) {
+		return apiErrors.ErrInvalidStateTransition
+	}
+
 	return nil
 }
 
@@ -1779,7 +1782,6 @@ func allowMaintenancePatch(
 ) bool {
 	switch {
 	case role >= rbac.Operator:
-		// operator and admin are event admins: unrestricted PATCH on any maintenance event.
 		return true
 	case role >= rbac.Creator:
 		return allowMaintenancePatchAsCreator(c, logger, stored, incoming)
@@ -1873,11 +1875,9 @@ func prepareIncidentPatch(
 		*incData.EndDate = incData.EndDate.UTC()
 	}
 
-	if err := checkPatchData(incData, storedIncident); err != nil {
-		apiErrors.RaiseBadRequestErr(c, err)
-		return false
-	}
-
+	// For maintenance events, check role/ownership BEFORE state machine validation.
+	// This ensures creators get 409 (not allowed) rather than 400 (invalid transition)
+	// when they attempt to modify events outside "pending_review" status (FR-009).
 	if storedIncident.Type == event.TypeMaintenance {
 		role, ok := getRoleFromContext(c, logger)
 		if !ok {
@@ -1886,6 +1886,11 @@ func prepareIncidentPatch(
 		if !allowMaintenancePatch(c, logger, role, storedIncident, incData) {
 			return false
 		}
+	}
+
+	if err := checkPatchData(incData, storedIncident); err != nil {
+		apiErrors.RaiseBadRequestErr(c, err)
+		return false
 	}
 
 	return true

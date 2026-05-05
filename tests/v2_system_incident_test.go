@@ -729,8 +729,10 @@ func cleanupOpenIncidents(t *testing.T, r *gin.Engine) {
 			endDate := time.Now().Add(-time.Hour).UTC()
 			inc.EndDate = &endDate
 			v2PatchIncident(t, r, inc)
-		} else if inc.Type == event.TypeMaintenance {
-			// Cancel maintenances if not already cancelled
+		} else if inc.Type == event.TypeMaintenance &&
+			inc.Status != event.MaintenanceCancelled &&
+			inc.Status != event.MaintenanceCompleted {
+			// Cancel maintenances that are not already in a terminal state
 			v2PatchIncident(t, r, inc, event.MaintenanceCancelled)
 		}
 	}

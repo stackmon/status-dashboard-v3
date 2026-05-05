@@ -191,14 +191,22 @@ func TestV2PostIncidentsHandler(t *testing.T) {
 	t.Log("check if all incidents have end date, if not, set it to start date + 1ms")
 	incidents := v2GetIncidents(t, r)
 	for _, inc := range incidents {
+		if inc.Type == event.TypeMaintenance {
+			if inc.Status != event.MaintenanceCancelled &&
+				inc.Status != event.MaintenanceCompleted {
+				if inc.EndDate == nil {
+					endDate := inc.StartDate.Add(time.Millisecond * 1).UTC()
+					inc.EndDate = &endDate
+				}
+				t.Log("the component is maintenance, cancel it")
+				v2PatchIncident(t, r, inc, event.MaintenanceCancelled)
+			}
+			continue
+		}
 		if inc.EndDate == nil {
 			endDate := inc.StartDate.Add(time.Millisecond * 1).UTC()
 			inc.EndDate = &endDate
 			v2PatchIncident(t, r, inc)
-		}
-		if inc.Type == event.TypeMaintenance {
-			t.Log("the component is maintenance, cancel it")
-			v2PatchIncident(t, r, inc, event.MaintenanceCancelled)
 		}
 	}
 
@@ -568,14 +576,22 @@ func TestV2PostIncidentExtractHandler(t *testing.T) {
 	t.Log("check if all incidents have end date, if not, set it to start date + 1ms")
 	incidents := v2GetIncidents(t, r)
 	for _, inc := range incidents {
+		if inc.Type == event.TypeMaintenance {
+			if inc.Status != event.MaintenanceCancelled &&
+				inc.Status != event.MaintenanceCompleted {
+				if inc.EndDate == nil {
+					endDate := inc.StartDate.Add(time.Millisecond * 1).UTC()
+					inc.EndDate = &endDate
+				}
+				t.Log("the component is maintenance, cancel it")
+				v2PatchIncident(t, r, inc, event.MaintenanceCancelled)
+			}
+			continue
+		}
 		if inc.EndDate == nil {
 			endDate := inc.StartDate.Add(time.Millisecond * 1).UTC()
 			inc.EndDate = &endDate
 			v2PatchIncident(t, r, inc)
-		}
-		if inc.Type == event.TypeMaintenance {
-			t.Log("the component is maintenance, cancel it")
-			v2PatchIncident(t, r, inc, event.MaintenanceCancelled)
 		}
 	}
 

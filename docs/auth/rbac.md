@@ -44,8 +44,8 @@ granted the `admin` role.
 ### `admin`
 
 - Unrestricted access to all maintenance operations
-- Bypass all status-based restrictions
-- Can transition events to any status
+- Can PATCH any event regardless of ownership or stored status
+- Transitions are subject to the **state machine** (only valid status flows are permitted)
 - Events created with status `planned` (bypass review)
 
 ### `operator`
@@ -53,8 +53,8 @@ granted the `admin` role.
 - Full CRUD access to all maintenance events (event admin)
 - Create events with status `planned` (bypass review workflow)
 - View all maintenance events regardless of status
-- PATCH events from any status to any valid maintenance status
-- Cancel events from any status
+- PATCH events from any stored status — state machine enforces valid transitions
+- Cancel events from any non-terminal status
 
 ### `creator`
 
@@ -71,32 +71,42 @@ Creator creates event
         ▼
   ┌─────────────┐
   │pending_review│ ◄── creator can modify/cancel (own events only)
-  └──────┬──────┘     operator/admin can approve, modify, or cancel
-         │ operator/admin approves (or any PATCH by operator/admin)
+  └──────┬──────┘     operator/admin can approve or cancel
+         │ operator/admin: → reviewed
          ▼
   ┌─────────────┐
   │  reviewed   │
   └──────┬──────┘
-         │ Checker auto-transitions (no validation)
+         │ operator/admin: → planned (or checker auto-transition)
          ▼
   ┌─────────────┐
   │   planned   │ ◄── operator/admin bypass to here on creation
   └──────┬──────┘
-         │ Checker (StartDate reached)
+         │ operator/admin: → in_progress (or checker: StartDate reached)
          ▼
   ┌─────────────┐
   │ in_progress │
-  └──────┬──────┘
-         │ Checker (EndDate reached)
-         ▼
+  └──────┬──┬───┘
+         │  │ operator/admin: → modified
+         │  ▼
+         │ ┌─────────────┐
+         │ │  modified   │──► in_progress (loop back)
+         │ └──────┬──────┘
+         │        │
+         ▼        ▼
   ┌─────────────┐
   │  completed  │  (terminal)
   └─────────────┘
 
-cancelled  ◄── admin: from any status
-           ◄── operator: from any status
+cancelled  ◄── from any non-terminal status (all roles subject to RBAC)
+           ◄── admin/operator: from pending_review, reviewed, planned, in_progress, modified
            ◄── creator: from pending_review (own event) only
 ```
+
+> **State machine enforcement**: All transitions are validated by the state machine regardless of role.
+> Admin/operator pass the RBAC check unconditionally but the state machine still prevents invalid
+> transitions (e.g., `completed → planned` is rejected with 400 Bad Request).
+> Terminal states (`completed`, `cancelled`) have no outgoing transitions.
 
 > **Retroactive maintenance**: events may be created with dates in the past. The checker will
 > automatically transition them to `completed` and backfill intermediate status history with
@@ -120,12 +130,12 @@ Events with status `pending_review` or `reviewed` are hidden from unauthenticate
 
 | HTTP Code | Condition |
 |-----------|-----------|
+| `400 Bad Request` | Invalid state transition (state machine violation), setting same status again |
 | `401 Unauthorized` | Missing or invalid JWT token |
 | `403 Forbidden` | Insufficient role permissions |
 | `403 Forbidden` | Attempting to modify event you don't own (`creator` role) |
-| `409 Conflict` | Status transition not allowed for current role/state |
+| `409 Conflict` | Creator attempting to modify event outside `pending_review` status |
 | `409 Conflict` | Version mismatch (concurrent modification) |
-| `409 Conflict` | Event no longer in expected status |
 
 ## JWT Token Structure
 

@@ -47,38 +47,36 @@ environment variables. See [rbac.md](rbac.md) for configuration details.
 The table below shows which target statuses are reachable from each stored status, per role.
 **Rows = current (stored) status. Columns = requested (incoming) status.**
 
-Legend: ✅ allowed · ❌ 409 Conflict · 🚫 403 Forbidden
+All roles are subject to the **state machine** — only valid transitions are permitted regardless
+of role. The state machine defines the allowed status flow; roles determine **which events** a user
+may modify, not which transitions are valid.
 
-#### `admin` — unrestricted
+Legend: ✅ allowed · ❌ 400 Bad Request (invalid transition) · 🚫 403 Forbidden · ⛔ terminal state
 
-Any → any maintenance status is permitted. No stored-status check is performed.
+#### State Machine (applies to all roles)
 
 | Current status (FROM ↓) \ Target status (TO →) | `pending_review` | `reviewed` | `planned` | `in_progress` | `modified` | `completed` | `cancelled` |
 |------------------------------------------------|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| `pending_review` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `reviewed` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `planned` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `in_progress` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `modified` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `completed` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `cancelled` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `pending_review` | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ | ✅ |
+| `reviewed` | ❌ | ❌ | ✅ | ❌ | ❌ | ❌ | ✅ |
+| `planned` | ❌ | ❌ | ❌ | ✅ | ❌ | ❌ | ✅ |
+| `in_progress` | ❌ | ❌ | ❌ | ❌ | ✅ | ✅ | ✅ |
+| `modified` | ❌ | ❌ | ❌ | ✅ | ❌ | ✅ | ✅ |
+| `completed` | ⛔ | ⛔ | ⛔ | ⛔ | ⛔ | ⛔ | ⛔ |
+| `cancelled` | ⛔ | ⛔ | ⛔ | ⛔ | ⛔ | ⛔ | ⛔ |
 
-#### `operator` — unrestricted (event admin)
+> **Terminal states**: `completed` and `cancelled` have no outgoing transitions.
+> Setting the same status again is rejected (400) except `pending_review → pending_review`
+> which is explicitly allowed so creators can update the event text.
 
-Operators are event admins and may perform all CRUD actions on maintenance events.
-Any status transition is permitted, identical to the `admin` role for maintenance events.
+#### `admin` / `operator` — state machine enforced
+
+Admin and operator pass the RBAC check unconditionally (any event, any stored status).
+However, the state machine still restricts which transitions are valid.
 The distinction from `admin` is that `admin` will gain additional system-level privileges in future
 releases; `operator` scope is limited to event management.
 
-| Current status (FROM ↓) \ Target status (TO →) | `pending_review` | `reviewed` | `planned` | `in_progress` | `modified` | `completed` | `cancelled` |
-|------------------------------------------------|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| `pending_review` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `reviewed` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `planned` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `in_progress` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `modified` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `completed` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `cancelled` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+**Effective matrix** = the state machine table above.
 
 #### `creator` — restricted to own events in `pending_review`
 
@@ -160,30 +158,26 @@ POST /v2/events → initial status: pending_review
 ### Full Maintenance Status Flow Diagram
 
 ```
-[creator POST]──► pending_review ◄──┐
-                      │ │            │ creator: modify (own)
-         operator/    │ │ creator/
-         admin        │ │ operator/admin → cancelled (terminal)
-         approves     │ │
-                      ▼ │
-                  reviewed
-                      │
-               checker (auto)
-                      ▼
-[operator/admin POST]► planned ◄──────────────────────────────┐
-                      │                                        │
-               checker (StartDate)                    admin/operator can jump
-                      ▼                               to any status
-                  in_progress
-                      │
-               checker (EndDate)
-                      ▼
-                  completed (terminal)
+                        State Machine (enforced for ALL roles)
+                        ======================================
 
+[creator POST]──► pending_review ──┬──► reviewed ──► planned ──► in_progress ──┬──► completed (terminal)
+                      │ ▲          │                                  │ ▲       │
+                      │ │          │                                  │ │       │
+                      └─┘          │                                  ▼ │       │
+                (self-transition   │                               modified ────┘
+                 allowed)          │                                  │
+                                   │                                  │
+                                   ▼                                  ▼
+[operator/admin POST]──► planned   └───────────────────────────────────────────► cancelled (terminal)
+                                         (from any non-terminal status)
 
-cancelled ◄── admin: from any status
-cancelled ◄── operator: from any status
-cancelled ◄── creator: from pending_review (own event) only
+Legend:
+  ──► = valid transition (state machine)
+  All roles: admin, operator, creator are subject to the state machine
+  RBAC restricts WHO can trigger transitions, not WHICH transitions exist
+  Creator: can only operate on own events in pending_review status
+  Admin/Operator: can operate on any event in any non-terminal status
 ```
 
 ---
@@ -237,8 +231,8 @@ Any authenticated user may patch info events to any of these statuses.
 
 | Code | Trigger |
 |------|---------|
-| `400 Bad Request` | Invalid request body, missing required fields, invalid email format, `end_date` before `start_date` |
+| `400 Bad Request` | Invalid request body, missing required fields, invalid email format, `end_date` before `start_date`, invalid state transition (state machine violation), setting same status again |
 | `401 Unauthorized` | Missing or invalid JWT token |
 | `403 Forbidden` | Insufficient role, or creator attempting to modify another user's event |
-| `409 Conflict` | Status transition not permitted for current role/state, or version mismatch |
+| `409 Conflict` | Status transition not permitted for current role/state (creator outside `pending_review`), or version mismatch |
 | `500 Internal Server Error` | Database or unexpected server error |

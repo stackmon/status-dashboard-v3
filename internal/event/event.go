@@ -143,3 +143,75 @@ func IsInformationStatus(status Status) bool {
 
 	return false
 }
+
+func IsValidTransition(eventType string, currentStatus Status, newStatus Status) bool {
+	switch eventType {
+	case TypeIncident:
+		return isValidIncidentTransition(currentStatus, newStatus)
+	case TypeInformation:
+		return isValidInfoTransition(currentStatus, newStatus)
+	case TypeMaintenance:
+		return isValidMaintenanceTransition(currentStatus, newStatus)
+	default:
+		return false
+	}
+}
+
+func isValidMaintenanceTransition(current Status, next Status) bool {
+	if current == next {
+		// Allow pending_review -> pending_review so creators can update the message
+		if current == MaintenancePendingReview {
+			return true
+		}
+		return false
+	}
+
+	// Allow transition from empty status (for tests and legacy data)
+	if current == "" {
+		return IsMaintenanceStatus(next)
+	}
+
+	validTransitions := map[Status]map[Status]bool{
+		MaintenancePendingReview: {
+			MaintenanceReviewed:  true,
+			MaintenanceCancelled: true,
+		},
+		MaintenanceReviewed: {
+			MaintenancePlanned:   true,
+			MaintenanceCancelled: true,
+		},
+		MaintenancePlanned: {
+			MaintenanceInProgress: true,
+			MaintenanceCancelled:  true,
+		},
+		MaintenanceInProgress: {
+			MaintenanceModified:  true,
+			MaintenanceCompleted: true,
+			MaintenanceCancelled: true,
+		},
+		MaintenanceModified: {
+			MaintenanceInProgress: true,
+			MaintenanceCompleted:  true,
+			MaintenanceCancelled:  true,
+		},
+	}
+
+	if allowed, ok := validTransitions[current]; ok {
+		return allowed[next]
+	}
+
+	return false
+}
+
+func isValidIncidentTransition(current, next Status) bool {
+	if current == next {
+		return true
+	}
+	return IsIncidentOpenStatus(next) || IsIncidentClosedStatus(next)
+}
+func isValidInfoTransition(current, next Status) bool {
+	if current == next {
+		return true
+	}
+	return IsInformationStatus(next)
+}

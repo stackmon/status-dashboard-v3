@@ -68,8 +68,8 @@ func TestVersion_WrongVersionOnMaintenancePatch(t *testing.T) {
 		resp := createEventOK(t, r, maintenanceData(), adminToken)
 		eventID := resp.Result[0].IncidentID
 
-		// Use a version number far from the real one.
-		assertPatchStatus(t, r, eventID, event.MaintenancePlanned, intPtr(999), adminToken, http.StatusConflict)
+		// Admin creates maintenance → "planned". Use valid transition with wrong version.
+		assertPatchStatus(t, r, eventID, event.MaintenanceInProgress, intPtr(999), adminToken, http.StatusConflict)
 	})
 }
 
@@ -128,11 +128,11 @@ func TestVersion_ConcurrentMaintenancePatch(t *testing.T) {
 	inc := getEventOK(t, r, eventID, adminToken)
 	version := eventVersion(inc)
 
-	// First user (admin) patches — succeeds.
+	// First user (admin) approves — succeeds (pending_review → reviewed).
 	w1 := patchEvent(t, r, eventID, patchData(event.MaintenanceReviewed, intPtr(version)), adminToken)
 	assert.Equal(t, http.StatusOK, w1.Code)
 
-	// Second user (operator) patches with same version — 409 conflict.
-	w2 := patchEvent(t, r, eventID, patchData(event.MaintenanceReviewed, intPtr(version)), operatorToken)
+	// Second user (operator) attempts valid transition with same (now stale) version — 409 conflict.
+	w2 := patchEvent(t, r, eventID, patchData(event.MaintenancePlanned, intPtr(version)), operatorToken)
 	assert.Equal(t, http.StatusConflict, w2.Code)
 }
