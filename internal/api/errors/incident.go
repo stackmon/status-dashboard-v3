@@ -14,7 +14,9 @@ var ErrIncidentInvalidType = errors.New("event type is invalid, must be 'mainten
 // Errors for creating incident
 
 var ErrIncidentSystemCreationWrongType = errors.New("system incident must be of type 'incident'")
-var ErrIncidentCreationMaintenanceExists = errors.New("event creation failed, component in maintenance")
+var ErrIncidentCreationMaintenanceExists = errors.New(
+	"event creation failed, component has active or planned maintenance",
+)
 var ErrIncidentCreationLowImpact = errors.New(
 	"incident creation failed, exists the incident with higher impact for component",
 )
@@ -32,8 +34,22 @@ var ErrIncidentPatchOpenedStartDate = errors.New("can not change start date for 
 var ErrIncidentPatchOpenedEndDateMissing = errors.New("wrong end date with resolved status")
 var ErrIncidentPatchImpactStatusWrong = errors.New("wrong status for changing impact")
 var ErrIncidentPatchImpactToZeroForbidden = errors.New("can not change impact to 0")
+var ErrIncidentPatchStatusAlreadySet = errors.New("this status has already been set")
+var ErrInvalidStateTransition = errors.New("invalid status transition")
 
 var ErrMaintenanceEndDateEmpty = errors.New("maintenance end_date is empty")
 
 var ErrUpdateTextEmpty = errors.New("text field is required")
 var ErrUpdateDSNotExist = errors.New("update does not exist")
+
+// Errors for maintenance validation
+
+var ErrMaintenanceContactEmailRequired = errors.New("contact_email is required for maintenance")
+var ErrMaintenanceContactEmailInvalid = errors.New("contact_email has invalid format")
+var ErrMaintenanceEndDateBeforeStart = errors.New("end_date must be after start_date")
+var ErrMaintenanceDescriptionRequired = errors.New("description is required for maintenance")
+
+// Errors for version conflict (optimistic locking)
+
+var ErrVersionConflict = errors.New("version conflict: event has been modified by another user")
+var ErrMaintenanceStatusTransitionConflict = errors.New("status transition not allowed for current event state")

@@ -1,4 +1,3 @@
-//nolint:dupl
 package checker
 
 import (
@@ -12,6 +11,7 @@ import (
 )
 
 type MntStatusHistory struct {
+	hasReviewed   bool
 	hasPlanned    bool
 	hasInProgress bool
 	hasCompleted  bool
@@ -19,7 +19,9 @@ type MntStatusHistory struct {
 }
 
 func (st *MntStatusHistory) hasStatus(status event.Status) bool {
-	switch status { //nolint:exhaustive
+	switch status {
+	case event.MaintenanceReviewed:
+		return st.hasReviewed
 	case event.MaintenancePlanned:
 		return st.hasPlanned
 	case event.MaintenanceInProgress:
@@ -28,12 +30,15 @@ func (st *MntStatusHistory) hasStatus(status event.Status) bool {
 		return st.hasCompleted
 	case event.MaintenanceCancelled:
 		return st.hasCancelled
+	default:
+		return false
 	}
-	return false
 }
 
 func (st *MntStatusHistory) setStatus(status event.Status) {
-	switch status { //nolint:exhaustive
+	switch status {
+	case event.MaintenanceReviewed:
+		st.hasReviewed = true
 	case event.MaintenancePlanned:
 		st.hasPlanned = true
 	case event.MaintenanceInProgress:
@@ -42,6 +47,7 @@ func (st *MntStatusHistory) setStatus(status event.Status) {
 		st.hasCompleted = true
 	case event.MaintenanceCancelled:
 		st.hasCancelled = true
+	default:
 	}
 }
 
@@ -58,10 +64,16 @@ func (ch *Checker) CheckMaintenance() error {
 
 	var activeMaintenances []uint
 	for _, mn := range maintenances {
+		// Draft maintenances are not processed by the checker — they await
+		// manual approval (reviewed) or rejection (cancelled) via the API.
+		if mn.Status == event.MaintenancePendingReview {
+			continue
+		}
+
 		sHistory := calculateMntStatusHistory(mn)
 		actualStatus := calculateCurrentMntStatus(sHistory, mn)
 
-		switch actualStatus { //nolint:exhaustive
+		switch actualStatus {
 		case event.MaintenancePlanned:
 			ch.fixMntMissedStatuses(event.MaintenancePlanned, sHistory, mn)
 			activeMaintenances = append(activeMaintenances, mn.ID)
@@ -72,12 +84,16 @@ func (ch *Checker) CheckMaintenance() error {
 			ch.fixMntMissedStatuses(event.MaintenanceCompleted, sHistory, mn)
 		case event.MaintenanceCancelled:
 			ch.fixMntMissedStatuses(event.MaintenanceCancelled, sHistory, mn)
+		default:
 		}
 
-		mn.Status = actualStatus
-		err = ch.db.ModifyIncident(mn)
-		if err != nil {
-			return err
+		// Only update the incident if the status has actually changed
+		if mn.Status != actualStatus {
+			mn.Status = actualStatus
+			err = ch.db.ModifyIncident(mn)
+			if err != nil {
+				return err
+			}
 		}
 	}
 
@@ -94,7 +110,7 @@ func (ch *Checker) CheckMaintenance() error {
 	} else {
 		ch.lastMntID = slices.Min(activeMaintenances)
 		ch.log.Debug(
-			"set the last ID to the earliest planned or in progress maintenance",
+			"set the last ID to the earliest planned or in_progress maintenance",
 			zap.Uint("lastMntID", ch.lastMntID),
 		)
 	}
@@ -107,6 +123,9 @@ func (ch *Checker) CheckMaintenance() error {
 func calculateMntStatusHistory(mn *db.Incident) *MntStatusHistory {
 	sHistory := &MntStatusHistory{}
 	for _, st := range mn.Statuses {
+		if st.Status == event.MaintenanceReviewed {
+			sHistory.hasReviewed = true
+		}
 		if st.Status == event.MaintenancePlanned {
 			sHistory.hasPlanned = true
 		}
@@ -127,6 +146,11 @@ func calculateMntStatusHistory(mn *db.Incident) *MntStatusHistory {
 func calculateCurrentMntStatus(sHistory *MntStatusHistory, mn *db.Incident) event.Status {
 	if sHistory.hasCancelled {
 		return event.MaintenanceCancelled
+	}
+
+	// If current status is "reviewed", transition to "planned" (checker auto-approval)
+	if mn.Status == event.MaintenanceReviewed {
+		return event.MaintenancePlanned
 	}
 
 	now := time.Now().UTC()
@@ -152,7 +176,7 @@ func (ch *Checker) fixMntMissedStatuses(status event.Status, sHistory *MntStatus
 	var statusText string
 	var statusTimestamp time.Time
 
-	switch status { //nolint:exhaustive
+	switch status {
 	case event.MaintenancePlanned:
 		ch.log.Info("fixing the planned status for the maintenance", zap.Uint("mntID", mnt.ID))
 		if sHistory.hasStatus(status) {
@@ -183,8 +207,14 @@ func (ch *Checker) fixMntMissedStatuses(status event.Status, sHistory *MntStatus
 		statusTimestamp = *mnt.EndDate
 	case event.MaintenanceCancelled:
 		ch.log.Info("fixing the cancelled status for the maintenance", zap.Uint("mntID", mnt.ID))
-		ch.fixMntMissedStatuses(event.MaintenancePlanned, sHistory, mnt)
-		ch.log.Info("the maintenance is already has cancelled status", zap.Uint("mntID", mnt.ID))
+		// Only backfill planned if the event progressed past pending_review.
+		// Cancelling directly from pending_review must not fabricate a planned entry.
+		if sHistory.hasReviewed || sHistory.hasPlanned {
+			ch.fixMntMissedStatuses(event.MaintenancePlanned, sHistory, mnt)
+		}
+		ch.log.Info("maintenance cancelled — skipping further status backfill", zap.Uint("mntID", mnt.ID))
+		return
+	default:
 		return
 	}
 

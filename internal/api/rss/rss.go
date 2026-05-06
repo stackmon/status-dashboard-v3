@@ -136,7 +136,7 @@ func getIncidents(dbInstance *db.DB, log *zap.Logger, params feedParams, maxInci
 			return nil, err
 		}
 	default:
-		incidents, err = dbInstance.GetEvents(incParams)
+		incidents, err = dbInstance.GetEvents(db.PublicAccess, incParams)
 		if err != nil {
 			return nil, err
 		}

@@ -18,6 +18,7 @@ import (
 	"golang.org/x/oauth2"
 
 	apiErrors "github.com/stackmon/otc-status-dashboard/internal/api/errors"
+	"go.uber.org/zap/zapcore"
 )
 
 const (
@@ -25,7 +26,6 @@ const (
 )
 
 type Provider struct {
-	Disabled       bool
 	WebURL         string
 	kc             *Keycloak
 	conf           *oauth2.Config
@@ -102,17 +102,37 @@ func (p *Provider) refreshToken(refreshToken string) (*TokenRepr, error) {
 	return p.kc.refreshToken(refreshToken)
 }
 
+// authAudit emits a structured audit log for OAuth flow events.
+func authAudit(logger *zap.Logger, action, result, reason string) {
+	lvl := zapcore.InfoLevel
+	if result != "success" {
+		lvl = zapcore.WarnLevel
+	}
+	if ce := logger.Check(lvl, "auth_audit"); ce != nil {
+		fields := []zap.Field{
+			zap.String("event", "auth_audit"),
+			zap.String("idp_type", "keycloak"),
+			zap.String("action", action),
+			zap.String("result", result),
+		}
+		if reason != "" {
+			fields = append(fields, zap.String("reason", reason))
+		}
+		ce.Write(fields...)
+	}
+}
+
 func GetLoginPageHandler(prov *Provider, logger *zap.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		logger.Info("start to process login page request")
 		state := c.Query("state")
 		if state == "" {
+			authAudit(logger, "login", "failure", "missing_state_param")
 			apiErrors.RaiseBadRequestErr(c, apiErrors.ErrAuthMissedStateParam)
 			return
 		}
 
 		oauthURL := prov.AuthCodeURL(state)
-		logger.Info("redirect to keycloak login page")
+		authAudit(logger, "login", "success", "")
 		c.Redirect(http.StatusSeeOther, oauthURL)
 	}
 }
@@ -130,13 +150,12 @@ type TokenRepr struct {
 // GetCallbackHandler is a handler for the callback from the Keycloak, it redirects to the FE url.
 func GetCallbackHandler(prov *Provider, logger *zap.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		logger.Info("start to process authentication callback from keycloak")
 		code := c.Query("code")
 		state := c.Query("state")
 
 		stateDecode, err := base64.RawStdEncoding.DecodeString(state)
 		if err != nil {
-			logger.Error("failed to decode base64 for state", zap.Error(err), zap.String("state", state))
+			authAudit(logger, "callback", "failure", "invalid_base64_state")
 			c.SetCookie("error", apiErrors.ErrAuthValidateBase64State.Error(), 1, "/", "", false, false)
 			c.Redirect(http.StatusBadRequest, prov.WebURL)
 			return
@@ -145,27 +164,24 @@ func GetCallbackHandler(prov *Provider, logger *zap.Logger) gin.HandlerFunc {
 		statePayload := &StatePayload{}
 		err = json.Unmarshal(stateDecode, statePayload)
 		if err != nil {
-			logger.Error(
-				"failed to unmarshal state to a struct", zap.Error(err), zap.String("state_decode", string(stateDecode)),
-			)
+			authAudit(logger, "callback", "failure", "invalid_state_json")
 			c.SetCookie("error", apiErrors.ErrAuthValidateBase64State.Error(), 1, "/", "", false, false)
 			c.Redirect(http.StatusBadRequest, prov.WebURL)
 			return
 		}
 
-		logger.Info("try to exchange code for tokens")
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second*defaultTimeout)
 		defer cancel()
 		token, err := prov.Exchange(ctx, code)
 		if err != nil {
-			logger.Error("failed to exchange a code to a tokens", zap.Error(err), zap.String("code", code))
+			authAudit(logger, "callback", "failure", "token_exchange_failed")
 			c.SetCookie("error", apiErrors.ErrAuthExchangeToken.Error(), 1, "/", "", false, false)
 			c.Redirect(http.StatusBadRequest, statePayload.CallbackURL)
 			return
 		}
 
 		prov.PutToken(statePayload.CodeChallenge, TokenRepr{AccessToken: token.AccessToken, RefreshToken: token.RefreshToken})
-		logger.Info("redirect to the client callback url")
+		authAudit(logger, "callback", "success", "")
 		c.Redirect(http.StatusSeeOther, statePayload.CallbackURL)
 	}
 }
@@ -176,10 +192,10 @@ type CodeVerifierReq struct {
 
 func PostTokenHandler(prov *Provider, logger *zap.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		logger.Info("start to process token request")
 		codeVerifier := CodeVerifierReq{}
 		err := c.ShouldBindBodyWithJSON(&codeVerifier)
 		if err != nil {
+			authAudit(logger, "token_retrieve", "failure", "invalid_code_verifier")
 			apiErrors.RaiseBadRequestErr(c, apiErrors.ErrAuthWrongCodeVerifier)
 			return
 		}
@@ -188,13 +204,13 @@ func PostTokenHandler(prov *Provider, logger *zap.Logger) gin.HandlerFunc {
 		h.Write([]byte(codeVerifier.CodeVerifier))
 		codeChallenge := hex.EncodeToString(h.Sum(nil))
 
-		logger.Debug("try to get token from the storage")
 		token, ok := prov.GetToken(codeChallenge)
 		if !ok {
+			authAudit(logger, "token_retrieve", "failure", "no_data_for_code_verifier")
 			apiErrors.RaiseBadRequestErr(c, apiErrors.ErrAuthMissingDataForCodeVerifier)
 			return
 		}
-		logger.Info("return token to the client")
+		authAudit(logger, "token_retrieve", "success", "")
 		c.JSON(http.StatusOK, token)
 	}
 }
@@ -205,11 +221,10 @@ type PutLogoutReq struct {
 
 func PutLogoutHandler(prov *Provider, logger *zap.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		logger.Debug("start to process logout request")
-
 		var req PutLogoutReq
 		err := c.ShouldBindBodyWithJSON(&req)
 		if err != nil {
+			authAudit(logger, "logout", "failure", "missing_refresh_token")
 			apiErrors.RaiseBadRequestErr(c, apiErrors.ErrAuthMissingRefreshToken)
 			return
 		}
@@ -219,15 +234,17 @@ func PutLogoutHandler(prov *Provider, logger *zap.Logger) gin.HandlerFunc {
 			var keycloakErrorResponse KeycloakExternalError
 			switch {
 			case errors.As(err, &keycloakErrorResponse):
+				authAudit(logger, "logout", "failure", keycloakErrorResponse.Error())
 				apiErrors.RaiseBadRequestErr(c, keycloakErrorResponse)
 			default:
-				logger.Error("failed to revoke token", zap.Error(err))
+				authAudit(logger, "logout", "failure", "revoke_token_failed")
 				apiErrors.RaiseInternalErr(c, apiErrors.ErrAuthFailedLogout)
 			}
 
 			return
 		}
 
+		authAudit(logger, "logout", "success", "")
 		c.Status(http.StatusNoContent)
 	}
 }
@@ -238,11 +255,10 @@ type RefreshTokenReq struct {
 
 func PostRefreshHandler(prov *Provider, logger *zap.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		logger.Info("start processing refresh token request")
-
 		var req RefreshTokenReq
 		err := c.ShouldBindJSON(&req)
 		if err != nil {
+			authAudit(logger, "refresh", "failure", "missing_refresh_token")
 			apiErrors.RaiseBadRequestErr(c, apiErrors.ErrAuthMissingRefreshToken)
 			return
 		}
@@ -252,14 +268,16 @@ func PostRefreshHandler(prov *Provider, logger *zap.Logger) gin.HandlerFunc {
 			var keycloakErrorResponse KeycloakExternalError
 			switch {
 			case errors.As(err, &keycloakErrorResponse):
+				authAudit(logger, "refresh", "failure", keycloakErrorResponse.Error())
 				apiErrors.RaiseBadRequestErr(c, keycloakErrorResponse)
 			default:
-				logger.Error("failed to refresh token", zap.Error(err))
+				authAudit(logger, "refresh", "failure", "refresh_token_failed")
 				apiErrors.RaiseInternalErr(c, apiErrors.ErrAuthFailedRefreshToken)
 			}
 
 			return
 		}
+		authAudit(logger, "refresh", "success", "")
 		c.JSON(http.StatusOK, token)
 	}
 }

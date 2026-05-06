@@ -15,6 +15,11 @@ import (
 	"github.com/stackmon/otc-status-dashboard/internal/event"
 )
 
+const (
+	PublicAccess     = false
+	AuthorizedAccess = true
+)
+
 type DB struct {
 	g *gorm.DB
 }
@@ -65,7 +70,7 @@ type IncidentsParams struct {
 	Page         *int
 }
 
-func applyEventsFilters(base *gorm.DB, params *IncidentsParams) (*gorm.DB, error) {
+func applyEventsFilters(base *gorm.DB, params *IncidentsParams, isAuth bool) (*gorm.DB, error) {
 	if params.Types != nil {
 		base = base.Where("incident.type IN (?)", params.Types)
 	}
@@ -98,6 +103,8 @@ func applyEventsFilters(base *gorm.DB, params *IncidentsParams) (*gorm.DB, error
 			[]event.Status{event.IncidentResolved,
 				event.MaintenanceCompleted,
 				event.MaintenanceCancelled,
+				event.MaintenancePendingReview,
+				event.MaintenanceReviewed,
 				event.InfoCompleted,
 				event.InfoCancelled})
 	}
@@ -114,6 +121,14 @@ func applyEventsFilters(base *gorm.DB, params *IncidentsParams) (*gorm.DB, error
 	case params.EndDate != nil && params.StartDate == nil:
 		base = base.Where("incident.end_date <= ?", *params.EndDate)
 	}
+
+	if !isAuth {
+		base = base.Where(
+			"NOT (incident.type = ? AND incident.status IN (?, ?))",
+			event.TypeMaintenance, event.MaintenancePendingReview, event.MaintenanceReviewed,
+		)
+	}
+
 	return base, nil
 }
 
@@ -159,7 +174,7 @@ func (db *DB) fetchUnpaginatedEvents(filteredBase *gorm.DB, param *IncidentsPara
 }
 
 // GetEventsWithCount retrieves events based on the provided parameters, with pagination and total count.
-func (db *DB) GetEventsWithCount(params ...*IncidentsParams) ([]*Incident, int64, error) {
+func (db *DB) GetEventsWithCount(isAuth bool, params ...*IncidentsParams) ([]*Incident, int64, error) {
 	var param IncidentsParams
 	var total int64
 	var events []*Incident
@@ -170,7 +185,7 @@ func (db *DB) GetEventsWithCount(params ...*IncidentsParams) ([]*Incident, int64
 	// Base query for filtering
 	base := db.g.Model(&Incident{})
 
-	filteredBase, err := applyEventsFilters(base, &param)
+	filteredBase, err := applyEventsFilters(base, &param, isAuth)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -193,10 +208,15 @@ func (db *DB) GetEventsWithCount(params ...*IncidentsParams) ([]*Incident, int64
 }
 
 // GetEvents retrieves events based on the provided parameters.
-// This is a wrapper around GetIncidentsWithCount for backward compatibility.
-func (db *DB) GetEvents(params ...*IncidentsParams) ([]*Incident, error) {
-	events, _, err := db.GetEventsWithCount(params...)
+// This is a wrapper around GetEventsWithCount for backward compatibility.
+func (db *DB) GetEvents(isAuth bool, params ...*IncidentsParams) ([]*Incident, error) {
+	events, _, err := db.GetEventsWithCount(isAuth, params...)
 	return events, err
+}
+
+// GetEventsInternal retrieves all events for internal use (no filtering by auth).
+func (db *DB) GetEventsInternal(params ...*IncidentsParams) ([]*Incident, error) {
+	return db.GetEvents(AuthorizedAccess, params...)
 }
 
 func (db *DB) GetIncident(id int) (*Incident, error) {
@@ -234,12 +254,90 @@ func (db *DB) SaveIncident(inc *Incident) (uint, error) {
 }
 
 func (db *DB) ModifyIncident(inc *Incident) error {
-	r := db.g.Updates(inc)
-
-	if r.Error != nil {
-		return r.Error
+	if inc.Version == nil {
+		return errors.New("version is required for event modification")
 	}
 
+	expectedVersion := *inc.Version
+	newVersion := expectedVersion + 1
+	inc.Version = &newVersion
+
+	return db.g.Transaction(func(tx *gorm.DB) error {
+		query := tx.Model(&Incident{}).Where("id = ?", inc.ID)
+
+		if inc.Type == event.TypeMaintenance {
+			query = query.Where("version = ?", expectedVersion)
+		}
+
+		r := query.Omit("Statuses", "Components").Updates(inc)
+
+		if r.Error != nil {
+			return r.Error
+		}
+
+		if inc.Type == event.TypeMaintenance && r.RowsAffected == 0 {
+			return ErrVersionConflict
+		}
+
+		for i := range inc.Statuses {
+			if inc.Statuses[i].ID != 0 {
+				continue
+			}
+			if inc.Statuses[i].IncidentID == 0 {
+				inc.Statuses[i].IncidentID = inc.ID
+			}
+			if err := tx.Create(&inc.Statuses[i]).Error; err != nil {
+				return err
+			}
+		}
+
+		return nil
+	})
+}
+
+// AddComponentToIncident adds a component and a status update to an incident using optimistic locking.
+func (db *DB) AddComponentToIncident(inc *Incident, comp *Component, status IncidentStatus) error {
+	if inc.Version == nil {
+		return errors.New("version is required for incident modification")
+	}
+
+	expectedVersion := *inc.Version
+	newVersion := expectedVersion + 1
+
+	err := db.g.Transaction(func(tx *gorm.DB) error {
+		// Update version with optimistic lock
+		r := tx.Model(&Incident{}).
+			Where("id = ? AND version = ?", inc.ID, expectedVersion).
+			Updates(map[string]interface{}{
+				"version": newVersion,
+			})
+		if r.Error != nil {
+			return r.Error
+		}
+		if r.RowsAffected == 0 {
+			return ErrVersionConflict
+		}
+
+		// Add component to incident via association
+		if err := tx.Model(inc).Association("Components").Append(comp); err != nil {
+			return err
+		}
+
+		// Create status update
+		if status.IncidentID == 0 {
+			status.IncidentID = inc.ID
+		}
+		if err := tx.Create(&status).Error; err != nil {
+			return err
+		}
+
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+
+	inc.Version = &newVersion
 	return nil
 }
 
@@ -255,7 +353,10 @@ func (db *DB) ReOpenIncident(inc *Incident) error {
 	return nil
 }
 
-// GetEventsByComponentID retrieves all events associated with a specific component ID.
+// GetEventsByComponentID retrieves all public events associated with a specific component ID.
+// Maintenance events in pending_review/reviewed status are excluded (require authentication).
+// Not affected to getActiveEventsForComponent (v2.go) because IsActive filter already contains
+// exceptions for "event.TypeMaintenance, event.MaintenancePendingReview, event.MaintenanceReviewed".
 // Supports optional filtering parameters: isActive, Types, LastCount.
 func (db *DB) GetEventsByComponentID(componentID uint, params ...*IncidentsParams) ([]*Incident, error) {
 	// Get all incidents for this component
@@ -268,6 +369,8 @@ func (db *DB) GetEventsByComponentID(componentID uint, params ...*IncidentsParam
 	r := db.g.Model(&Incident{}).
 		Joins("JOIN incident_component_relation icr ON icr.incident_id = incident.id").
 		Where("icr.component_id = ?", componentID).
+		Where("NOT (incident.type = ? AND incident.status IN (?, ?))",
+			event.TypeMaintenance, event.MaintenancePendingReview, event.MaintenanceReviewed).
 		Preload("Statuses").
 		Preload("Components", func(db *gorm.DB) *gorm.DB {
 			return db.Select("ID, Name")
@@ -305,7 +408,8 @@ func (db *DB) GetEventsByComponentID(componentID uint, params ...*IncidentsParam
 }
 
 func (db *DB) GetIncidentsByComponentAttr(attr *ComponentAttr, params ...*IncidentsParams) ([]*Incident, error) {
-	// Get all incidents for components with this attribute
+	// Get all public incidents for components with this attribute.
+	// Maintenance events in pending_review/reviewed status are excluded (require authentication).
 	var incidents []*Incident
 	var param IncidentsParams
 	if params != nil && params[0] != nil {
@@ -316,6 +420,8 @@ func (db *DB) GetIncidentsByComponentAttr(attr *ComponentAttr, params ...*Incide
 		Joins("JOIN incident_component_relation icr ON icr.incident_id = incident.id").
 		Joins("JOIN component_attribute ca ON ca.component_id = icr.component_id").
 		Where("ca.name = ? AND ca.value = ?", attr.Name, attr.Value).
+		Where("NOT (incident.type = ? AND incident.status IN (?, ?))",
+			event.TypeMaintenance, event.MaintenancePendingReview, event.MaintenanceReviewed).
 		Preload("Statuses").
 		Preload("Components", func(db *gorm.DB) *gorm.DB {
 			return db.Select("ID, Name")
@@ -551,6 +657,7 @@ func (db *DB) ExtractComponentsToNewIncident(
 		EndDate:     nil,
 		Impact:      &impact,
 		Statuses:    []IncidentStatus{},
+		Status:      event.OutDatedSystem,
 		System:      false,
 		Type:        event.TypeIncident,
 		Components:  comp,

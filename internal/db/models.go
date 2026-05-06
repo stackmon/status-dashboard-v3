@@ -94,20 +94,23 @@ func (c *ComponentAttr) TableName() string {
 
 // Incident is a db table representation.
 type Incident struct {
-	ID          uint             `json:"id"`
-	Text        *string          `json:"text" gorm:"not null"`
-	Description *string          `json:"description" gorm:"type:varchar(500)"`
-	StartDate   *time.Time       `json:"start_date" gorm:"not null"`
-	EndDate     *time.Time       `json:"end_date"`
-	Impact      *int             `json:"impact" gorm:"not null"`
-	Statuses    []IncidentStatus `json:"updates" gorm:"foreignKey:IncidentID"`
-	Status      event.Status     `json:"status" gorm:"type:varchar(50)"`
-	System      bool             `json:"system" gorm:"not null"`
-	Type        string           `json:"type" gorm:"not null"`
-	Components  []Component      `json:"components" gorm:"many2many:incident_component_relation"`
-	CreatedAt   *time.Time       `json:"created_at,omitempty"`
-	ModifiedAt  *time.Time       `json:"modified_at,omitempty"`
-	DeletedAt   *time.Time       `json:"deleted_at,omitempty"`
+	ID           uint             `json:"id"`
+	Text         *string          `json:"text" gorm:"not null"`
+	Description  *string          `json:"description" gorm:"type:varchar(500)"`
+	StartDate    *time.Time       `json:"start_date" gorm:"not null"`
+	EndDate      *time.Time       `json:"end_date"`
+	Impact       *int             `json:"impact" gorm:"not null"`
+	Statuses     []IncidentStatus `json:"updates" gorm:"foreignKey:IncidentID"`
+	Status       event.Status     `json:"status" gorm:"type:varchar(50)"`
+	System       bool             `json:"system" gorm:"not null"`
+	Type         string           `json:"type" gorm:"not null"`
+	Components   []Component      `json:"components" gorm:"many2many:incident_component_relation"`
+	CreatedAt    *time.Time       `json:"created_at,omitempty"`
+	ModifiedAt   *time.Time       `json:"modified_at,omitempty"`
+	DeletedAt    *time.Time       `json:"deleted_at,omitempty"`
+	CreatedBy    *string          `json:"created_by,omitempty" gorm:"type:varchar(255)"`
+	ContactEmail *string          `json:"contact_email,omitempty" gorm:"type:varchar(255)"`
+	Version      *int             `json:"version,omitempty" gorm:"not null;default:1"`
 }
 
 func (in *Incident) TableName() string {
@@ -147,6 +150,8 @@ type IncidentStatus struct {
 	CreatedAt  *time.Time   `json:"created_at,omitempty"`
 	ModifiedAt *time.Time   `json:"modified_at,omitempty"`
 	DeletedAt  *time.Time   `json:"deleted_at,omitempty"`
+	CreatedBy  *string      `json:"created_by,omitempty" gorm:"type:varchar(255)"`
+	ModifiedBy *string      `json:"modified_by,omitempty" gorm:"type:varchar(255)"`
 }
 
 func (is *IncidentStatus) TableName() string {

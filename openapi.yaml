@@ -2,6 +2,54 @@ openapi: 3.0.3
 info:
   title: Status Dashboard API
   version: 1.0.0
+  description: |
+    Status Dashboard API for managing incidents, maintenance events, and components.
+
+    ## Authentication & Field Visibility
+
+    The API supports two simultaneous identity providers:
+    - **Keycloak (RSA)**: RS256 tokens validated against JWKS public key. Audience (`aud`) claim must match the configured client ID.
+    - **Local HMAC**: HS256/HS384/HS512 tokens validated against `SD_SECRET_KEY` (≥ 32 characters). Used for development, tests, and service-to-service calls.
+
+    At least one provider must be configured. The `alg` header in the JWT determines which provider validates the token.
+
+    Some fields are only visible to authenticated users:
+    - `creator` - User ID of the event creator
+    - `contact_email` - Contact email for maintenance events
+    - `version` - Version number for optimistic locking (maintenance events only)
+
+    Maintenance events with status `pending_review` or `reviewed` are only visible to authenticated users.
+
+    ## Optimistic Locking
+
+    The API uses optimistic locking for maintenance events to prevent concurrent update conflicts:
+    - GET requests return a `version` field for maintenance events (only for authenticated users)
+    - PATCH requests for maintenance events must include the current `version` number
+    - If the version doesn't match (event was modified by another user), a 409 Conflict is returned
+    - On successful update, the version is automatically incremented
+
+    ## Role-Based Access Control (RBAC)
+
+    The API implements RBAC with three roles (highest to lowest privilege).
+    Role names are abstract application roles mapped from IdP group names via `SD_RBAC_GROUPS_*`
+    environment variables.
+
+    | Role | Permissions |
+    |------|-------------|
+    | `admin` | Unrestricted access to all operations; will gain additional system-level privileges in future releases |
+    | `operator` | Full CRUD access to all maintenance events (event admin) — unrestricted status transitions, create events (status: `planned`), cancel from any status |
+    | `creator` | Create maintenance events (status: `pending_review`), modify/cancel own events in `pending_review` only |
+
+    Roles are resolved from the JWT `groups` claim, matched against:
+    - `SD_RBAC_GROUPS_ADMINS` (mandatory) — IdP group name that maps to the `admin` role
+    - `SD_RBAC_GROUPS_OPERATORS` (optional) — IdP group name that maps to the `operator` role
+    - `SD_RBAC_GROUPS_CREATORS` (optional) — IdP group name that maps to the `creator` role
+
+    RBAC is always active — there is no disable toggle.
+
+    ### Error Responses
+    - `401 Unauthorized` - Missing or invalid JWT token
+    - `403 Forbidden` - Insufficient role permissions or not event owner
 servers:
   - url: http://localhost:8000
 tags:
@@ -15,6 +63,8 @@ tags:
     description: Operations about components
   - name: v1
     description: Deprecated API schema for backward compatibility
+security:
+  - BearerAuth: []
 paths:
   /auth/login:
     get:
@@ -30,14 +80,14 @@ paths:
             type: string
             example: eyJjb2RlX2NoYWxsZW5nZSI6IjY0Y2MwYWIxYTg4ZWZlYWNkNjRmYTc5ZWNlMzRlZGUwNDRjZDZkMWMzMmMyYTFjMjc5MWU1YmEyMDYzYzFiZWEiLCJjYWxsYmFja191cmwiOiJodHRwOi8vbG9jYWxob3N0OjUxNzMvY2FsbGJhY2sifQ
       responses:
-        '303':
+        "303":
           description: The redirect to a keycloak auth page.
-        '400':
+        "400":
           description: The request is invalid.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/BadRequestGeneralError'
+                $ref: "#/components/schemas/BadRequestGeneralError"
   /auth/callback:
     get:
       summary: The callback URL for the keycloak auth realm. It exchanges the code from keycloak and store tokens for a user. It redirects to the frontend callback URL from the state parameter.
@@ -59,9 +109,9 @@ paths:
             type: string
             example: eyJjb2RlX2NoYWxsZW5nZSI6IjY0Y2MwYWIxYTg4ZWZlYWNkNjRmYTc5ZWNlMzRlZGUwNDRjZDZkMWMzMmMyYTFjMjc5MWU1YmEyMDYzYzFiZWEiLCJjYWxsYmFja191cmwiOiJodHRwOi8vbG9jYWxob3N0OjUxNzMvY2FsbGJhY2sifQ
       responses:
-        '303':
+        "303":
           description: The redirect to a frontend callback url.
-        '400':
+        "400":
           description: Return this code with a redirect to a frontend url.
           headers:
             Set-Cookie:
@@ -78,21 +128,21 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/TokenPostRequest'
+              $ref: "#/components/schemas/TokenPostRequest"
         required: true
       responses:
-        '200':
+        "200":
           description: Return access and refresh tokens for a user.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/TokenPostResponse'
-        '400':
+                $ref: "#/components/schemas/TokenPostResponse"
+        "400":
           description: The request is invalid.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/BadRequestGeneralError'
+                $ref: "#/components/schemas/BadRequestGeneralError"
   /auth/logout:
     put:
       summary: Logout user session.
@@ -102,17 +152,17 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/TokenPutRequest'
+              $ref: "#/components/schemas/TokenPutRequest"
         required: true
       responses:
-        '204':
+        "204":
           description: The request is successful.
-        '400':
+        "400":
           description: The request is invalid.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/BadRequestGeneralError'
+                $ref: "#/components/schemas/BadRequestGeneralError"
   /auth/refresh:
     post:
       summary: Refresh an access token using a refresh token.
@@ -122,41 +172,41 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/TokenRefreshRequest'
+              $ref: "#/components/schemas/TokenRefreshRequest"
         required: true
       responses:
-        '200':
+        "200":
           description: Return new access and refresh tokens.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/TokenPostResponse'
-        '400':
+                $ref: "#/components/schemas/TokenPostResponse"
+        "400":
           description: The request is invalid.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/BadRequestGeneralError'
+                $ref: "#/components/schemas/BadRequestGeneralError"
   /v2/components:
     get:
       summary: Get all components.
       tags:
         - components
       responses:
-        '200':
+        "200":
           description: Successful operation.
           content:
             application/json:
               schema:
                 type: array
                 items:
-                  $ref: '#/components/schemas/Component'
+                  $ref: "#/components/schemas/Component"
     post:
       summary: In development.
       tags:
         - components
       responses:
-        '200':
+        "200":
           description: API under development.
   /v2/components/{component_id}:
     get:
@@ -164,13 +214,13 @@ paths:
       tags:
         - components
       responses:
-        '200':
+        "200":
           description: Successful operation.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Component'
-        '404':
+                $ref: "#/components/schemas/Component"
+        "404":
           description: The component is not found.
           content:
             application/json:
@@ -181,24 +231,24 @@ paths:
                     type: string
                     example: component does not exist
 
-        '500':
+        "500":
           description: internal server error
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/InternalServerError'
+                $ref: "#/components/schemas/InternalServerError"
     patch:
       summary: Update target component.
       tags:
         - components
       responses:
-        '200':
+        "200":
           description: Successful operation.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Component'
-        '404':
+                $ref: "#/components/schemas/Component"
+        "404":
           description: The component is not found.
           content:
             application/json:
@@ -209,19 +259,19 @@ paths:
                     type: string
                     example: component does not exist
 
-        '500':
+        "500":
           description: internal server error
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/InternalServerError'
+                $ref: "#/components/schemas/InternalServerError"
   /v2/availability:
     get:
       summary: Get availability.
       tags:
         - availability
       responses:
-        '200':
+        "200":
           description: Successful operation.
           content:
             application/json:
@@ -231,7 +281,7 @@ paths:
                   data:
                     type: array
                     items:
-                      $ref: '#/components/schemas/ComponentAvailability'
+                      $ref: "#/components/schemas/ComponentAvailability"
   /v2/incidents:
     get:
       deprecated: true
@@ -239,21 +289,21 @@ paths:
       tags:
         - incidents
       parameters:
-        - $ref: '#/components/parameters/IncidentFilterType'
-        - $ref: '#/components/parameters/IncidentFilterActive'
-        - $ref: '#/components/parameters/IncidentFilterStatus'
-        - $ref: '#/components/parameters/IncidentFilterStartDate'
-        - $ref: '#/components/parameters/IncidentFilterEndDate'
-        - $ref: '#/components/parameters/IncidentFilterImpact'
-        - $ref: '#/components/parameters/IncidentFilterSystem'
-        - $ref: '#/components/parameters/IncidentFilterComponents'
+        - $ref: "#/components/parameters/IncidentFilterType"
+        - $ref: "#/components/parameters/IncidentFilterActive"
+        - $ref: "#/components/parameters/IncidentFilterStatus"
+        - $ref: "#/components/parameters/IncidentFilterStartDate"
+        - $ref: "#/components/parameters/IncidentFilterEndDate"
+        - $ref: "#/components/parameters/IncidentFilterImpact"
+        - $ref: "#/components/parameters/IncidentFilterSystem"
+        - $ref: "#/components/parameters/IncidentFilterComponents"
       responses:
-        '200':
+        "200":
           description: Successful operation. Returns a list of incidents matching the criteria. If none match, data is an empty array.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Incidents'
+                $ref: "#/components/schemas/Incidents"
     post:
       deprecated: true
       summary: Create an incident.
@@ -263,38 +313,38 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/IncidentPost'
+              $ref: "#/components/schemas/IncidentPost"
         required: true
       responses:
-        '200':
+        "200":
           description: Create an incident.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/IncidentPostResponse'
+                $ref: "#/components/schemas/IncidentPostResponse"
   /v2/events:
     get:
       summary: Get all events with pagination.
       tags:
         - events
       parameters:
-        - $ref: '#/components/parameters/IncidentFilterType'
-        - $ref: '#/components/parameters/IncidentFilterActive'
-        - $ref: '#/components/parameters/IncidentFilterStatus'
-        - $ref: '#/components/parameters/IncidentFilterStartDate'
-        - $ref: '#/components/parameters/IncidentFilterEndDate'
-        - $ref: '#/components/parameters/IncidentFilterImpact'
-        - $ref: '#/components/parameters/IncidentFilterSystem'
-        - $ref: '#/components/parameters/IncidentFilterComponents'
-        - $ref: '#/components/parameters/PaginationLimit'
-        - $ref: '#/components/parameters/PaginationPage'
+        - $ref: "#/components/parameters/IncidentFilterType"
+        - $ref: "#/components/parameters/IncidentFilterActive"
+        - $ref: "#/components/parameters/IncidentFilterStatus"
+        - $ref: "#/components/parameters/IncidentFilterStartDate"
+        - $ref: "#/components/parameters/IncidentFilterEndDate"
+        - $ref: "#/components/parameters/IncidentFilterImpact"
+        - $ref: "#/components/parameters/IncidentFilterSystem"
+        - $ref: "#/components/parameters/IncidentFilterComponents"
+        - $ref: "#/components/parameters/PaginationLimit"
+        - $ref: "#/components/parameters/PaginationPage"
       responses:
-        '200':
+        "200":
           description: Successful operation. Returns a list of events matching the criteria. If none match, data is an empty array.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PaginatedEvents'
+                $ref: "#/components/schemas/PaginatedEvents"
     post:
       summary: Create an event.
       tags:
@@ -303,15 +353,19 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/IncidentPost'
+              $ref: "#/components/schemas/IncidentPost"
         required: true
       responses:
-        '200':
+        "200":
           description: Create an event.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/IncidentPostResponse'
+                $ref: "#/components/schemas/IncidentPostResponse"
+        "401":
+          description: Unauthorized - missing or invalid JWT token
+        "403":
+          description: Forbidden - insufficient permissions for this operation
 
   /v2/events/{event_id}:
     get:
@@ -328,15 +382,15 @@ paths:
             type: integer
             format: int64
       responses:
-        '200':
+        "200":
           description: successful operation
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Incident'
-        '400':
+                $ref: "#/components/schemas/Incident"
+        "400":
           description: Invalid ID supplied
-        '404':
+        "404":
           description: Event not found.
     patch:
       summary: Update an event.
@@ -354,19 +408,29 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/IncidentPatch'
+              $ref: "#/components/schemas/IncidentPatch"
         required: true
       responses:
-        '200':
+        "200":
           description: successful operation
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Incident'
-        '400':
+                $ref: "#/components/schemas/Incident"
+        "400":
           description: Invalid ID supplied
-        '404':
+        "404":
           description: Event not found.
+        "401":
+          description: Unauthorized - missing or invalid JWT token
+        "403":
+          description: Forbidden - insufficient permissions or not event owner
+        "409":
+          description: Version conflict - event has been modified by another user. Fetch the latest version and retry.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BadRequestGeneralError"
   /v2/events/{event_id}/extract:
     post:
       summary: Extract components to the new event
@@ -384,18 +448,18 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/IncidentPostExtract'
+              $ref: "#/components/schemas/IncidentPostExtract"
         required: true
       responses:
-        '200':
+        "200":
           description: successful operation, return the new event id
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Incident'
-        '400':
+                $ref: "#/components/schemas/Incident"
+        "400":
           description: Invalid ID supplied
-        '404':
+        "404":
           description: Event not found.
   /v2/events/{event_id}/updates/{update_id}:
     patch:
@@ -425,17 +489,17 @@ paths:
                   type: string
                   example: "Updated status text"
       responses:
-        '200':
+        "200":
           description: Update successful.
           content:
             application/json:
               schema:
                 type: array
                 items:
-                  $ref: '#/components/schemas/EventUpdateData'
-        '400':
+                  $ref: "#/components/schemas/EventUpdateData"
+        "400":
           description: Invalid input.
-        '404':
+        "404":
           description: Not found.
 
   /v2/incidents/{incident_id}:
@@ -454,15 +518,15 @@ paths:
             type: integer
             format: int64
       responses:
-        '200':
+        "200":
           description: successful operation
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Incident'
-        '400':
+                $ref: "#/components/schemas/Incident"
+        "400":
           description: Invalid ID supplied
-        '404':
+        "404":
           description: Incident not found.
     patch:
       deprecated: true
@@ -481,19 +545,29 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/IncidentPatch'
+              $ref: "#/components/schemas/IncidentPatch"
         required: true
       responses:
-        '200':
+        "200":
           description: successful operation
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Incident'
-        '400':
+                $ref: "#/components/schemas/Incident"
+        "400":
           description: Invalid ID supplied
-        '404':
+        "404":
           description: Incident not found.
+        "401":
+          description: Unauthorized - missing or invalid JWT token
+        "403":
+          description: Forbidden - insufficient permissions or not event owner
+        "409":
+          description: Version conflict - incident has been modified by another user. Fetch the latest version and retry.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BadRequestGeneralError"
   /v2/incidents/{incident_id}/extract:
     post:
       deprecated: true
@@ -512,18 +586,18 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/IncidentPostExtract'
+              $ref: "#/components/schemas/IncidentPostExtract"
         required: true
       responses:
-        '200':
+        "200":
           description: successful operation, return the new incident id
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Incident'
-        '400':
+                $ref: "#/components/schemas/Incident"
+        "400":
           description: Invalid ID supplied
-        '404':
+        "404":
           description: Incident not found.
   /v2/incidents/{incident_id}/updates/{update_id}:
     patch:
@@ -554,17 +628,17 @@ paths:
                   type: string
                   example: "Updated status text"
       responses:
-        '200':
+        "200":
           description: Update successful.
           content:
             application/json:
               schema:
                 type: array
                 items:
-                  $ref: '#/components/schemas/EventUpdateData'
-        '400':
+                  $ref: "#/components/schemas/EventUpdateData"
+        "400":
           description: Invalid input.
-        '404':
+        "404":
           description: Not found.
   /v1/component_status:
     get:
@@ -572,14 +646,14 @@ paths:
       tags:
         - v1
       responses:
-        '200':
+        "200":
           description: Successful operation.
           content:
             application/json:
               schema:
                 type: array
                 items:
-                  $ref: '#/components/schemas/ComponentV1'
+                  $ref: "#/components/schemas/ComponentV1"
     post:
       summary: Update component status.
       tags:
@@ -588,26 +662,26 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/ComponentPostV1'
+              $ref: "#/components/schemas/ComponentPostV1"
       responses:
-        '201':
+        "201":
           description: Successful operation.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/IncidentV1'
+                $ref: "#/components/schemas/IncidentV1"
   /v1/incidents:
     get:
       summary: Get all incidents.
       tags:
         - v1
       responses:
-        '200':
+        "200":
           description: Successful operation.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/IncidentsV1'
+                $ref: "#/components/schemas/IncidentsV1"
 
 components:
   schemas:
@@ -656,7 +730,7 @@ components:
           type: string
           example: "Object Storage Service"
         attributes:
-          $ref: '#/components/schemas/ComponentAttr'
+          $ref: "#/components/schemas/ComponentAttr"
     ComponentAttr:
       type: object
       properties:
@@ -719,16 +793,16 @@ components:
         data:
           type: array
           items:
-            $ref: '#/components/schemas/Incident'
+            $ref: "#/components/schemas/Incident"
     PaginatedEvents:
       type: object
       properties:
         data:
           type: array
           items:
-            $ref: '#/components/schemas/Incident'
+            $ref: "#/components/schemas/Incident"
         pagination:
-          $ref: '#/components/schemas/Pagination'
+          $ref: "#/components/schemas/Pagination"
     Pagination:
       type: object
       description: Pagination object
@@ -774,13 +848,13 @@ components:
           example: "The service is partially unavailable or its performance has decreased."
         impact:
           type: integer
-          enum: [ 0,1,2,3 ]
+          enum: [0, 1, 2, 3]
           example: 1
         components:
           type: array
           items:
             type: string
-          example: [ 218, 254 ]
+          example: [218, 254]
         start_date:
           type: string
           format: date-time
@@ -800,7 +874,7 @@ components:
         updates:
           type: array
           items:
-            $ref: '#/components/schemas/IncidentStatus'
+            $ref: "#/components/schemas/IncidentStatus"
         status:
           type: string
           enum:
@@ -811,13 +885,29 @@ components:
             - "resolved"
             - "reopened"
             - "changed"
-            - "in progress"
+            - "in_progress"
             - "modified"
             - "completed"
             - "planned"
             - "active"
             - "cancelled"
-          example: "in progress"
+            - "pending_review"
+            - "reviewed"
+          example: "in_progress"
+        creator:
+          type: string
+          description: "User ID of the event creator. Only visible to authenticated users."
+          example: "user-123-uuid"
+        contact_email:
+          type: string
+          format: email
+          description: "Contact email for maintenance events. Only visible to authenticated users."
+          example: "maintainer@example.com"
+        version:
+          type: integer
+          format: int32
+          description: "Version number for optimistic locking. Visible only to authenticated users and only for maintenance events. Automatically incremented on each maintenance update."
+          example: 1
     IncidentPost:
       type: object
       required:
@@ -835,13 +925,13 @@ components:
           example: "Any description for maintenance incident."
         impact:
           type: integer
-          enum: [ 0,1,2,3 ]
+          enum: [0, 1, 2, 3]
           example: 1
         components:
           type: array
           items:
             type: string
-          example: [ 218, 254 ]
+          example: [218, 254]
         start_date:
           type: string
           format: date-time
@@ -857,6 +947,11 @@ components:
             - "incident"
             - "maintenance"
           example: "incident"
+        contact_email:
+          type: string
+          format: email
+          description: "Required for maintenance events. Contact email for the maintenance."
+          example: "maintainer@example.com"
     IncidentPostResponse:
       type: object
       properties:
@@ -889,7 +984,7 @@ components:
           example: "OpenStack Upgrade in regions EU-DE/EU-NL"
         impact:
           type: integer
-          enum: [ 0,1,2,3 ]
+          enum: [0, 1, 2, 3]
           example: 1
         message:
           type: string
@@ -897,16 +992,21 @@ components:
         status:
           type: string
           enum:
-            - "in progress"
+            - "in_progress"
             - "modified"
             - "completed"
-            - "analyzing"
+            - "analysing"
             - "fixing"
             - "impact changed"
             - "observing"
             - "resolved"
             - "reopened"
             - "changed"
+            - "planned"
+            - "cancelled"
+            - "pending_review"
+            - "reviewed"
+            - "active"
         update_date:
           type: string
           format: date-time
@@ -916,6 +1016,11 @@ components:
         end_date:
           type: string
           format: date-time
+        version:
+          type: integer
+          format: int32
+          description: "Current version number for optimistic locking. Required for maintenance PATCH requests; ignored for incident and info events."
+          example: 1
     IncidentPostExtract:
       type: object
       required:
@@ -925,7 +1030,7 @@ components:
           type: array
           items:
             type: string
-          example: [ 218, 254 ]
+          example: [218, 254]
     IncidentStatus:
       type: object
       allOf:
@@ -936,7 +1041,7 @@ components:
               format: int64
               nullable: true
               example: 0
-        - $ref: '#/components/schemas/IncidentStatusPost'
+        - $ref: "#/components/schemas/IncidentStatusPost"
     IncidentStatusPost:
       type: object
       properties:
@@ -952,7 +1057,7 @@ components:
     IncidentsV1:
       type: array
       items:
-        $ref: '#/components/schemas/IncidentV1'
+        $ref: "#/components/schemas/IncidentV1"
     IncidentV1:
       type: object
       required:
@@ -969,7 +1074,7 @@ components:
           example: "OpenStack Upgrade in regions EU-DE/EU-NL"
         impact:
           type: integer
-          enum: [ 0,1,2,3 ]
+          enum: [0, 1, 2, 3]
           example: 1
         start_date:
           type: string
@@ -980,7 +1085,7 @@ components:
         updates:
           type: array
           items:
-            $ref: '#/components/schemas/IncidentStatusPostV1'
+            $ref: "#/components/schemas/IncidentStatusPostV1"
     IncidentStatusPostV1:
       type: object
       properties:
@@ -1010,9 +1115,9 @@ components:
         attributes:
           type: array
           items:
-            $ref: '#/components/schemas/ComponentAttrV1'
+            $ref: "#/components/schemas/ComponentAttrV1"
         incidents:
-          $ref: '#/components/schemas/IncidentsV1'
+          $ref: "#/components/schemas/IncidentsV1"
     ComponentPostV1:
       type: object
       required:
@@ -1034,7 +1139,7 @@ components:
             - 3
           example: 1
         attributes:
-          $ref: '#/components/schemas/ComponentAttrV1'
+          $ref: "#/components/schemas/ComponentAttrV1"
     ComponentAttrV1:
       type: object
       properties:
@@ -1153,3 +1258,11 @@ components:
       schema:
         type: integer
         example: 0
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        JWT token from Keycloak (RS256) or Local HMAC (HS256/HS384/HS512).
+        Include in Authorization header as "Bearer <token>".
