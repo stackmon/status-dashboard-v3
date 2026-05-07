@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
 	"time"
 
@@ -238,4 +239,125 @@ func performRequest(t *testing.T, router http.Handler, method, path string) *htt
 	resp := httptest.NewRecorder()
 	router.ServeHTTP(resp, req)
 	return resp
+}
+
+// ----------------------------------------------------
+// Stress / load tests
+// ----------------------------------------------------
+
+func TestCacheConcurrentStress(t *testing.T) {
+	const (
+		workers  = 64
+		opsPerWk = 5000
+		maxItems = 256
+	)
+
+	c := New[string](time.Minute, maxItems)
+	defer c.Close()
+
+	var wg sync.WaitGroup
+	wg.Add(workers)
+
+	for w := 0; w < workers; w++ {
+		go func(id int) {
+			defer wg.Done()
+			for i := 0; i < opsPerWk; i++ {
+				key := fmt.Sprintf("w%d-k%d", id, i%512)
+				switch i % 5 {
+				case 0, 1, 2:
+					c.Set(key, fmt.Sprintf("val-%d", i))
+				case 3:
+					c.Get(key)
+				case 4:
+					c.Invalidate(key)
+				}
+			}
+		}(w)
+	}
+
+	wg.Wait()
+
+	c.mu.RLock()
+	itemCount := len(c.items)
+	listLen := c.order.Len()
+	c.mu.RUnlock()
+
+	assert.Equal(t, itemCount, listLen, "map size must equal list length")
+	assert.LessOrEqual(t, itemCount, maxItems, "cache must not exceed maxItems")
+}
+
+func TestCacheEvictionOrder(t *testing.T) {
+	const maxItems = 3
+
+	c := New[string](time.Minute, maxItems)
+	defer c.Close()
+
+	c.Set("a", "1")
+	c.Set("b", "2")
+	c.Set("c", "3")
+
+	// Cache is full. Next insert must evict "a" (oldest).
+	c.Set("d", "4")
+
+	_, ok := c.Get("a")
+	assert.False(t, ok, "oldest entry 'a' must be evicted")
+
+	v, ok := c.Get("d")
+	require.True(t, ok)
+	assert.Equal(t, "4", v)
+
+	// Overwrite "b" — must NOT evict anything extra.
+	c.Set("b", "updated")
+	v, ok = c.Get("b")
+	require.True(t, ok)
+	assert.Equal(t, "updated", v)
+
+	// "c" and "d" must still be present.
+	_, ok = c.Get("c")
+	assert.True(t, ok, "'c' must survive overwrite of 'b'")
+	_, ok = c.Get("d")
+	assert.True(t, ok, "'d' must survive overwrite of 'b'")
+
+	c.mu.RLock()
+	assert.Equal(t, maxItems, len(c.items))
+	assert.Equal(t, maxItems, c.order.Len())
+	c.mu.RUnlock()
+}
+
+func BenchmarkCacheSetGet(b *testing.B) {
+	c := New[string](time.Minute, 4096)
+	defer c.Close()
+
+	b.RunParallel(func(pb *testing.PB) {
+		i := 0
+		for pb.Next() {
+			key := fmt.Sprintf("key-%d", i%4096)
+			c.Set(key, "value")
+			c.Get(key)
+			i++
+		}
+	})
+}
+
+func BenchmarkGinMiddlewareCacheHit(b *testing.B) {
+	gin.SetMode(gin.TestMode)
+	cached := NewHTTPCache(time.Minute)
+	defer cached.Close()
+
+	router := gin.New()
+	router.GET("/bench", GinMiddleware(cached), func(ctx *gin.Context) {
+		ctx.String(http.StatusOK, "payload")
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/bench", nil)
+	router.ServeHTTP(httptest.NewRecorder(), req)
+
+	b.ResetTimer()
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			w := httptest.NewRecorder()
+			r := httptest.NewRequest(http.MethodGet, "/bench", nil)
+			router.ServeHTTP(w, r)
+		}
+	})
 }
