@@ -1,18 +1,21 @@
 package cache
 
 import (
+	"container/list"
 	"sync"
 	"time"
 )
 
 type entry[V any] struct {
+	key       string
 	value     V
 	expiresAt time.Time
 }
 
 type Cache[V any] struct {
 	mu       sync.RWMutex
-	items    map[string]entry[V]
+	items    map[string]*list.Element
+	order    *list.List
 	ttl      time.Duration
 	maxItems int
 	done     chan struct{}
@@ -20,7 +23,8 @@ type Cache[V any] struct {
 
 func New[V any](ttl time.Duration, maxItems int) *Cache[V] {
 	c := &Cache[V]{
-		items:    make(map[string]entry[V]),
+		items:    make(map[string]*list.Element),
+		order:    list.New(),
 		ttl:      ttl,
 		maxItems: maxItems,
 		done:     make(chan struct{}),
@@ -37,9 +41,15 @@ func (c *Cache[V]) janitor() {
 		case <-ticker.C:
 			c.mu.Lock()
 			now := time.Now()
-			for k, e := range c.items {
+			for el := c.order.Front(); el != nil; {
+				e := el.Value.(*entry[V])
 				if now.After(e.expiresAt) {
-					delete(c.items, k)
+					next := el.Next()
+					c.order.Remove(el)
+					delete(c.items, e.key)
+					el = next
+				} else {
+					break
 				}
 			}
 			c.mu.Unlock()
@@ -51,7 +61,7 @@ func (c *Cache[V]) janitor() {
 
 func (c *Cache[V]) Get(key string) (V, bool) {
 	c.mu.RLock()
-	e, ok := c.items[key]
+	el, ok := c.items[key]
 	c.mu.RUnlock()
 
 	if !ok {
@@ -59,6 +69,7 @@ func (c *Cache[V]) Get(key string) (V, bool) {
 		return zero, false
 	}
 
+	e := el.Value.(*entry[V])
 	if time.Now().After(e.expiresAt) {
 		var zero V
 		return zero, false
@@ -68,31 +79,35 @@ func (c *Cache[V]) Get(key string) (V, bool) {
 
 func (c *Cache[V]) Set(key string, value V) {
 	c.mu.Lock()
-	if c.maxItems > 0 && len(c.items) >= c.maxItems {
-		// Evict the entry closest to expiration.
-		var oldestKey string
-		var oldestTime time.Time
-		for k, e := range c.items {
-			if oldestTime.IsZero() || e.expiresAt.Before(oldestTime) {
-				oldestKey = k
-				oldestTime = e.expiresAt
-			}
+	if el, exists := c.items[key]; exists {
+		c.order.Remove(el)
+		delete(c.items, key)
+	} else if c.maxItems > 0 && len(c.items) >= c.maxItems {
+		oldest := c.order.Front()
+		if oldest != nil {
+			e := oldest.Value.(*entry[V])
+			c.order.Remove(oldest)
+			delete(c.items, e.key)
 		}
-		delete(c.items, oldestKey)
 	}
-	c.items[key] = entry[V]{value: value, expiresAt: time.Now().Add(c.ttl)}
+	e := &entry[V]{key: key, value: value, expiresAt: time.Now().Add(c.ttl)}
+	c.items[key] = c.order.PushBack(e)
 	c.mu.Unlock()
 }
 
 func (c *Cache[V]) Invalidate(key string) {
 	c.mu.Lock()
-	delete(c.items, key)
+	if el, ok := c.items[key]; ok {
+		c.order.Remove(el)
+		delete(c.items, key)
+	}
 	c.mu.Unlock()
 }
 
 func (c *Cache[V]) InvalidateAll() {
 	c.mu.Lock()
-	c.items = make(map[string]entry[V])
+	c.items = make(map[string]*list.Element)
+	c.order.Init()
 	c.mu.Unlock()
 }
 

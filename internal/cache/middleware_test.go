@@ -36,6 +36,7 @@ func TestCache(t *testing.T) {
 				c.Set("two", "2")
 				c.InvalidateAll()
 				assert.Empty(t, c.items)
+				assert.Equal(t, 0, c.order.Len())
 
 				httpCache := NewHTTPCache(time.Second)
 				defer httpCache.Close()
@@ -50,10 +51,12 @@ func TestCache(t *testing.T) {
 				defer c.Close()
 
 				c.mu.Lock()
-				c.items["expired"] = entry[string]{
+				e := &entry[string]{
+					key:       "expired",
 					value:     "stale",
 					expiresAt: time.Now().Add(-time.Second),
 				}
+				c.items["expired"] = c.order.PushBack(e)
 				c.mu.Unlock()
 
 				_, ok := c.Get("expired")
