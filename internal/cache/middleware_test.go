@@ -20,7 +20,7 @@ func TestCache(t *testing.T) {
 		{
 			name: "operations",
 			run: func(t *testing.T) {
-				c := New[string](time.Minute)
+				c := New[string](time.Minute, 100)
 				defer c.Close()
 				c.Set("key", "value")
 
@@ -46,7 +46,7 @@ func TestCache(t *testing.T) {
 		{
 			name: "get returns false on expired entry",
 			run: func(t *testing.T) {
-				c := New[string](time.Minute)
+				c := New[string](time.Minute, 100)
 				defer c.Close()
 
 				c.mu.Lock()

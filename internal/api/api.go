@@ -65,6 +65,11 @@ func New(cfg *conf.Config, log *zap.Logger, database *db.DB) (*API, error) {
 	return a, nil
 }
 
+func (a *API) Close() {
+	a.componentsCache.Close()
+	a.eventsCache.Close()
+}
+
 func (a *API) Router() *gin.Engine {
 	return a.r
 }

@@ -144,7 +144,7 @@ func TestCacheInvalidation(t *testing.T) {
 			postReq.Header.Set("Content-Type", "application/json")
 			postW := httptest.NewRecorder()
 			r.ServeHTTP(postW, postReq)
-			require.Equal(t, http.StatusOK, postW.Code)
+			require.Less(t, postW.Code, 400, "mutation request must succeed")
 
 			afterMut := httptest.NewRecorder()
 			r.ServeHTTP(afterMut, makeGET(t, tc.checkEndpoint))

@@ -60,6 +60,11 @@ func (r *responseRecorder) Write(b []byte) (int, error) {
 	return r.ResponseWriter.Write(b)
 }
 
+func (r *responseRecorder) WriteString(s string) (int, error) {
+	r.body.WriteString(s)
+	return r.ResponseWriter.WriteString(s)
+}
+
 // Invalidator returns a middleware that invalidates the given cache on mutating requests.
 func Invalidator(c *Cache[CachedResponse]) gin.HandlerFunc {
 	return func(ctx *gin.Context) {
@@ -71,7 +76,9 @@ func Invalidator(c *Cache[CachedResponse]) gin.HandlerFunc {
 	}
 }
 
+const defaultMaxHTTPCacheItems = 1000
+
 // NewHTTPCache creates a cache instance for HTTP responses with the given TTL.
 func NewHTTPCache(ttl time.Duration) *Cache[CachedResponse] {
-	return New[CachedResponse](ttl)
+	return New[CachedResponse](ttl, defaultMaxHTTPCacheItems)
 }

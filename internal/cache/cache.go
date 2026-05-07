@@ -11,17 +11,19 @@ type entry[V any] struct {
 }
 
 type Cache[V any] struct {
-	mu    sync.RWMutex
-	items map[string]entry[V]
-	ttl   time.Duration
-	done  chan struct{}
+	mu       sync.RWMutex
+	items    map[string]entry[V]
+	ttl      time.Duration
+	maxItems int
+	done     chan struct{}
 }
 
-func New[V any](ttl time.Duration) *Cache[V] {
+func New[V any](ttl time.Duration, maxItems int) *Cache[V] {
 	c := &Cache[V]{
-		items: make(map[string]entry[V]),
-		ttl:   ttl,
-		done:  make(chan struct{}),
+		items:    make(map[string]entry[V]),
+		ttl:      ttl,
+		maxItems: maxItems,
+		done:     make(chan struct{}),
 	}
 	go c.janitor()
 	return c
@@ -66,6 +68,18 @@ func (c *Cache[V]) Get(key string) (V, bool) {
 
 func (c *Cache[V]) Set(key string, value V) {
 	c.mu.Lock()
+	if c.maxItems > 0 && len(c.items) >= c.maxItems {
+		// Evict the entry closest to expiration.
+		var oldestKey string
+		var oldestTime time.Time
+		for k, e := range c.items {
+			if oldestTime.IsZero() || e.expiresAt.Before(oldestTime) {
+				oldestKey = k
+				oldestTime = e.expiresAt
+			}
+		}
+		delete(c.items, oldestKey)
+	}
 	c.items[key] = entry[V]{value: value, expiresAt: time.Now().Add(c.ttl)}
 	c.mu.Unlock()
 }
