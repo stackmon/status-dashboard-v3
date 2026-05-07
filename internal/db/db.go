@@ -15,14 +15,6 @@ import (
 	"github.com/stackmon/otc-status-dashboard/internal/event"
 )
 
-// Connection pool defaults.
-const (
-	dbMaxOpenConns    = 25
-	dbMaxIdleConns    = 10
-	dbConnMaxLifetime = 5 * time.Minute
-	dbConnMaxIdleTime = 30 * time.Second
-)
-
 type DB struct {
 	g *gorm.DB
 }
@@ -47,16 +39,6 @@ func New(c *conf.Config) (*DB, error) {
 	if err != nil {
 		return nil, err
 	}
-
-	sqlDB, err := g.DB()
-	if err != nil {
-		return nil, fmt.Errorf("getting underlying sql.DB: %w", err)
-	}
-
-	sqlDB.SetMaxOpenConns(dbMaxOpenConns)
-	sqlDB.SetMaxIdleConns(dbMaxIdleConns)
-	sqlDB.SetConnMaxLifetime(dbConnMaxLifetime)
-	sqlDB.SetConnMaxIdleTime(dbConnMaxIdleTime)
 
 	return &DB{g: g}, nil
 }
