@@ -148,12 +148,12 @@ func newDrainRecorder(w gin.ResponseWriter) *drainRecorder {
 	}
 }
 
-func (r *drainRecorder) Header() http.Header        { return r.headers }
-func (r *drainRecorder) Status() int                { return r.status }
-func (r *drainRecorder) Written() bool              { return r.written }
-func (r *drainRecorder) Size() int                  { return r.body.Len() }
-func (r *drainRecorder) WriteHeaderNow()            {} // prevent premature flush
-func (r *drainRecorder) Flush()                     {} // prevent partial writes to conn
+func (r *drainRecorder) Header() http.Header { return r.headers }
+func (r *drainRecorder) Status() int         { return r.status }
+func (r *drainRecorder) Written() bool       { return r.written }
+func (r *drainRecorder) Size() int           { return r.body.Len() }
+func (r *drainRecorder) WriteHeaderNow()     {} // prevent premature flush
+func (r *drainRecorder) Flush()              {} // prevent partial writes to conn
 
 func (r *drainRecorder) WriteHeader(code int) {
 	r.status = code
@@ -169,5 +169,3 @@ func (r *drainRecorder) WriteString(s string) (int, error) {
 	r.written = true
 	return r.body.WriteString(s)
 }
-
-

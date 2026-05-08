@@ -14,6 +14,8 @@ import (
 )
 
 func TestCache(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name string
 		run  func(t *testing.T)
@@ -79,10 +81,10 @@ func TestCache(t *testing.T) {
 				var wg sync.WaitGroup
 				wg.Add(workers)
 
-				for w := 0; w < workers; w++ {
+				for w := range workers {
 					go func(id int) {
 						defer wg.Done()
-						for i := 0; i < opsPerWk; i++ {
+						for i := range opsPerWk {
 							key := fmt.Sprintf("w%d-k%d", id, i%512)
 							switch i % 5 {
 							case 0, 1, 2:
@@ -99,12 +101,9 @@ func TestCache(t *testing.T) {
 				wg.Wait()
 
 				c.mu.RLock()
-				itemCount := len(c.items)
-				listLen := c.order.Len()
+				assert.Len(t, c.items, c.order.Len(), "map size must equal list length")
+				assert.LessOrEqual(t, len(c.items), maxItems, "cache must not exceed maxItems")
 				c.mu.RUnlock()
-
-				assert.Equal(t, itemCount, listLen, "map size must equal list length")
-				assert.LessOrEqual(t, itemCount, maxItems, "cache must not exceed maxItems")
 			},
 		},
 		{
@@ -142,7 +141,7 @@ func TestCache(t *testing.T) {
 				assert.True(t, ok, "'d' must survive overwrite of 'b'")
 
 				c.mu.RLock()
-				assert.Equal(t, maxItems, len(c.items))
+				assert.Len(t, c.items, maxItems)
 				assert.Equal(t, maxItems, c.order.Len())
 				c.mu.RUnlock()
 			},
@@ -150,7 +149,6 @@ func TestCache(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			tc.run(t)
@@ -159,6 +157,7 @@ func TestCache(t *testing.T) {
 }
 
 func TestGinMiddleware(t *testing.T) {
+	t.Parallel()
 	gin.SetMode(gin.TestMode)
 
 	tests := []struct {
@@ -226,7 +225,7 @@ func TestGinMiddleware(t *testing.T) {
 			name:   "skips caching when cache is disabled (h is nil)",
 			method: http.MethodGet,
 			path:   "/disabled",
-			setupRouter: func(r *gin.Engine, cached *HTTPCache) {
+			setupRouter: func(r *gin.Engine, _ *HTTPCache) {
 				reads := 0
 				r.GET("/disabled", GinMiddleware(nil), func(c *gin.Context) {
 					reads++
@@ -241,7 +240,6 @@ func TestGinMiddleware(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			cached := NewHTTPCache(time.Minute)
@@ -250,7 +248,7 @@ func TestGinMiddleware(t *testing.T) {
 			tc.setupRouter(router, cached)
 
 			var lastResp *httptest.ResponseRecorder
-			for i := 0; i < tc.requests; i++ {
+			for i := range tc.requests {
 				lastResp = performRequest(t, router, tc.method, tc.path)
 				expectedCacheHeader := tc.expectedCache[i]
 				assert.Equal(t, expectedCacheHeader, lastResp.Header().Get("X-Cache"))
@@ -263,6 +261,7 @@ func TestGinMiddleware(t *testing.T) {
 }
 
 func TestInvalidator(t *testing.T) {
+	t.Parallel()
 	gin.SetMode(gin.TestMode)
 
 	tests := []struct {
@@ -339,7 +338,6 @@ func TestInvalidator(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			cached := NewHTTPCache(time.Minute)

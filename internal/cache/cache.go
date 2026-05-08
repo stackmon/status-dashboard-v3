@@ -42,7 +42,7 @@ func (c *Cache[V]) janitor() {
 			c.mu.Lock()
 			now := time.Now()
 			for el := c.order.Front(); el != nil; {
-				e := el.Value.(*entry[V])
+				e, _ := el.Value.(*entry[V])
 				if now.After(e.expiresAt) {
 					next := el.Next()
 					c.order.Remove(el)
@@ -69,7 +69,7 @@ func (c *Cache[V]) Get(key string) (V, bool) {
 		return zero, false
 	}
 
-	e := el.Value.(*entry[V])
+	e, _ := el.Value.(*entry[V])
 	if time.Now().After(e.expiresAt) {
 		var zero V
 		return zero, false
@@ -85,7 +85,7 @@ func (c *Cache[V]) Set(key string, value V) {
 	} else if c.maxItems > 0 && len(c.items) >= c.maxItems {
 		oldest := c.order.Front()
 		if oldest != nil {
-			e := oldest.Value.(*entry[V])
+			e, _ := oldest.Value.(*entry[V])
 			c.order.Remove(oldest)
 			delete(c.items, e.key)
 		}

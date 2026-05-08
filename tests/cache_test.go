@@ -21,17 +21,17 @@ import (
 	"github.com/stackmon/otc-status-dashboard/internal/db"
 )
 
-func initTestsWithCache(t *testing.T) (r *gin.Engine, componentsCache, eventsCache *cache.HTTPCache) {
+func initTestsWithCache(t *testing.T) (*gin.Engine, *cache.HTTPCache, *cache.HTTPCache) {
 	t.Helper()
 
 	d, err := db.New(&conf.Config{DB: databaseURL})
 	require.NoError(t, err)
 
-	componentsCache = cache.NewHTTPCache(5 * time.Second)
-	eventsCache = cache.NewHTTPCache(5 * time.Second)
+	componentsCache := cache.NewHTTPCache(5 * time.Second)
+	eventsCache := cache.NewHTTPCache(5 * time.Second)
 
 	gin.SetMode(gin.TestMode)
-	r = gin.New()
+	r := gin.New()
 	r.NoRoute(apiErrors.Return404)
 	r.Use(api.ErrorHandle())
 

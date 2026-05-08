@@ -884,22 +884,22 @@ func TestV2GetIncidentsFilteredHandler(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			w := httptest.NewRecorder()
-			req, _ := http.NewRequest(http.MethodGet, v2IncidentsEndpoint, nil)
+			rec := httptest.NewRecorder()
+			httpReq, _ := http.NewRequest(http.MethodGet, v2IncidentsEndpoint, nil)
 
-			q := req.URL.Query()
+			q := httpReq.URL.Query()
 			for k, v := range tc.queryParams {
 				q.Add(k, v)
 			}
-			req.URL.RawQuery = q.Encode()
+			httpReq.URL.RawQuery = q.Encode()
 
-			r.ServeHTTP(w, req)
+			r.ServeHTTP(rec, httpReq)
 
-			assert.Equal(t, http.StatusOK, w.Code, "Unexpected status code for: "+tc.name)
+			assert.Equal(t, http.StatusOK, rec.Code, "Unexpected status code for: "+tc.name)
 
 			var responseData V2IncidentsListResponse
-			err := json.Unmarshal(w.Body.Bytes(), &responseData)
-			require.NoError(t, err, "Failed to unmarshal response for: "+tc.name)
+			uerr := json.Unmarshal(rec.Body.Bytes(), &responseData)
+			require.NoError(t, uerr, "Failed to unmarshal response for: "+tc.name)
 
 			actualIncidents := responseData.Data
 			assert.Len(t, actualIncidents, len(tc.expectedIDs), "Unexpected number of incidents for: "+tc.name)
