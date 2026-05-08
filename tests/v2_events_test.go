@@ -1080,8 +1080,8 @@ func TestV2PatchEventUpdateHandler(t *testing.T) {
 	t.Log("start to test PATCH /v2/events/:incidentID/updates/:updateID")
 	r, _, _ := initTests(t)
 
-	// Clean up database before test to ensure a clean state for this test case.
-	truncateIncidents(t)
+	// Reset to seed state before and after test to ensure isolation.
+	resetIncidentSeed(t)
 	t.Cleanup(func() { resetIncidentSeed(t) })
 
 	components := []int{1}

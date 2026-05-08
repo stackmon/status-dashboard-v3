@@ -1082,7 +1082,7 @@ func TestV2PostInfoWithExistingEventsHandler(t *testing.T) {
 }
 
 func TestV2GetComponentsAvailability(t *testing.T) {
-	truncateIncidents(t)
+	t.Cleanup(func() { resetIncidentSeed(t) })
 	t.Logf("start to test GET %s", v2AvailabilityEndpoint)
 	r, _, _ := initTests(t)
 
@@ -1191,7 +1191,7 @@ func TestV2PatchIncidentUpdateHandler(t *testing.T) {
 	r, _, _ := initTests(t)
 
 	// Clean up database before test to ensure a clean state for this test case.
-	truncateIncidents(t)
+	t.Cleanup(func() { resetIncidentSeed(t) })
 
 	components := []int{1}
 	impact := 1
