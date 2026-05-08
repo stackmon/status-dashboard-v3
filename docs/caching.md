@@ -108,3 +108,92 @@ Testing tool: `wrk 4.2.0`. Target: application with PostgreSQL backend.
 - Zero errors and zero timeouts under 200 concurrent connections
 - Singleflight eliminates P99 spikes on cache expiry (previously up to 1.12s → now 53ms)
 - DB connection pool (`MaxOpenConns=25`) prevents connection exhaustion
+
+## Distributed Deployment Considerations (Kubernetes)
+
+> **Current scope**: single-pod deployment. This section documents known limitations
+> and mitigation strategies for horizontal scaling.
+
+### Known Limitations
+
+| Problem | Impact | Severity |
+|---------|--------|----------|
+| **Stale data across pods** | Each pod has independent cache; POST on Pod A invalidates only Pod A's cache. Pods B, C serve stale data until local TTL expires. | Medium |
+| **Per-pod singleflight** | On TTL expiry, each of N pods sends 1 query to DB simultaneously (N total). With 20 pods → 20 concurrent heavy queries. | Medium |
+| **Memory duplication** | Same cached responses stored in every pod: total RAM = O(N × cache_size). | Low |
+
+### Risk Assessment
+
+With current TTL values and typical payload sizes:
+
+- **Max staleness window**: 60s (components), 10s (events)
+- **DB peak on expiry**: N pods × 1 query (bounded by singleflight within each pod)
+- **Memory overhead per pod**: negligible for JSON payloads (~KB each, max 1000 entries)
+
+**Conclusion**: For ≤5 pods with 10-60s TTL, the current design is acceptable.
+Issues become significant at 10+ pods or when data freshness SLA < TTL.
+
+### Mitigation Without External Dependencies
+
+| Strategy | Effect | Tradeoff |
+|----------|--------|----------|
+| **Staggered TTL (jitter)** | Add ±10% random offset to TTL → prevents synchronized cache expiry across pods | Slightly less predictable staleness |
+| **Reduce TTL** | Shorter TTL → smaller inconsistency window | Higher DB load (more frequent misses) |
+| **Ingress session affinity** | Sticky sessions → one user always hits same pod → no visible flip-flops | Uneven load distribution |
+
+### Future Architecture Options
+
+#### Option A — Redis as L2 Cache
+
+```
+Request → L1 (in-memory) → miss → L2 (Redis) → miss → DB
+                                                   ↓
+                              store in L2 + L1 ← response
+```
+
+- **Solves**: stale data, memory duplication, thundering herd (single Redis fetch)
+- **Cost**: +0.5-2ms network RTT on L1 miss; Redis HA infrastructure (Sentinel/Cluster)
+- **Invalidation**: DELETE key from Redis on mutation → all pods miss L1 on next request
+
+#### Option B — Pub/Sub Broadcast Invalidation
+
+```
+Pod A receives POST → invalidate local cache → publish event to Redis Pub/Sub
+                                                          ↓
+Pod B, Pod C subscribers → receive event → InvalidateAll()
+```
+
+- **Solves**: stale data (near-realtime, ~ms propagation)
+- **Does not solve**: thundering herd across pods, memory duplication
+- **Cost**: minimal latency impact; requires message broker (Redis Pub/Sub, NATS, RabbitMQ)
+- **Graceful degradation**: if broker is down, falls back to current TTL-based expiry
+
+#### Option C — Distributed Singleflight (Redlock)
+
+```
+TTL expires → Pod tries SET NX lock_key → success → fetch from DB → store in Redis
+                                         → failure → poll Redis until result available
+```
+
+- **Solves**: thundering herd at cluster level (exactly 1 DB query across all pods)
+- **Does not solve**: stale data between invalidation events
+- **Cost**: high complexity; Redlock requires 3+ Redis nodes; adds failure modes
+
+### Decision Matrix
+
+| Criteria | A: Redis L2 | B: Pub/Sub | C: Dist. Singleflight |
+|----------|:-----------:|:----------:|:---------------------:|
+| Data consistency | ★★★ | ★★☆ | ★☆☆ |
+| Latency impact | ★★☆ | ★★★ | ★★★ |
+| Thundering herd fix | ★★★ | ★☆☆ | ★★★ |
+| Memory efficiency | ★★★ | ★☆☆ | ★☆☆ |
+| Implementation complexity | Medium | Low | High |
+| Infra dependency | Redis HA | Pub/Sub broker | 3+ Redis nodes |
+| Failure mode | SPOF (without HA) | Graceful | SPOF |
+
+### Recommended Progression
+
+1. **Now**: Single-pod deployment — current implementation is optimal
+2. **2-5 pods**: Add TTL jitter + session affinity — zero code changes needed
+3. **5-10 pods**: Implement Option B (Pub/Sub invalidation) — low effort, high ROI
+4. **10+ pods / strict SLA**: Implement Option A (Redis L2) + Option B combined
