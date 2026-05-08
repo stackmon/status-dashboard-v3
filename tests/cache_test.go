@@ -88,6 +88,8 @@ func TestCacheGETHitOnSecondRequest(t *testing.T) {
 }
 
 func TestCacheInvalidation(t *testing.T) {
+	t.Cleanup(func() { resetIncidentSeed(t) })
+
 	tests := []struct {
 		name           string
 		primeEndpoint  string
@@ -111,7 +113,7 @@ func TestCacheInvalidation(t *testing.T) {
 			primeEndpoint:  "/v2/components",
 			mutateMethod:   http.MethodPost,
 			mutateEndpoint: "/v1/component_status",
-			mutateBody:     `{"status": "degraded", "component_id": 1}`,
+			mutateBody:     `{"name":"Distributed Cache Service","impact":1,"text":"Cache invalidation test","attributes":[{"name":"region","value":"EU-NL"}]}`,
 			checkEndpoint:  "/v2/components",
 			expectedCache:  "",
 		},

@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	apiErrors "github.com/stackmon/otc-status-dashboard/internal/api/errors"
 	v2 "github.com/stackmon/otc-status-dashboard/internal/api/v2"
 	"github.com/stackmon/otc-status-dashboard/internal/event"
 )
@@ -830,6 +831,10 @@ func TestV2GetEventsHandler(t *testing.T) {
 	if totalIncidents%10 != 0 {
 		expectedpages++
 	}
+	expectedpages20 := totalIncidents / 20
+	if totalIncidents%20 != 0 {
+		expectedpages20++
+	}
 
 	testCases := []struct {
 		name               string
@@ -857,7 +862,7 @@ func TestV2GetEventsHandler(t *testing.T) {
 			expectedStatusCode: http.StatusOK,
 			expectedTotal:      totalIncidents,
 			expectedPages:      expectedpages,
-			expectedItemsCount: 10,
+			expectedItemsCount: min(10, totalIncidents),
 			expectedLimit:      10,
 			expectedPage:       1,
 		},
@@ -867,7 +872,7 @@ func TestV2GetEventsHandler(t *testing.T) {
 			expectedStatusCode: http.StatusOK,
 			expectedTotal:      totalIncidents,
 			expectedPages:      expectedpages,
-			expectedItemsCount: 10,
+			expectedItemsCount: max(0, min(10, totalIncidents-10)),
 			expectedLimit:      10,
 			expectedPage:       2,
 		},
@@ -876,8 +881,8 @@ func TestV2GetEventsHandler(t *testing.T) {
 			queryParams:        "?limit=20&page=1",
 			expectedStatusCode: http.StatusOK,
 			expectedTotal:      totalIncidents,
-			expectedPages:      2,
-			expectedItemsCount: 20,
+			expectedPages:      expectedpages20,
+			expectedItemsCount: min(20, totalIncidents),
 			expectedLimit:      20,
 			expectedPage:       1,
 		},
@@ -1077,6 +1082,7 @@ func TestV2PatchEventUpdateHandler(t *testing.T) {
 
 	// Clean up database before test to ensure a clean state for this test case.
 	truncateIncidents(t)
+	t.Cleanup(func() { resetIncidentSeed(t) })
 
 	components := []int{1}
 	impact := 1
@@ -1131,7 +1137,7 @@ func TestV2PatchEventUpdateHandler(t *testing.T) {
 			updateIndex:    0,
 			body:           `{"text": "This should fail."}`,
 			expectedStatus: http.StatusNotFound,
-			expectedBody:   `{"errMsg":"incident not found"}`,
+			expectedBody:   fmt.Sprintf(`{"errMsg":"%s"}`, apiErrors.ErrIncidentDSNotExist),
 		},
 		{
 			name:           "Update index not found",
@@ -1139,7 +1145,7 @@ func TestV2PatchEventUpdateHandler(t *testing.T) {
 			updateIndex:    99,
 			body:           `{"text": "This should also fail."}`,
 			expectedStatus: http.StatusNotFound,
-			expectedBody:   `{"errMsg":"update not found"}`,
+			expectedBody:   fmt.Sprintf(`{"errMsg":"%s"}`, apiErrors.ErrUpdateDSNotExist),
 		},
 		{
 			name:           "Invalid update index (negative)",
