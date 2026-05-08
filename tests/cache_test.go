@@ -21,7 +21,7 @@ import (
 	"github.com/stackmon/otc-status-dashboard/internal/db"
 )
 
-func initTestsWithCache(t *testing.T) (r *gin.Engine, componentsCache, eventsCache *cache.Cache[cache.CachedResponse]) {
+func initTestsWithCache(t *testing.T) (r *gin.Engine, componentsCache, eventsCache *cache.HTTPCache) {
 	t.Helper()
 
 	d, err := db.New(&conf.Config{DB: databaseURL})

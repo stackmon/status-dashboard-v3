@@ -42,7 +42,7 @@ func TestCache(t *testing.T) {
 				httpCache := NewHTTPCache(time.Second)
 				defer httpCache.Close()
 				require.NotNil(t, httpCache)
-				assert.Equal(t, time.Second, httpCache.ttl)
+				assert.Equal(t, time.Second, httpCache.c.ttl)
 			},
 		},
 		{
@@ -165,7 +165,7 @@ func TestGinMiddleware(t *testing.T) {
 		name          string
 		method        string
 		path          string
-		setupRouter   func(r *gin.Engine, cached *Cache[CachedResponse])
+		setupRouter   func(r *gin.Engine, cached *HTTPCache)
 		requests      int
 		expectedCode  int
 		expectedBody  string
@@ -175,7 +175,7 @@ func TestGinMiddleware(t *testing.T) {
 			name:   "caches successful GET response",
 			method: http.MethodGet,
 			path:   "/cacheable",
-			setupRouter: func(r *gin.Engine, cached *Cache[CachedResponse]) {
+			setupRouter: func(r *gin.Engine, cached *HTTPCache) {
 				reads := 0
 				r.GET("/cacheable", GinMiddleware(cached), func(c *gin.Context) {
 					reads++
@@ -194,7 +194,7 @@ func TestGinMiddleware(t *testing.T) {
 			name:   "skips non-GET requests",
 			method: http.MethodPost,
 			path:   "/resource",
-			setupRouter: func(r *gin.Engine, cached *Cache[CachedResponse]) {
+			setupRouter: func(r *gin.Engine, cached *HTTPCache) {
 				posts := 0
 				r.POST("/resource", GinMiddleware(cached), func(c *gin.Context) {
 					posts++
@@ -210,7 +210,7 @@ func TestGinMiddleware(t *testing.T) {
 			name:   "does not cache non-successful responses",
 			method: http.MethodGet,
 			path:   "/error",
-			setupRouter: func(r *gin.Engine, cached *Cache[CachedResponse]) {
+			setupRouter: func(r *gin.Engine, cached *HTTPCache) {
 				reads := 0
 				r.GET("/error", GinMiddleware(cached), func(c *gin.Context) {
 					reads++
@@ -251,12 +251,12 @@ func TestInvalidator(t *testing.T) {
 
 	tests := []struct {
 		name        string
-		setupRouter func(r *gin.Engine, cached *Cache[CachedResponse])
+		setupRouter func(r *gin.Engine, cached *HTTPCache)
 		actions     func(t *testing.T, router *gin.Engine)
 	}{
 		{
 			name: "ignores failed mutations and GET requests",
-			setupRouter: func(r *gin.Engine, cached *Cache[CachedResponse]) {
+			setupRouter: func(r *gin.Engine, cached *HTTPCache) {
 				reads := 0
 				r.GET("/resource", GinMiddleware(cached), Invalidator(cached), func(c *gin.Context) {
 					reads++
@@ -281,7 +281,7 @@ func TestInvalidator(t *testing.T) {
 		},
 		{
 			name: "invalidates on successful mutation",
-			setupRouter: func(r *gin.Engine, cached *Cache[CachedResponse]) {
+			setupRouter: func(r *gin.Engine, cached *HTTPCache) {
 				reads := 0
 				r.GET("/resource", GinMiddleware(cached), func(c *gin.Context) {
 					reads++

@@ -26,8 +26,8 @@ type API struct {
 	oa2Prov         *auth.Provider
 	secretKeyV1     string
 	authGroup       string
-	componentsCache *cache.Cache[cache.CachedResponse]
-	eventsCache     *cache.Cache[cache.CachedResponse]
+	componentsCache *cache.HTTPCache
+	eventsCache     *cache.HTTPCache
 }
 
 func New(cfg *conf.Config, log *zap.Logger, database *db.DB) (*API, error) {
