@@ -41,7 +41,10 @@ type Config struct {
 	// Web URL for the app
 	// Example: https://web.example.com
 	WebURL string `envconfig:"WEB_URL"`
-	// Disable cache logic
+	// Disable in-memory HTTP response caching.
+	// When true, GinMiddleware and Invalidator become pass-through (no-op).
+	// Useful for debugging or environments where data freshness is critical.
+	// Environment variable: CACHE_DISABLED (default: false)
 	CacheDisabled bool `envconfig:"CACHE_DISABLED"`
 	// Disable authentication for any reasons it doesn't work with hostname like "*prod*"
 	AuthenticationDisabled bool `envconfig:"AUTHENTICATION_DISABLED"`

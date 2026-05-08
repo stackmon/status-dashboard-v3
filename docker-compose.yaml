@@ -23,6 +23,12 @@ services:
     volumes:
       - keycloak:/opt/keycloak/data/
     command: start-dev
+  app:
+    container_name: app
+    build: .
+    environment:
+      - DB=postgresql://pg:pass@database:5432/status_dashboard
+      - CACHE_DISABLED=false
 
 volumes:
   db:

@@ -27,6 +27,37 @@ Request → GinMiddleware → [Cache HIT?] → yes → replay cached response
 | `Invalidator` | `internal/cache/middleware.go` | Gin handler that flushes cache on mutations |
 | `drainRecorder` | `internal/cache/middleware.go` | Captures response without sending to client |
 
+## Disabling Cache
+
+The cache can be fully disabled via the `CACHE_DISABLED` environment variable:
+
+```bash
+export CACHE_DISABLED=true
+```
+
+When disabled:
+- No `HTTPCache` instances are created (`nil`)
+- `GinMiddleware` and `Invalidator` become pass-through — every request hits the database directly
+- No background janitor goroutines are started
+- The `X-Cache` header is never set
+
+This is useful for:
+- **Debugging** — to rule out caching as a source of stale data
+- **Development** — when testing endpoint behavior without cache interference
+- **Environments with strict freshness SLA** — where even 10s staleness is unacceptable
+
+> **Note**: Disabling cache significantly increases database load under high traffic.
+> Use with caution in production.
+
+### docker-compose example
+
+```yaml
+services:
+  app:
+    environment:
+      - CACHE_DISABLED=true   # disable in-memory caching
+```
+
 ## Configuration
 
 Defined in `internal/api/api.go`:
