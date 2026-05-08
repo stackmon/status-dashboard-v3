@@ -222,6 +222,22 @@ func TestGinMiddleware(t *testing.T) {
 			expectedBody:  "error:2",
 			expectedCache: []string{"", ""},
 		},
+		{
+			name:   "skips caching when cache is disabled (h is nil)",
+			method: http.MethodGet,
+			path:   "/disabled",
+			setupRouter: func(r *gin.Engine, cached *HTTPCache) {
+				reads := 0
+				r.GET("/disabled", GinMiddleware(nil), func(c *gin.Context) {
+					reads++
+					c.String(http.StatusOK, fmt.Sprintf("payload:%d", reads))
+				})
+			},
+			requests:      2,
+			expectedCode:  http.StatusOK,
+			expectedBody:  "payload:2", // Since it's not cached, it evaluates twice
+			expectedCache: []string{"", ""},
+		},
 	}
 
 	for _, tc := range tests {
@@ -298,6 +314,26 @@ func TestInvalidator(t *testing.T) {
 				resp := performRequest(t, router, http.MethodGet, "/resource")
 				assert.Empty(t, resp.Header().Get("X-Cache"))
 				assert.Equal(t, "resource:2", resp.Body.String())
+			},
+		},
+		{
+			name: "skips invalidation when cache is disabled (h is nil)",
+			setupRouter: func(r *gin.Engine, cached *HTTPCache) {
+				reads := 0
+				r.GET("/resource", GinMiddleware(cached), func(c *gin.Context) {
+					reads++
+					c.String(http.StatusOK, fmt.Sprintf("resource:%d", reads))
+				})
+				r.POST("/resource", Invalidator(nil), func(c *gin.Context) {
+					c.Status(http.StatusCreated)
+				})
+			},
+			actions: func(t *testing.T, router *gin.Engine) {
+				performRequest(t, router, http.MethodGet, "/resource")
+				performRequest(t, router, http.MethodPost, "/resource")
+
+				resp := performRequest(t, router, http.MethodGet, "/resource")
+				assert.Equal(t, "HIT", resp.Header().Get("X-Cache"), "Cache should not be invalidated because h is nil")
 			},
 		},
 	}

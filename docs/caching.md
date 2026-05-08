@@ -197,3 +197,28 @@ TTL expires → Pod tries SET NX lock_key → success → fetch from DB → stor
 2. **2-5 pods**: Add TTL jitter + session affinity — zero code changes needed
 3. **5-10 pods**: Implement Option B (Pub/Sub invalidation) — low effort, high ROI
 4. **10+ pods / strict SLA**: Implement Option A (Redis L2) + Option B combined
+
+## RBAC Integration Guidelines
+
+When merging the `feature/rbac` branch or introducing Role-Based Access Control, strictly observe the following architectural constraints to prevent data leakage and ensure cache consistency.
+
+### 1. Middleware Chain Order (Critical)
+
+The order of execution in `routes.go` is paramount. Caching must occur **after** all authentication and authorization checks.
+
+**Correct Order:**
+`[Logger] -> [CORS] -> [Auth] -> [RBAC] -> [Cache] -> [Handler]`
+
+If `cache.GinMiddleware` is placed before RBAC checks, cached data (potentially containing restricted or administrative fields) could be served to unauthorized users, causing a severe security vulnerability.
+
+### 2. Cache Key Segmentation
+
+The current cache key uses `ctx.Request.RequestURI`. If RBAC introduces endpoints where the response payload differs based on the user's role (e.g., an Admin sees extra fields in `GET /v2/components` that a regular user does not), a global URI-based cache will lead to privilege escalation or data suppression.
+
+**Mitigation:** 
+Extend the cache key to include the user's role or context if the endpoint serves role-specific data:
+`key := fmt.Sprintf("%s:%s", userRole, ctx.Request.RequestURI)`
+
+### 3. Invalidation of New Mutating Routes
+
+The RBAC branch introduces several new mutating endpoints (e.g., specific `POST`, `PATCH`, `DELETE` operations for incidents). You must manually attach `cache.Invalidator(a.eventsCache)` or `componentsCache` to all new mutating routes during the merge process. Failure to do so will result in stale data being served after a successful mutation.
