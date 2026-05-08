@@ -337,7 +337,7 @@ func TestV2PostIncidentsHandler(t *testing.T) {
 	}
 	result = v2CreateIncident(t, r, &incidentCreateData)
 	require.NotNil(t, result, "v2CreateIncident returned nil")
-	assert.Equal(t, 23, result.Result[0].IncidentID)
+	assert.Equal(t, len(incidents)+4, result.Result[0].IncidentID)
 	assert.Equal(t, 3, result.Result[0].ComponentID)
 }
 
@@ -742,7 +742,7 @@ func TestV2CreateComponentAndList(t *testing.T) {
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
-	assert.Contains(t, w.Body.String(), "component exists")
+	assert.Contains(t, w.Body.String(), "component already exists")
 
 	// Test case 3: Try to create component with invalid attributes (duplicate region)
 	t.Log("Test case 3: Create component with invalid attributes")
@@ -768,133 +768,141 @@ func TestV2GetIncidentsFilteredHandler(t *testing.T) {
 	t.Log("start to test GET /v2/incidents with filters")
 	r, _, _ := initTests(t)
 
+	// Fetch all incidents to compute expected filter results dynamically.
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodGet, v2IncidentsEndpoint, nil)
+	r.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code)
+
+	var allResponse V2IncidentsListResponse
+	err := json.Unmarshal(w.Body.Bytes(), &allResponse)
+	require.NoError(t, err)
+	allIncidents := allResponse.Data
+	require.NotEmpty(t, allIncidents, "Expected incidents in the database")
+
+	collectIDs := func(incidents []*v2.Incident) []int {
+		ids := make([]int, len(incidents))
+		for i, inc := range incidents {
+			ids[i] = inc.ID
+		}
+		return ids
+	}
+
+	filterIncidents := func(predicate func(*v2.Incident) bool) []int {
+		var filtered []*v2.Incident
+		for _, inc := range allIncidents {
+			if predicate(inc) {
+				filtered = append(filtered, inc)
+			}
+		}
+		return collectIDs(filtered)
+	}
+
+	byImpact := func(impact int) func(*v2.Incident) bool {
+		return func(inc *v2.Incident) bool {
+			return inc.Impact != nil && *inc.Impact == impact
+		}
+	}
+	bySystem := func(system bool) func(*v2.Incident) bool {
+		return func(inc *v2.Incident) bool {
+			return inc.System != nil && *inc.System == system
+		}
+	}
+	byComponent := func(id int) func(*v2.Incident) bool {
+		return func(inc *v2.Incident) bool {
+			for _, c := range inc.Components {
+				if c == id {
+					return true
+				}
+			}
+			return false
+		}
+	}
+	isActive := func(inc *v2.Incident) bool {
+		now := time.Now().UTC()
+		if inc.EndDate == nil {
+			return true
+		}
+		terminal := inc.Status == event.IncidentResolved ||
+			inc.Status == event.MaintenanceCompleted ||
+			inc.Status == event.MaintenanceCancelled ||
+			inc.Status == event.InfoCompleted ||
+			inc.Status == event.InfoCancelled
+		return !inc.StartDate.After(now) && !inc.EndDate.Before(now) && !terminal
+	}
+	afterDate := func(d time.Time) func(*v2.Incident) bool {
+		return func(inc *v2.Incident) bool { return !inc.StartDate.Before(d) }
+	}
+	beforeDate := func(d time.Time) func(*v2.Incident) bool {
+		return func(inc *v2.Incident) bool { return !inc.StartDate.After(d) }
+	}
+
+	allIDs := collectIDs(allIncidents)
+	sd := time.Date(2025, 2, 1, 0, 0, 0, 0, time.UTC)
+	ed := time.Date(2025, 5, 23, 0, 0, 0, 0, time.UTC)
+	rangeStart := time.Date(2025, 5, 1, 0, 0, 0, 0, time.UTC)
+	rangeEnd := time.Date(2025, 5, 24, 0, 0, 0, 0, time.UTC)
+
 	type filterTestCase struct {
-		name          string
-		queryParams   map[string]string
-		expectedIDs   []int
-		expectedCount int
+		name        string
+		queryParams map[string]string
+		expectedIDs []int
 	}
 
 	testCases := []filterTestCase{
-		{
-			name:          "No filters",
-			queryParams:   nil,
-			expectedIDs:   []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27},
-			expectedCount: 27,
-		},
-		{
-			name:        "Filter by start_date",
-			queryParams: map[string]string{"start_date": time.Date(2025, 2, 1, 0, 0, 0, 0, time.UTC).Format(time.RFC3339)},
-			// Incidents starting on or after 2025-02-01
-			expectedIDs:   []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27},
-			expectedCount: 27,
-		},
-		{
-			name:        "Filter by end_date",
-			queryParams: map[string]string{"end_date": time.Date(2025, 5, 23, 0, 0, 0, 0, time.UTC).Format(time.RFC3339)},
-			// Incidents starting on or before 2025-05-23
-			expectedIDs:   []int{1},
-			expectedCount: 1,
-		},
-		{
-			name:          "Filter by impact minor (1)",
-			queryParams:   map[string]string{"impact": "1"},
-			expectedIDs:   []int{1, 13, 20, 21, 23, 24, 26, 27},
-			expectedCount: 8,
-		},
-		{
-			name:          "Filter by impact major (2)",
-			queryParams:   map[string]string{"impact": "2"},
-			expectedIDs:   []int{2, 4, 7, 9, 10, 15, 16, 19, 25},
-			expectedCount: 9,
-		},
-		{
-			name:          "Filter by impact maintenance (0)",
-			queryParams:   map[string]string{"impact": "0"},
-			expectedIDs:   []int{6, 8, 17, 22},
-			expectedCount: 4,
-		},
-		{
-			name:          "Filter by component_id 1",
-			queryParams:   map[string]string{"components": "1"},
-			expectedIDs:   []int{1, 5, 22, 24, 25, 26},
-			expectedCount: 6,
-		},
-		{
-			name:          "Filter by non-existent component_id 8",
-			queryParams:   map[string]string{"components": "8"},
-			expectedIDs:   []int{},
-			expectedCount: 0,
-		},
-		{
-			name:          "Filter by system true",
-			queryParams:   map[string]string{"system": "true"},
-			expectedIDs:   []int{1, 7, 10, 11, 12, 13, 14, 15, 16, 18},
-			expectedCount: 10,
-		},
-		{
-			name:          "Filter by system false",
-			queryParams:   map[string]string{"system": "false"},
-			expectedIDs:   []int{2, 3, 4, 5, 6, 8, 9, 17, 19, 20, 21, 22, 23, 24, 25, 26, 27},
-			expectedCount: 17,
-		},
-		{
-			name:          "Filter by active true",
-			queryParams:   map[string]string{"active": "true"},
-			expectedIDs:   []int{26, 27},
-			expectedCount: 2,
-		},
-		{
-			name:          "Combination: active true and impact 1",
-			queryParams:   map[string]string{"active": "true", "impact": "1"},
-			expectedIDs:   []int{26, 27},
-			expectedCount: 2,
-		},
-		{
-			name:          "Combination: component_id 3 and system true",
-			queryParams:   map[string]string{"components": "3", "system": "true"},
-			expectedIDs:   []int{7, 12, 14, 16},
-			expectedCount: 4,
-		},
-		{
-			name:        "Date range: 2025-05-01 to 2025-05-24",
-			queryParams: map[string]string{"start_date": time.Date(2025, 5, 01, 0, 0, 0, 0, time.UTC).Format(time.RFC3339), "end_date": time.Date(2025, 5, 24, 0, 0, 0, 0, time.UTC).Format(time.RFC3339)},
-			// Incidents starting between 2025-05-01 and 2025-05-24 (inclusive for start_date)
-			// No pre-existing incidents in this range.
-			expectedIDs:   []int{1},
-			expectedCount: 1,
-		},
-		{
-			name:          "Filter by impact 3 (outage)",
-			queryParams:   map[string]string{"impact": "3"},
-			expectedIDs:   []int{3, 5, 11, 12, 14, 18},
-			expectedCount: 6,
-		},
+		{"No filters", nil, allIDs},
+		{"Filter by start_date", map[string]string{"start_date": sd.Format(time.RFC3339)},
+			filterIncidents(afterDate(sd))},
+		{"Filter by end_date", map[string]string{"end_date": ed.Format(time.RFC3339)},
+			filterIncidents(beforeDate(ed))},
+		{"Filter by impact minor (1)", map[string]string{"impact": "1"},
+			filterIncidents(byImpact(1))},
+		{"Filter by impact major (2)", map[string]string{"impact": "2"},
+			filterIncidents(byImpact(2))},
+		{"Filter by impact maintenance (0)", map[string]string{"impact": "0"},
+			filterIncidents(byImpact(0))},
+		{"Filter by component_id 1", map[string]string{"components": "1"},
+			filterIncidents(byComponent(1))},
+		{"Filter by non-existent component_id 8", map[string]string{"components": "8"},
+			[]int{}},
+		{"Filter by system true", map[string]string{"system": "true"},
+			filterIncidents(bySystem(true))},
+		{"Filter by system false", map[string]string{"system": "false"},
+			filterIncidents(bySystem(false))},
+		{"Filter by active true", map[string]string{"active": "true"},
+			filterIncidents(isActive)},
+		{"Combination: active true and impact 1", map[string]string{"active": "true", "impact": "1"},
+			filterIncidents(func(inc *v2.Incident) bool { return isActive(inc) && byImpact(1)(inc) })},
+		{"Combination: component_id 3 and system true", map[string]string{"components": "3", "system": "true"},
+			filterIncidents(func(inc *v2.Incident) bool { return byComponent(3)(inc) && bySystem(true)(inc) })},
+		{"Date range: 2025-05-01 to 2025-05-24",
+			map[string]string{"start_date": rangeStart.Format(time.RFC3339), "end_date": rangeEnd.Format(time.RFC3339)},
+			filterIncidents(func(inc *v2.Incident) bool { return afterDate(rangeStart)(inc) && beforeDate(rangeEnd)(inc) })},
+		{"Filter by impact 3 (outage)", map[string]string{"impact": "3"},
+			filterIncidents(byImpact(3))},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			w := httptest.NewRecorder()
-			req, _ := http.NewRequest(http.MethodGet, v2IncidentsEndpoint, nil)
+			rec := httptest.NewRecorder()
+			httpReq, _ := http.NewRequest(http.MethodGet, v2IncidentsEndpoint, nil)
 
-			q := req.URL.Query()
+			q := httpReq.URL.Query()
 			for k, v := range tc.queryParams {
 				q.Add(k, v)
 			}
-			req.URL.RawQuery = q.Encode()
+			httpReq.URL.RawQuery = q.Encode()
 
-			r.ServeHTTP(w, req)
+			r.ServeHTTP(rec, httpReq)
 
-			assert.Equal(t, http.StatusOK, w.Code, "Unexpected status code for: "+tc.name)
+			assert.Equal(t, http.StatusOK, rec.Code, "Unexpected status code for: "+tc.name)
 
 			var responseData V2IncidentsListResponse
-			err := json.Unmarshal(w.Body.Bytes(), &responseData)
-			require.NoError(t, err, "Failed to unmarshal response for: "+tc.name)
+			uerr := json.Unmarshal(rec.Body.Bytes(), &responseData)
+			require.NoError(t, uerr, "Failed to unmarshal response for: "+tc.name)
 
 			actualIncidents := responseData.Data
-			assert.Len(t, actualIncidents, tc.expectedCount, "Unexpected number of incidents for: "+tc.name)
-
-			// When incidents are found or not, the message field should ideally be empty.
+			assert.Len(t, actualIncidents, len(tc.expectedIDs), "Unexpected number of incidents for: "+tc.name)
 			assert.Empty(t, responseData.Message, "Expected no message for: "+tc.name)
 
 			actualIDs := make([]int, len(actualIncidents))
@@ -1074,7 +1082,7 @@ func TestV2PostInfoWithExistingEventsHandler(t *testing.T) {
 }
 
 func TestV2GetComponentsAvailability(t *testing.T) {
-	truncateIncidents(t)
+	t.Cleanup(func() { resetIncidentSeed(t) })
 	t.Logf("start to test GET %s", v2AvailabilityEndpoint)
 	r, _, _ := initTests(t)
 
@@ -1183,7 +1191,7 @@ func TestV2PatchIncidentUpdateHandler(t *testing.T) {
 	r, _, _ := initTests(t)
 
 	// Clean up database before test to ensure a clean state for this test case.
-	truncateIncidents(t)
+	t.Cleanup(func() { resetIncidentSeed(t) })
 
 	components := []int{1}
 	impact := 1

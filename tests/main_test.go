@@ -207,18 +207,42 @@ func initRoutesV2(t *testing.T, c *gin.Engine, dbInst *db.DB, logger *zap.Logger
 	v2Api.GET("availability", v2.GetComponentsAvailabilityHandler(dbInst, logger))
 }
 
-func truncateIncidents(t *testing.T) {
+// resetIncidentSeed truncates all incident tables and re-inserts the seed data
+// from the test dump (incident ID 1 with its component relation and status).
+// Use this to restore the database to its initial state after tests that
+// modify incidents. Typically called via t.Cleanup:
+//
+//	t.Cleanup(func() { resetIncidentSeed(t) })
+func resetIncidentSeed(t *testing.T) {
 	t.Helper()
-	t.Log("cleaning up incident-related tables before test")
+	t.Log("resetting incident tables to seed state")
+
+	execSQL(t,
+		`TRUNCATE TABLE incident, incident_status, incident_component_relation RESTART IDENTITY`,
+		`INSERT INTO incident (id, text, start_date, end_date, impact, type, system, status)
+		 VALUES (1, 'Closed incident without any update', '2025-05-22 10:12:42', '2025-05-22 11:12:42', 1, 'incident', true, 'resolved')`,
+		`INSERT INTO incident_component_relation (incident_id, component_id) VALUES (1, 1)`,
+		`INSERT INTO incident_status (id, incident_id, "timestamp", text, status)
+		 VALUES (1, 1, '2025-05-22 11:12:42.559346', 'close incident', 'resolved')`,
+		`SELECT setval('incident_id_seq', 1, true)`,
+		`SELECT setval('incident_status_id_seq', 2, true)`,
+	)
+}
+
+// execSQL opens a short-lived gorm connection and executes the given queries
+// sequentially inside a single session. Fails the test on any error.
+func execSQL(t *testing.T, queries ...string) {
+	t.Helper()
 
 	gormDB, err := gorm.Open(gormpostgres.Open(databaseURL), &gorm.Config{})
-	require.NoError(t, err, "failed to open gorm connection for truncation")
+	require.NoError(t, err, "failed to open gorm connection")
+	defer func() {
+		sqlDB, dbErr := gormDB.DB()
+		require.NoError(t, dbErr, "failed to get sql.DB for closing")
+		require.NoError(t, sqlDB.Close(), "failed to close gorm connection")
+	}()
 
-	result := gormDB.Exec("TRUNCATE TABLE incident, incident_status, incident_component_relation RESTART IDENTITY")
-	require.NoError(t, result.Error, "failed to truncate incident tables")
-
-	sqlDB, err := gormDB.DB()
-	require.NoError(t, err, "failed to get sql.DB from gorm for closing")
-	err = sqlDB.Close()
-	require.NoError(t, err, "failed to close gorm connection for truncation")
+	for _, q := range queries {
+		require.NoError(t, gormDB.Exec(q).Error, "failed to execute query")
+	}
 }

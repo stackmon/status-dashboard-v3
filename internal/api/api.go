@@ -2,23 +2,32 @@ package api
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 
 	"github.com/stackmon/otc-status-dashboard/internal/api/auth"
 	"github.com/stackmon/otc-status-dashboard/internal/api/errors"
+	"github.com/stackmon/otc-status-dashboard/internal/cache"
 	"github.com/stackmon/otc-status-dashboard/internal/conf"
 	"github.com/stackmon/otc-status-dashboard/internal/db"
 )
 
+const (
+	componentsCacheTTL = 60 * time.Second
+	eventsCacheTTL     = 10 * time.Second
+)
+
 type API struct {
-	r           *gin.Engine
-	db          *db.DB
-	log         *zap.Logger
-	oa2Prov     *auth.Provider
-	secretKeyV1 string
-	authGroup   string
+	r               *gin.Engine
+	db              *db.DB
+	log             *zap.Logger
+	oa2Prov         *auth.Provider
+	secretKeyV1     string
+	authGroup       string
+	componentsCache *cache.HTTPCache
+	eventsCache     *cache.HTTPCache
 }
 
 func New(cfg *conf.Config, log *zap.Logger, database *db.DB) (*API, error) {
@@ -44,9 +53,28 @@ func New(cfg *conf.Config, log *zap.Logger, database *db.DB) (*API, error) {
 	r.Use(CORSMiddleware())
 	r.NoRoute(errors.Return404)
 
-	a := &API{r: r, db: database, log: log, oa2Prov: oa2Prov, secretKeyV1: cfg.SecretKeyV1, authGroup: cfg.AuthGroup}
+	var componentsCache, eventsCache *cache.HTTPCache
+	if !cfg.CacheDisabled {
+		componentsCache = cache.NewHTTPCache(componentsCacheTTL)
+		eventsCache = cache.NewHTTPCache(eventsCacheTTL)
+	}
+
+	a := &API{
+		r: r, db: database, log: log, oa2Prov: oa2Prov,
+		secretKeyV1: cfg.SecretKeyV1, authGroup: cfg.AuthGroup,
+		componentsCache: componentsCache, eventsCache: eventsCache,
+	}
 	a.InitRoutes()
 	return a, nil
+}
+
+func (a *API) Close() {
+	if a.componentsCache != nil {
+		a.componentsCache.Close()
+	}
+	if a.eventsCache != nil {
+		a.eventsCache.Close()
+	}
 }
 
 func (a *API) Router() *gin.Engine {
