@@ -41,6 +41,8 @@ type Config struct {
 	// Web URL for the app
 	// Example: https://web.example.com
 	WebURL string `envconfig:"WEB_URL"`
+	// Disable cache logic
+	CacheDisabled bool `envconfig:"CACHE_DISABLED"`
 	// Disable authentication for any reasons it doesn't work with hostname like "*prod*"
 	AuthenticationDisabled bool `envconfig:"AUTHENTICATION_DISABLED"`
 	// Secret key for V1 authentication (deprecated)
@@ -210,7 +212,7 @@ func (c *Config) Log(logger *zap.Logger) {
 
 	logger.Info("Storage and logging configuration",
 		zap.String("db", sanitizeDBString(c.DB)),
-		// zap.String("cache", c.Cache),
+		zap.Bool("cache_disabled", c.CacheDisabled),
 		zap.String("log_level", c.LogLevel),
 	)
 

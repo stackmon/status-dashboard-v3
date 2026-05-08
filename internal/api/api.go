@@ -53,8 +53,11 @@ func New(cfg *conf.Config, log *zap.Logger, database *db.DB) (*API, error) {
 	r.Use(CORSMiddleware())
 	r.NoRoute(errors.Return404)
 
-	componentsCache := cache.NewHTTPCache(componentsCacheTTL)
-	eventsCache := cache.NewHTTPCache(eventsCacheTTL)
+	var componentsCache, eventsCache *cache.HTTPCache
+	if !cfg.CacheDisabled {
+		componentsCache = cache.NewHTTPCache(componentsCacheTTL)
+		eventsCache = cache.NewHTTPCache(eventsCacheTTL)
+	}
 
 	a := &API{
 		r: r, db: database, log: log, oa2Prov: oa2Prov,
@@ -66,8 +69,12 @@ func New(cfg *conf.Config, log *zap.Logger, database *db.DB) (*API, error) {
 }
 
 func (a *API) Close() {
-	a.componentsCache.Close()
-	a.eventsCache.Close()
+	if a.componentsCache != nil {
+		a.componentsCache.Close()
+	}
+	if a.eventsCache != nil {
+		a.eventsCache.Close()
+	}
 }
 
 func (a *API) Router() *gin.Engine {

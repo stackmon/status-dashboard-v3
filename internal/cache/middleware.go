@@ -41,6 +41,10 @@ func (h *HTTPCache) Close() {
 // same result, eliminating thundering-herd bursts on cache expiry.
 func GinMiddleware(h *HTTPCache) gin.HandlerFunc {
 	return func(ctx *gin.Context) {
+		if h == nil {
+			ctx.Next()
+			return
+		}
 		if ctx.Request.Method != http.MethodGet {
 			ctx.Next()
 			return
@@ -99,6 +103,11 @@ func GinMiddleware(h *HTTPCache) gin.HandlerFunc {
 // Invalidator returns a middleware that invalidates the given cache on successful mutating requests.
 func Invalidator(h *HTTPCache) gin.HandlerFunc {
 	return func(ctx *gin.Context) {
+		if h == nil {
+			ctx.Next()
+			return
+		}
+
 		ctx.Next()
 
 		if ctx.Request.Method != http.MethodGet && ctx.Writer.Status() < 400 {
