@@ -98,6 +98,14 @@ type IncidentStatus struct {
 | Edit (status record) | `status IS NOT NULL` | Can modify **only `text`** |
 | Delete (status record) | `status IS NOT NULL` | **Forbidden** |
 
+### Concurrency and Data Integrity
+
+To prevent race conditions during status transitions, the `incident.status` read-modify-write cycle must be wrapped in a database transaction with a `SELECT ... FOR UPDATE` row lock on the `incident` record.
+
+### Terminal Events
+
+Free-form messages (`status IS NULL`) can be added to terminal events (e.g., `resolved`, `completed`, `cancelled`) to support post-mortems and retrospective notes without reopening the event.
+
 ### FSM (unchanged)
 
 Allowed status transitions remain the same:
@@ -129,13 +137,13 @@ POST /v2/events/:eventID/updates
 ```json
 {
   "text": "Contacted the network team, awaiting response",
-  "timestamp": "2025-05-20T12:15:00Z"
+  "timestamp": "2025-05-20T12:15:00Z" // Optional. Defaults to time.Now().UTC()
 }
 ```
 
 Response: `201 Created` with the created record.
 
-### Change Status (existing PATCH, refactored)
+### Change Status (existing PATCH)
 
 ```
 PATCH /v2/events/:eventID
@@ -149,7 +157,7 @@ PATCH /v2/events/:eventID
 }
 ```
 
-When changing status, `message` remains mandatory. The record is automatically added to the timeline with `status = "fixing"`.
+This endpoint is strictly for state transitions (and associated metadata updates). Both `status` and `message` are **mandatory**. The record is automatically added to the timeline with `status = "fixing"`.
 
 ### Edit Record (existing PATCH)
 
@@ -164,6 +172,7 @@ PATCH /v2/events/:eventID/updates/:updateID
 ```
 
 Validation:
+- `updateID` is the database primary key (`IncidentStatus.ID`), not the array index.
 - If `status IS NOT NULL` → only `text` is accepted
 - If `status IS NULL` → both `text` and `timestamp` are accepted
 
@@ -174,8 +183,9 @@ DELETE /v2/events/:eventID/updates/:updateID
 ```
 
 Validation:
+- `updateID` is the database primary key (`IncidentStatus.ID`), not the array index.
 - If `status IS NOT NULL` → `409 Conflict`: "cannot delete status transition record"
-- If `status IS NULL` → record is deleted, `200 OK`
+- If `status IS NULL` → record is deleted, `204 No Content`
 
 ---
 
@@ -243,9 +253,10 @@ Does not block the current implementation. Added as a separate migration when RB
 | File | Change |
 |------|--------|
 | `internal/db/models.go` | `Status event.Status` → `Status *event.Status` |
-| `internal/api/v2/v2.go` | PATCH handler: `status` becomes optional; new POST handler for updates; DELETE handler |
-| `internal/api/v2/validation.go` | Validation: allow PATCH without `status`; forbid deletion of status records |
+| `internal/api/v2/v2.go` | New POST handler for updates; DELETE handler; update all `IncidentStatus` instantiations to use pointer; `EventUpdateData.Status` → pointer |
+| `internal/api/v2/validation.go` | Forbid deletion of status records |
 | `internal/api/routes.go` | New routes: `POST .../updates`, `DELETE .../updates/:updateID` |
-| `internal/db/db.go` | Methods: `AddEventUpdate`, `DeleteEventUpdate` |
+| `internal/api/middleware.go` | Add `DELETE` to allowed CORS methods |
+| `internal/db/db.go` | Methods: `AddEventUpdate`, `DeleteEventUpdate`, use `SELECT FOR UPDATE` transaction for transitions |
 | `internal/event/event.go` | No changes (FSM transitions remain the same) |
 | `db/migrations/` | New migration: nullable status |
