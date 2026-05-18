@@ -323,7 +323,7 @@ Examples:
 ### Notification Policy (Admin-configured, global)
 
 Admins can define **routing rules** that match events by labels and route them
-to specific contact points. This is configured via API (Phase 2: also via UI).
+to specific contact points. This is configured via API.
 
 ```
 +------------------------------------------------------------------+
@@ -370,7 +370,7 @@ Default policy (priority=9999, catch-all):
   |  Evaluate policies (sorted by priority)  |
   |                                          |
   |  Policy 1: severity=critical             |
-  |    -> contact: "PagerDuty On-Call"       |
+  |    -> contact: "Ops Team MS Teams"       |
   |    -> group_wait: 0s (immediate)         |
   |                                          |
   |  Policy 2: region=eu-de, type=maint      |
@@ -457,7 +457,7 @@ A contact point is a named destination (decoupled from individual subscriptions)
 |                  notification_contact_point (table)              |
 +------------------------------------------------------------------+
 | id        | SERIAL PK                                            |
-| name      | VARCHAR(100) -- "EU Ops Team", "PagerDuty Critical"  |
+| name      | VARCHAR(100) -- "EU Ops Team", "Critical Teams"    |
 | channel   | VARCHAR(50)  -- "email", "teams_webhook"             |
 | config    | JSONB        -- channel-specific settings            |
 | active    | BOOL DEFAULT true                                    |
@@ -626,7 +626,7 @@ Each email contains:
 ```
 +-----------------------------------------------------------+
 | +-------------------------------------------------------+ |
-| | HEADER: Status Dashboard Logo + Event Type Badge       ||
+| | HEADER: Event Type Badge + Dashboard Name             ||
 | +-------------------------------------------------------+ |
 |                                                           |
 | +-------------------------------------------------------+ |
@@ -997,6 +997,6 @@ notification_policy
 | Extensibility | `Notifier` interface -- one implementation per channel |
 | Channels | Phase 1: Email (SMTP); Phase 2: MS Teams (webhook) |
 | Routing | Grafana-style: label matchers, grouping, timing intervals |
-| Subscriber control | `notify_on` field: transition (default), message, all |
+| Subscriber control | `notify_on` field: created, transition, resolved (default), message, all |
 | Compatibility | Forward-compatible with nullable status (status-refactoring) |
 | Dependencies | stdlib only (`net/smtp`, `html/template`, `embed`) |
