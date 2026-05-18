@@ -9,6 +9,25 @@ on the Status Dashboard.
 **Phase 1** delivers email notifications.
 **Phase 2** extends the system to MS Teams via webhook (plugin architecture).
 
+### Design Principles
+
+1. **Subscriptions = Self-Service (Phase 1)**: End-users subscribe themselves via
+   authenticated API and double opt-in email confirmation. No admin involvement
+   required for basic email alerts.
+
+2. **Policies = Admin-Managed Routing (Phase 2)**: Admins configure notification
+   policies that route events to contact points (Teams webhooks, shared mailboxes)
+   using label-based matching, timing controls, and grouping -- similar to Grafana.
+
+3. **Subscriptions and Policies are independent paths**: They co-exist. A single
+   event may trigger both self-service subscription emails AND policy-routed webhooks.
+
+4. **Security-first**: No anonymous subscription creation (auth required, anti-bot).
+   Double opt-in prevents abuse. Tokens are hashed at rest and never exposed via API.
+
+5. **Signal depth is subscriber-controlled**: Each subscription specifies which signal
+   types it receives (`created`, `transition`, `resolved`, `message`, `all`).
+
 ### Related Branches
 
 | Branch | Status | Impact on Notifications |
@@ -32,7 +51,7 @@ on the Status Dashboard.
 |  +--------------+  |                  |  |  +--------------+  |  |
 |        |           |  - Load subs     |  |  |    Email     |  |  |
 |        |           |  - Build message |  |  |   (SMTP)     |  |  |
-|        v           |  - Dispatch async|  |  +--------------+  |  |
+|        v           |  - Poll outbox   |  |  +--------------+  |  |
 |  +--------------+  |  - Log results   |  |  +--------------+  |  |
 |  |  Database    |  +------------------+  |  |  MS Teams    |  |  |
 |  |  (GORM)     |                         |  |  (webhook)   |  |  |
@@ -41,6 +60,7 @@ on the Status Dashboard.
 |        v                                                         |
 |  +------------------------------------+                          |
 |  | notification_subscription (table)  |                          |
+|  | notification_outbox (table)  <- NEW|                          |
 |  | notification_log (table)           |                          |
 |  +------------------------------------+                          |
 +------------------------------------------------------------------+
@@ -130,21 +150,30 @@ When the `status-refactoring` branch is merged, `incident_status.status` becomes
 ```
 +--------------------------------------------------------------+
 |              Notification Trigger Decision                    |
-|                                                               |
-|  POST /v2/events/:id/updates                                  |
-|  +--------------------------------------------------------+   |
+|                                                              |
+|  POST /v2/events/:id/updates                                 |
+|  +--------------------------------------------------------+  |
 |  |  request.status == nil ?                                |  |
 |  |                                                         |  |
-|  |  YES (free-form message)     NO (status transition)     |  |
-|  |   -> Do NOT trigger notif.   -> Trigger notification    |  |
-|  |   -> Save record only        -> OnIncidentUpdated(...)  |  |
-|  +--------------------------------------------------------+   |
-|                                                               |
-|  PATCH /v2/events/:id                                         |
-|  +--------------------------------------------------------+   |
+|  |  YES (free-form message)      NO (status transition)    |  |
+|  |   -> signal = "message"       -> signal = "transition"  |  |
+|  |   -> notify only "message"    -> or "resolved" if       |  |
+|  |      or "all" subscribers        terminal state         |  |
+|  +--------------------------------------------------------+  |
+|                                                              |
+|  PATCH /v2/events/:id                                        |
+|  +--------------------------------------------------------+  |
 |  |  Always a status transition                             |  |
+|  |   -> signal = "transition" or "resolved"                |  |
 |  |   -> Always trigger notification                        |  |
-|  +--------------------------------------------------------+   |
+|  +--------------------------------------------------------+  |
+|                                                              |
+|  POST /v2/events (new event)                                 |
+|  +--------------------------------------------------------+  |
+|  |  New event created                                      |  |
+|  |   -> signal = "created"                                 |  |
+|  |   -> Notify all matching subscribers                    |  |
+|  +--------------------------------------------------------+  |
 +--------------------------------------------------------------+
 ```
 
@@ -159,12 +188,12 @@ When the `status-refactoring` branch is merged, `incident_status.status` becomes
 |   component    |       |      notification_subscription          |
 +----------------+  +---->-----------------------------------------+
 | id (PK)        |<-+    | id (PK, SERIAL)                         |
-| name           |       | email (VARCHAR 255)                     |
-| ...            |       | component_id (FK -> component, NULL)    |
+| name           |       | email (VARCHAR 255, NOT NULL)           |
+| ...            |       | component_id (FK -> component, CASCADE) |
 +----------------+       | event_types (TEXT[])                    |
-                         | notify_on (TEXT[], default: transition) |
-                         | token (VARCHAR 64, UNIQUE)              |
-                         | confirmed (BOOL)                        |
+                         | notify_on (TEXT[], see defaults below)  |
+                         | token_hash (VARCHAR 64, UNIQUE)         |
+                         | confirmed (BOOL, DEFAULT false)         |
                          | active (BOOL, DEFAULT true)             |
                          | created_at (TIMESTAMPTZ)                |
                          | modified_at (TIMESTAMPTZ)               |
@@ -184,6 +213,24 @@ When the `status-refactoring` branch is merged, `incident_status.status` becomes
 | ...            |       | error_message (TEXT, NULL)              |
 +----------------+       | sent_at (TIMESTAMPTZ)                   |
                          +-----------------------------------------+
+
++-----------------------------------------+
+|      notification_outbox                |
++-----------------------------------------+
+| id (PK, SERIAL)                         |
+| event_type (VARCHAR 50)                 |
+| payload (JSONB)                         |
+| status (VARCHAR 20, default "pending")  |
+| attempts (INT, default 0)              |
+| next_attempt_at (TIMESTAMPTZ)          |
+| created_at (TIMESTAMPTZ)                |
++-----------------------------------------+
+
+Notes:
+  - notify_on DEFAULT: '{created,transition,resolved}'
+  - component_id ON DELETE CASCADE (prevents orphaned -> global promotion)
+  - token_hash: stored as SHA-256 hash, raw token sent only via email
+  - Matching requires: active = true AND confirmed = true
 ```
 
 ### Subscription Matching Logic
@@ -195,14 +242,16 @@ When the `status-refactoring` branch is merged, `incident_status.status` becomes
   +-------------------------------------+
   |  Extract:                           |
   |    - component_ids from event       |
-  |    - signal type: "transition"      |
-  |      or "message" or "created"      |
+  |    - signal type: "created"         |
+  |      or "transition" or "resolved"  |
+  |      or "message"                   |
   +-----------------+-------------------+
                     |
                     v
   +-----------------------------------------------------------------+
   |  SELECT * FROM notification_subscription                         |
   |  WHERE active = true                                             |
+  |    AND confirmed = true                                          |
   |    AND (component_id IS NULL OR component_id IN (:component_ids))|
   |    AND (event_types @> ARRAY[:event_type]                        |
   |         OR event_types IS NULL)                                  |
@@ -231,7 +280,7 @@ Events that trigger notifications:
 | Incident | Free-form message added (status=NULL)* | No | opt-in via `notify_on` |
 | Maintenance | Planned | Yes: `maintenance_planned` | always |
 | Maintenance | In progress | Yes: `maintenance_started` | always |
-| Maintenance | Completed / cancelled | Yes: `maintenance_completed` | always |
+| Maintenance | Completed / cancelled | Yes: `maintenance_completed` | always (maps to `resolved` signal) |
 | Info | Planned | Yes: `info_planned` | always |
 | Info | Active | Yes: `info_active` | always |
 | Info | Completed | Yes: `info_completed` | always |
@@ -255,17 +304,20 @@ Each subscription declares which event signals it wants to receive:
 |                                                              |
 |  Value          | Meaning                                    |
 |  ---------------+--------------------------------------------+
-|  "transition"   | Status changes only (default)              |
-|  "message"      | Free-form messages (status=NULL)           |
 |  "created"      | Event creation                             |
+|  "transition"   | Status changes (non-terminal)              |
 |  "resolved"     | Terminal states (resolved/completed/cancel) |
+|  "message"      | Free-form messages only (status=NULL)      |
 |  "all"          | Shortcut: everything                       |
 +--------------------------------------------------------------+
 
+Default: ["created", "transition", "resolved"]
+
 Examples:
-  ["transition", "resolved"]      -- typical end-user
-  ["all"]                         -- on-call engineer (full depth)
-  ["created", "resolved"]         -- management (start/end only)
+  ["created", "transition", "resolved"]  -- default (all status changes)
+  ["all"]                                -- on-call engineer (+ free-form)
+  ["created", "resolved"]                -- management (start/end only)
+  ["message"]                            -- observer (free-form only)
 ```
 
 ### Notification Policy (Admin-configured, global)
@@ -429,11 +481,14 @@ config examples:
 |  -----------------------------------                              |
 |                                                                   |
 |  POST   /v2/subscriptions              Create a new subscription  |
+|                                        (Triggers Double Opt-In)   |
 |                                                                   |
 |  PUBLIC (no auth required)                                        |
 |  -------------------------                                        |
 |                                                                   |
+|  GET    /v2/subscriptions/confirm      Confirm email (activate)   |
 |  DELETE /v2/subscriptions/unsubscribe  Self-service unsubscribe   |
+|                                        (Requires Rate Limiting)   |
 |                                                                   |
 |  ADMIN ONLY (RBAC: Admin role)                                    |
 |  -----------------------------                                    |
@@ -456,19 +511,27 @@ Content-Type: application/json
   "email": "ops-team@example.com",
   "component_id": 5,
   "event_types": ["incident", "maintenance"],
-  "notify_on": ["transition", "resolved"]
+  "notify_on": ["created", "transition", "resolved"]
 }
 ```
 
 ```http
-HTTP/1.1 201 Created
+HTTP/1.1 202 Accepted
 
 {
   "id": 42,
-  "token": "a1b2c3d4e5f6...",
-  "message": "Subscription created successfully."
+  "message": "Confirmation email sent. Please check your inbox to activate."
 }
 ```
+
+> **Double Opt-In**: The subscription is created with `confirmed=false`.
+> A confirmation email with a unique link is sent to the address.
+> Only after clicking the link (`GET /v2/subscriptions/confirm?token=...`)
+> does `confirmed` become `true` and notifications start flowing.
+>
+> **Security**: The unsubscribe token is a separate value, sent only inside
+> notification emails (in the footer). It is stored as a SHA-256 hash in DB.
+> Neither token is ever returned in API responses.
 
 #### Create Subscription (full depth, on-call engineer)
 
@@ -495,6 +558,23 @@ HTTP/1.1 200 OK
   "message": "Successfully unsubscribed."
 }
 ```
+
+#### Confirm Email (Double Opt-In)
+
+```http
+GET /v2/subscriptions/confirm?token=<confirmation_token>
+```
+
+```http
+HTTP/1.1 200 OK
+
+{
+  "message": "Email confirmed. Notifications are now active."
+}
+```
+
+> Token is valid only once. After confirmation, the confirmation token
+> is invalidated and the unsubscribe token takes over for lifecycle control.
 
 ---
 
@@ -584,39 +664,49 @@ Each email contains:
 
 ## Async Dispatch & Error Handling
 
+To prevent data loss if the server crashes after returning HTTP 2xx but before notifications are sent, the system uses the **Transactional Outbox** pattern.
+
 ```
-Handler returns HTTP 2xx
+API Handler (DB Tx)
        |
-       +---- spawns goroutine ---+
-                                  v
-                       +---------------------+
-                       |  recover() wrapper   |
-                       |  (panic-safe)        |
-                       +----------+----------+
-                                  |
-                       +----------v----------+
-                       | For each subscriber  |
-                       | +------------------+ |
-                       | |  notifier.Send   | |
-                       | +--------+---------+ |
-                       |          |           |
-                       |    +-----v-----+     |
-                       |    | success?  |     |
-                       |    +-----+-----+     |
-                       |     yes/ | \no       |
-                       |        /   \         |
-                       |  log:sent  log:failed|
-                       |            + error   |
-                       +----------------------+
-                                  |
-                       Write notification_log
+       +---> Updates Incident
+       |
+       +---> Writes to notification_outbox
+       |
+    Tx Commit -> Returns HTTP 2xx
+
+... (Async Background Poller / Worker) ...
+
+Read from notification_outbox
+       |
+       +----------+----------+
+                  |
+       +----------v----------+
+       | For each subscriber |
+       | +-----------------+ |
+       | | notifier.Send   | |
+       | +--------+--------+ |
+       |          |          |
+       |    +-----v-----+    |
+       |    | success?  |    |
+       |    +-----+-----+    |
+       |     yes/ | \no      |
+       |        /   \        |
+       |  log:sent  log:failed
+       |            + error  |
+       +----------+----------+
+                  |
+       Write notification_log
+                  |
+       Delete from outbox
 ```
 
 Key design decisions:
-- **Non-blocking**: HTTP response is returned before notifications are sent.
-- **Panic-safe**: `recover()` ensures a malformed template or SMTP error never crashes the server.
-- **Retry policy** (Phase 1): No automatic retries. Failed deliveries are logged for manual review.
-- **Retry policy** (Phase 2): Exponential backoff with dead-letter queue (DLQ).
+- **Non-blocking**: HTTP response returns immediately after the DB transaction commits.
+- **Zero Data Loss**: The notification intent is safely stored in the `notification_outbox` table.
+- **Panic-safe Worker**: The background worker recovers from panics so a bad email template won't crash the server.
+- **Retry policy** (Phase 1): No automatic retries. Failed deliveries are logged for manual review, outbox task is deleted.
+- **Retry policy** (Phase 2): Exponential backoff with dead-letter queue (DLQ). **Note:** Grouping/routing in Phase 2 will require distributed coordination (e.g., Redis or DB advisory locks) to prevent race conditions across multiple instances.
 
 ---
 
@@ -666,18 +756,35 @@ The `status-refactoring` branch introduces nullable `incident_status.status`:
 ```
 
 **Implementation strategy**: The notification service classifies each update into
-a signal type, then matches against subscriber `notify_on` preferences:
+exactly one signal type based on the status field value:
 
 ```go
-func classifySignal(update *db.IncidentStatus) string {
-    if update.Status == nil {
-        return "message"    // free-form, opt-in subscribers only
+// classifySignal determines the notification signal for an update.
+// "message" fires ONLY when Status is nil (free-form), never for transitions.
+func classifySignal(update *db.IncidentStatus, isNew bool) string {
+    if isNew {
+        return "created"
     }
-    return "transition"     // status change, default subscribers
+    if update.Status == nil {
+        return "message"    // free-form only, opt-in subscribers
+    }
+    if isTerminal(*update.Status) {
+        return "resolved"   // terminal state
+    }
+    return "transition"     // non-terminal status change
 }
 
-func shouldNotify(signal string, subscription *db.NotificationSubscription) bool {
-    for _, n := range subscription.NotifyOn {
+func isTerminal(status event.Status) bool {
+    switch status {
+    case event.IncidentResolved, event.MaintenanceCompleted,
+         event.MaintenanceCancelled, event.InfoCompleted, event.InfoCancelled:
+        return true
+    }
+    return false
+}
+
+func shouldNotify(signal string, sub *db.NotificationSubscription) bool {
+    for _, n := range sub.NotifyOn {
         if n == "all" || n == signal {
             return true
         }
@@ -686,8 +793,9 @@ func shouldNotify(signal string, subscription *db.NotificationSubscription) bool
 }
 ```
 
-This gives subscribers **full control**: by default only transitions are sent,
-but those who opt into `"message"` or `"all"` receive everything.
+This gives subscribers **full control**: by default `created + transition + resolved`
+are sent. Only those who explicitly opt into `"message"` or `"all"` receive free-form
+updates. A `"message"` subscriber does NOT receive transitions unless also subscribed.
 
 ---
 
@@ -721,34 +829,38 @@ internal/
     +-- notification.go          # DB operations for subscriptions/logs
 
 db/migrations/
-+-- 000008_notification_subscriptions.up.sql
-+-- 000008_notification_subscriptions.down.sql
++-- 000007_notification_subscriptions.up.sql
++-- 000007_notification_subscriptions.down.sql
 ```
 
 ---
 
 ## Migration Plan (Database)
 
-### Migration 000007 -- Notification Subscriptions & Contact Points
+### Migration 000007 -- Notification Subscriptions & Outbox
 
 ```sql
 -- UP
-CREATE TABLE notification_contact_point (
-    id        SERIAL PRIMARY KEY,
-    name      VARCHAR(100) NOT NULL,
-    channel   VARCHAR(50) NOT NULL DEFAULT 'email',
-    config    JSONB NOT NULL DEFAULT '{}',
-    active    BOOLEAN NOT NULL DEFAULT true,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+CREATE TABLE notification_outbox (
+    id              SERIAL PRIMARY KEY,
+    event_type      VARCHAR(50) NOT NULL,
+    payload         JSONB NOT NULL,
+    status          VARCHAR(20) NOT NULL DEFAULT 'pending',
+    attempts        INTEGER NOT NULL DEFAULT 0,
+    next_attempt_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    created_at      TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
+
+CREATE INDEX idx_outbox_pending
+    ON notification_outbox(next_attempt_at) WHERE status = 'pending';
 
 CREATE TABLE notification_subscription (
     id            SERIAL PRIMARY KEY,
     email         VARCHAR(255) NOT NULL,
-    component_id  INTEGER REFERENCES component(id) ON DELETE SET NULL,
+    component_id  INTEGER REFERENCES component(id) ON DELETE CASCADE,
     event_types   TEXT[],
-    notify_on     TEXT[] NOT NULL DEFAULT '{transition}',
-    token         VARCHAR(64) NOT NULL UNIQUE,
+    notify_on     TEXT[] NOT NULL DEFAULT '{created,transition,resolved}',
+    token_hash    VARCHAR(64) NOT NULL UNIQUE,
     confirmed     BOOLEAN NOT NULL DEFAULT false,
     active        BOOLEAN NOT NULL DEFAULT true,
     created_at    TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
@@ -756,14 +868,14 @@ CREATE TABLE notification_subscription (
 );
 
 CREATE UNIQUE INDEX idx_subscription_email_component
-    ON notification_subscription(email, COALESCE(component_id, 0));
+    ON notification_subscription(LOWER(email), COALESCE(component_id, 0));
 
 CREATE INDEX idx_subscription_active
-    ON notification_subscription(active) WHERE active = true;
+    ON notification_subscription(active) WHERE active = true AND confirmed = true;
 
 CREATE TABLE notification_log (
     id              SERIAL PRIMARY KEY,
-    subscription_id INTEGER NOT NULL REFERENCES notification_subscription(id) ON DELETE CASCADE,
+    subscription_id INTEGER REFERENCES notification_subscription(id) ON DELETE SET NULL,
     incident_id     INTEGER REFERENCES incident(id) ON DELETE SET NULL,
     channel         VARCHAR(50) NOT NULL,
     status          VARCHAR(20) NOT NULL,
@@ -782,13 +894,22 @@ CREATE INDEX idx_notification_log_sent_at
 -- DOWN (000007)
 DROP TABLE IF EXISTS notification_log;
 DROP TABLE IF EXISTS notification_subscription;
-DROP TABLE IF EXISTS notification_contact_point;
+DROP TABLE IF EXISTS notification_outbox;
 ```
 
 ### Migration 000008 -- Notification Policies & Routing (Phase 2)
 
 ```sql
 -- UP
+CREATE TABLE notification_contact_point (
+    id        SERIAL PRIMARY KEY,
+    name      VARCHAR(100) NOT NULL,
+    channel   VARCHAR(50) NOT NULL DEFAULT 'email',
+    config    JSONB NOT NULL DEFAULT '{}',
+    active    BOOLEAN NOT NULL DEFAULT true,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
 CREATE TABLE notification_mute_timing (
     id        SERIAL PRIMARY KEY,
     name      VARCHAR(100) NOT NULL,
@@ -820,6 +941,7 @@ CREATE INDEX idx_policy_priority ON notification_policy(priority);
 -- DOWN (000008)
 DROP TABLE IF EXISTS notification_policy;
 DROP TABLE IF EXISTS notification_mute_timing;
+DROP TABLE IF EXISTS notification_contact_point;
 ```
 
 ---
@@ -857,8 +979,8 @@ notification_policy
 +----------------------------------------------+
 ```
 
-> **Note**: Phase 2 adds policies + mute timings (migration 000008).
-> Contact points are part of migration 000007 from the start.
+> **Note**: Phase 2 adds contact points, policies, and mute timings
+> (migration 000008). Phase 1 only uses subscriptions + outbox (000007).
 
 ---
 
