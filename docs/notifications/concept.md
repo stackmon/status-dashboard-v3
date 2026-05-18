@@ -996,7 +996,7 @@ notification_policy
 | Admin management | RBAC Admin role (post-merge) / AuthGroup (pre-merge) |
 | Extensibility | `Notifier` interface -- one implementation per channel |
 | Channels | Phase 1: Email (SMTP); Phase 2: MS Teams (webhook) |
-| Routing | Grafana-style: label matchers, grouping, timing intervals |
+| Routing | Label matchers, grouping, timing intervals |
 | Subscriber control | `notify_on` field: created, transition, resolved (default), message, all |
 | Compatibility | Forward-compatible with nullable status (status-refactoring) |
 | Dependencies | stdlib only (`net/smtp`, `html/template`, `embed`) |
