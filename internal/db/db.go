@@ -17,6 +17,8 @@ import (
 
 // Connection pool defaults.
 const (
+	PublicAccess     = false
+	AuthorizedAccess = true
 	dbMaxOpenConns    = 25
 	dbMaxIdleConns    = 10
 	dbConnMaxLifetime = 5 * time.Minute
