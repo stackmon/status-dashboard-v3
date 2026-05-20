@@ -2,10 +2,10 @@ package errors
 
 import (
 	"errors"
-	"fmt"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"go.uber.org/zap"
 )
 
 func ReturnError(err error) error {
@@ -32,8 +32,8 @@ func RaiseConflictErr(c *gin.Context, err error) {
 }
 
 func RaiseInternalErr(c *gin.Context, err error) {
-	intErr := fmt.Errorf("%w: %w", ErrInternalError, err)
-	c.AbortWithStatusJSON(http.StatusInternalServerError, ReturnError(intErr))
+	zap.L().Error("internal server error", zap.Error(err))
+	c.AbortWithStatusJSON(http.StatusInternalServerError, ReturnError(ErrInternalError))
 }
 
 func RaiseBadRequestErr(c *gin.Context, err error) {

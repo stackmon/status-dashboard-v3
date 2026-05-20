@@ -3,7 +3,7 @@ default: test
 SHELL=/bin/bash
 
 SD_DB?="postgresql://pg:pass@localhost:5432/status_dashboard?sslmode=disable"
-GOLANGCI_LINT_VERSION?="2.11.3"
+GOLANGCI_LINT_VERSION?="2.11.4"
 
 test:
 	@echo running unit tests
