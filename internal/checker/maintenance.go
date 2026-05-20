@@ -1,6 +1,8 @@
 package checker
 
 import (
+	"errors"
+	"fmt"
 	"slices"
 	"time"
 
@@ -9,6 +11,8 @@ import (
 	"github.com/stackmon/otc-status-dashboard/internal/db"
 	"github.com/stackmon/otc-status-dashboard/internal/event"
 )
+
+const maxRetries = 3
 
 type MntStatusHistory struct {
 	hasReviewed   bool
@@ -70,30 +74,10 @@ func (ch *Checker) CheckMaintenance() error {
 			continue
 		}
 
-		sHistory := calculateMntStatusHistory(mn)
-		actualStatus := calculateCurrentMntStatus(sHistory, mn)
-
-		switch actualStatus {
-		case event.MaintenancePlanned:
-			ch.fixMntMissedStatuses(event.MaintenancePlanned, sHistory, mn)
-			activeMaintenances = append(activeMaintenances, mn.ID)
-		case event.MaintenanceInProgress:
-			ch.fixMntMissedStatuses(event.MaintenanceInProgress, sHistory, mn)
-			activeMaintenances = append(activeMaintenances, mn.ID)
-		case event.MaintenanceCompleted:
-			ch.fixMntMissedStatuses(event.MaintenanceCompleted, sHistory, mn)
-		case event.MaintenanceCancelled:
-			ch.fixMntMissedStatuses(event.MaintenanceCancelled, sHistory, mn)
-		default:
-		}
-
-		// Only update the incident if the status has actually changed
-		if mn.Status != actualStatus {
-			mn.Status = actualStatus
-			err = ch.db.ModifyIncident(mn)
-			if err != nil {
-				return err
-			}
+		if processErr := ch.processMaintenance(mn, &activeMaintenances); processErr != nil {
+			ch.log.Error("failed to process maintenance",
+				zap.Uint("mntID", mn.ID), zap.Error(processErr))
+			continue
 		}
 	}
 
@@ -118,6 +102,53 @@ func (ch *Checker) CheckMaintenance() error {
 	ch.log.Info("finished checking maintenances")
 
 	return nil
+}
+
+func (ch *Checker) processMaintenance(mn *db.Incident, activeMaintenances *[]uint) error {
+	for attempt := range maxRetries {
+		if attempt > 0 {
+			fresh, fetchErr := ch.db.GetIncident(int(mn.ID))
+			if fetchErr != nil {
+				return fetchErr
+			}
+			mn = fresh
+			ch.log.Warn("version conflict, retrying maintenance processing",
+				zap.Uint("mntID", mn.ID), zap.Int("attempt", attempt+1))
+		}
+
+		actualStatus := ch.evaluateAndFixMntStatus(mn)
+
+		if mn.Status == actualStatus {
+			trackActiveMaintenance(actualStatus, mn.ID, activeMaintenances)
+			return nil
+		}
+
+		mn.Status = actualStatus
+		if modErr := ch.db.ModifyIncident(mn); modErr != nil {
+			if errors.Is(modErr, db.ErrVersionConflict) {
+				continue
+			}
+			return modErr
+		}
+
+		trackActiveMaintenance(actualStatus, mn.ID, activeMaintenances)
+		return nil
+	}
+
+	return fmt.Errorf("max retries (%d) exceeded for maintenance %d", maxRetries, mn.ID)
+}
+
+func (ch *Checker) evaluateAndFixMntStatus(mn *db.Incident) event.Status {
+	sHistory := calculateMntStatusHistory(mn)
+	actualStatus := calculateCurrentMntStatus(sHistory, mn)
+	ch.fixMntMissedStatuses(actualStatus, sHistory, mn)
+	return actualStatus
+}
+
+func trackActiveMaintenance(status event.Status, id uint, activeMaintenances *[]uint) {
+	if status == event.MaintenancePlanned || status == event.MaintenanceInProgress {
+		*activeMaintenances = append(*activeMaintenances, id)
+	}
 }
 
 func calculateMntStatusHistory(mn *db.Incident) *MntStatusHistory {
