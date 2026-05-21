@@ -1,6 +1,8 @@
 package api
 
 import (
+	"fmt"
+
 	"github.com/stackmon/otc-status-dashboard/internal/api/auth"
 	"github.com/stackmon/otc-status-dashboard/internal/api/rss"
 	v1 "github.com/stackmon/otc-status-dashboard/internal/api/v1"
@@ -14,7 +16,13 @@ const (
 	v2Group   = "v2"
 )
 
-func (a *API) InitRoutes() {
+// InitRoutes registers all HTTP routes on the underlying gin engine.
+// openAPISpecPath is consumed once here to bind the /openapi.json handler;
+// it is not retained on the API struct because it has no per-request use.
+// Returns an error if the OpenAPI spec cannot be read or parsed — callers
+// should propagate this so a misconfigured deployment fails at boot rather
+// than serving 500s on first request.
+func (a *API) InitRoutes(openAPISpecPath string) error {
 	authAPI := a.r.Group(authGroup)
 	{
 		authAPI.GET("login", auth.GetLoginPageHandler(a.oa2Prov, a.log))
@@ -103,4 +111,12 @@ func (a *API) InitRoutes() {
 	{
 		rssFEED.GET("/", rss.HandleRSS(a.db, a.log))
 	}
+
+	openAPIHandler, err := filteredOpenAPIHandler(openAPISpecPath)
+	if err != nil {
+		return fmt.Errorf("init /openapi.json handler: %w", err)
+	}
+	a.r.GET("/openapi.json", openAPIHandler)
+	a.r.GET("/swagger/*any", swaggerUIHandler("/openapi.json"))
+	return nil
 }
