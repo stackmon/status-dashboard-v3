@@ -20,13 +20,13 @@ import (
 // (`Host`, `X-Forwarded-Proto`) to rewrite this URL would let a caller
 // poison the advertised API base URL.
 func loadOpenAPISpec(path string) (map[string]interface{}, error) {
-	data, err := os.ReadFile(path) //nolint:gosec // path comes from config, not user input
+	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("read OpenAPI spec: %w", err)
 	}
 
 	var spec map[string]interface{}
-	if err := yaml.Unmarshal(data, &spec); err != nil {
+	if err = yaml.Unmarshal(data, &spec); err != nil {
 		return nil, fmt.Errorf("parse OpenAPI spec: %w", err)
 	}
 
@@ -250,22 +250,29 @@ func stripInfoDescription(spec map[string]interface{}) {
 	}
 }
 
-// Schemas whose properties should have RBAC fields hidden from the public
-// spec. Matching by schema name + property (instead of property name alone)
-// avoids accidentally stripping fields with the same name from unrelated
-// schemas — e.g. a future `Component.version` for software version must not
-// be stripped just because `version` is also an RBAC concurrency token on
-// the RBAC schemas below.
+// rbacSchemaFields returns the schema/property pairs that should be hidden
+// from the public OpenAPI spec. Matching by schema name + property (instead
+// of property name alone) avoids accidentally stripping fields with the
+// same name from unrelated schemas — e.g. a future `Component.version` for
+// software version must not be stripped just because `version` is also an
+// RBAC concurrency token on the RBAC schemas below.
 //
 // Keep this list in sync with the RBAC branch as those schemas land. Today
 // the current openapi.yaml does not declare any of these properties, so
 // stripRBACFields is a no-op in production — it is forward-compatible
 // defense for the unmerged RBAC branch.
-var rbacSchemaFields = map[string]map[string]struct{}{
-	"Component":        {"creator": {}, "contact_email": {}, "version": {}},
-	"ComponentRequest": {"creator": {}, "contact_email": {}, "version": {}},
-	"Incident":         {"creator": {}, "contact_email": {}, "version": {}},
-	"Event":            {"creator": {}, "contact_email": {}, "version": {}},
+//
+// Returned as a function (not a package-level var) to keep the policy
+// table immutable from the perspective of other packages and to satisfy
+// the gochecknoglobals lint rule. The map is small and built once per
+// spec load (handler construction), so allocation cost is irrelevant.
+func rbacSchemaFields() map[string]map[string]struct{} {
+	return map[string]map[string]struct{}{
+		"Component":        {"creator": {}, "contact_email": {}, "version": {}},
+		"ComponentRequest": {"creator": {}, "contact_email": {}, "version": {}},
+		"Incident":         {"creator": {}, "contact_email": {}, "version": {}},
+		"Event":            {"creator": {}, "contact_email": {}, "version": {}},
+	}
 }
 
 func stripAuthSchemas(spec map[string]interface{}) {
@@ -281,12 +288,13 @@ func stripAuthSchemas(spec map[string]interface{}) {
 		return
 	}
 
+	rbacFields := rbacSchemaFields()
 	for name, schema := range schemas {
 		if strings.HasPrefix(name, "Token") {
 			delete(schemas, name)
 			continue
 		}
-		fields, hasFields := rbacSchemaFields[name]
+		fields, hasFields := rbacFields[name]
 		if !hasFields {
 			continue
 		}
