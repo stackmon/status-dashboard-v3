@@ -45,7 +45,7 @@ USER appuser
 
 WORKDIR /usr/src/app
 
-# Copy the binary and OpenAPI spec from the build stage
+# Copy the binary from the build stage and the OpenAPI spec from the build context.
 COPY --from=build --chown=appuser:appuser /usr/local/bin/app .
 COPY --chown=appuser:appuser openapi.yaml .
 

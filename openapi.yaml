@@ -1153,4 +1153,5 @@ components:
       schema:
         type: integer
         enum: [10, 20, 50]
-        example: 10
+        default: 50
+        example: 50

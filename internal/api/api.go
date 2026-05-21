@@ -44,8 +44,17 @@ func New(cfg *conf.Config, log *zap.Logger, database *db.DB) (*API, error) {
 	r.Use(CORSMiddleware())
 	r.NoRoute(errors.Return404)
 
-	a := &API{r: r, db: database, log: log, oa2Prov: oa2Prov, secretKeyV1: cfg.SecretKeyV1, authGroup: cfg.AuthGroup}
-	a.InitRoutes()
+	a := &API{
+		r:           r,
+		db:          database,
+		log:         log,
+		oa2Prov:     oa2Prov,
+		secretKeyV1: cfg.SecretKeyV1,
+		authGroup:   cfg.AuthGroup,
+	}
+	if err := a.InitRoutes(cfg.OpenAPISpecPath); err != nil {
+		return nil, fmt.Errorf("init routes: %w", err)
+	}
 	return a, nil
 }
 

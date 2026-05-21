@@ -1,7 +1,6 @@
 package api
 
 import (
-	"crypto/tls"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -36,69 +35,40 @@ func requireSlice(t *testing.T, m map[string]interface{}, key string) []interfac
 	return result
 }
 
-func requireServerURL(t *testing.T, spec map[string]interface{}) string {
+// writeSpecFile writes content to a fresh temp file and returns the path.
+// Each call uses t.TempDir(), so callers are safe under t.Parallel().
+func writeSpecFile(t *testing.T, content string) string {
 	t.Helper()
-	servers := requireSlice(t, spec, "servers")
-	require.NotEmpty(t, servers)
-	srv, ok := servers[0].(map[string]interface{})
-	require.True(t, ok)
-	url, ok := srv["url"].(string)
-	require.True(t, ok)
-	return url
-}
-
-func withTempOpenAPIFile(t *testing.T, content string, fn func()) {
-	t.Helper()
-	origDir, err := os.Getwd()
-	require.NoError(t, err)
-
-	tmpDir := t.TempDir()
-	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, openAPISpecPath), []byte(content), 0o600))
-	require.NoError(t, os.Chdir(tmpDir))
-	defer func() { require.NoError(t, os.Chdir(origDir)) }()
-
-	fn()
-}
-
-func withNoOpenAPIFile(t *testing.T, fn func()) {
-	t.Helper()
-	origDir, err := os.Getwd()
-	require.NoError(t, err)
-
-	tmpDir := t.TempDir()
-	require.NoError(t, os.Chdir(tmpDir))
-	defer func() { require.NoError(t, os.Chdir(origDir)) }()
-
-	fn()
+	path := filepath.Join(t.TempDir(), "openapi.yaml")
+	require.NoError(t, os.WriteFile(path, []byte(content), 0o600))
+	return path
 }
 
 func TestFilteredOpenAPIHandler_FileNotFound(t *testing.T) {
-	withNoOpenAPIFile(t, func() {
-		w := httptest.NewRecorder()
-		c, _ := gin.CreateTestContext(w)
-		c.Request = httptest.NewRequest(http.MethodGet, "/openapi", nil)
+	t.Parallel()
 
-		filteredOpenAPIHandler()(c)
+	missing := filepath.Join(t.TempDir(), "does-not-exist.yaml")
 
-		assert.Equal(t, http.StatusInternalServerError, w.Code)
-		assert.Contains(t, w.Body.String(), "failed to read OpenAPI spec")
-	})
+	handler, err := filteredOpenAPIHandler(missing)
+	require.Error(t, err, "missing spec file must fail at construction, not on first request")
+	assert.Nil(t, handler)
+	assert.Contains(t, err.Error(), "read OpenAPI spec")
 }
 
 func TestFilteredOpenAPIHandler_InvalidYAML(t *testing.T) {
-	withTempOpenAPIFile(t, ":\ninvalid: [yaml: {{{\n", func() {
-		w := httptest.NewRecorder()
-		c, _ := gin.CreateTestContext(w)
-		c.Request = httptest.NewRequest(http.MethodGet, "/openapi", nil)
+	t.Parallel()
 
-		filteredOpenAPIHandler()(c)
+	path := writeSpecFile(t, ":\ninvalid: [yaml: {{{\n")
 
-		assert.Equal(t, http.StatusInternalServerError, w.Code)
-		assert.Contains(t, w.Body.String(), "failed to parse OpenAPI spec")
-	})
+	handler, err := filteredOpenAPIHandler(path)
+	require.Error(t, err, "invalid YAML must fail at construction, not on first request")
+	assert.Nil(t, handler)
+	assert.Contains(t, err.Error(), "parse OpenAPI spec")
 }
 
 func TestFilteredOpenAPIHandler_ValidSpec(t *testing.T) {
+	t.Parallel()
+
 	specYAML := `
 info:
   title: Test API
@@ -136,53 +106,77 @@ components:
       required:
         - name
         - creator
+    Component:
+      type: object
+      properties:
+        name:
+          type: string
+        creator:
+          type: string
+      required:
+        - name
+        - creator
 `
-	withTempOpenAPIFile(t, specYAML, func() {
-		w := httptest.NewRecorder()
-		c, _ := gin.CreateTestContext(w)
-		c.Request = httptest.NewRequest(http.MethodGet, "/openapi", nil)
-		c.Request.Host = "example.com"
+	path := writeSpecFile(t, specYAML)
 
-		filteredOpenAPIHandler()(c)
+	handler, err := filteredOpenAPIHandler(path)
+	require.NoError(t, err)
 
-		require.Equal(t, http.StatusOK, w.Code)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodGet, "/openapi", nil)
 
-		var result map[string]interface{}
-		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &result))
+	handler(c)
 
-		paths := requireMap(t, result, "paths")
-		assert.Contains(t, paths, "/status")
-		assert.NotContains(t, paths, "/auth/login")
+	require.Equal(t, http.StatusOK, w.Code)
 
-		statusMethods := requireMap(t, paths, "/status")
-		assert.Contains(t, statusMethods, "get")
-		assert.NotContains(t, statusMethods, "post")
+	var result map[string]interface{}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &result))
 
-		assert.NotContains(t, result, "security")
-		assert.Equal(t, "http://example.com", requireServerURL(t, result))
+	paths := requireMap(t, result, "paths")
+	assert.Contains(t, paths, "/status")
+	assert.NotContains(t, paths, "/auth/login")
 
-		tags := requireSlice(t, result, "tags")
-		assert.Len(t, tags, 1)
+	statusMethods := requireMap(t, paths, "/status")
+	assert.Contains(t, statusMethods, "get")
+	assert.NotContains(t, statusMethods, "post")
 
-		components := requireMap(t, result, "components")
-		schemas := requireMap(t, components, "schemas")
-		assert.NotContains(t, schemas, "TokenResponse")
-		assert.Contains(t, schemas, "StatusModel")
+	assert.NotContains(t, result, "security")
+	assert.NotContains(t, result, "servers",
+		"servers block must be omitted so Swagger UI defaults to the origin")
 
-		statusSchema := requireMap(t, schemas, "StatusModel")
-		props := requireMap(t, statusSchema, "properties")
-		assert.NotContains(t, props, "creator")
-		assert.Contains(t, props, "name")
-	})
+	tags := requireSlice(t, result, "tags")
+	assert.Len(t, tags, 1)
+
+	components := requireMap(t, result, "components")
+	schemas := requireMap(t, components, "schemas")
+	assert.NotContains(t, schemas, "TokenResponse")
+	assert.Contains(t, schemas, "StatusModel")
+	assert.Contains(t, schemas, "Component")
+
+	// StatusModel is not in the RBAC allow-list; `creator` must survive.
+	statusSchema := requireMap(t, schemas, "StatusModel")
+	statusProps := requireMap(t, statusSchema, "properties")
+	assert.Contains(t, statusProps, "name")
+	assert.Contains(t, statusProps, "creator",
+		"creator must only be stripped from RBAC-listed schemas")
+
+	// Component IS in the RBAC allow-list; `creator` must be stripped.
+	compSchema := requireMap(t, schemas, "Component")
+	compProps := requireMap(t, compSchema, "properties")
+	assert.Contains(t, compProps, "name")
+	assert.NotContains(t, compProps, "creator")
 }
 
 func TestStripNonGetMethods_PathsNotMap(t *testing.T) {
+	t.Parallel()
 	spec := map[string]interface{}{"paths": "not-a-map"}
 	stripNonGetMethods(spec)
 	assert.Equal(t, "not-a-map", spec["paths"])
 }
 
 func TestStripNonGetMethods_NormalPaths(t *testing.T) {
+	t.Parallel()
 	spec := map[string]interface{}{
 		"paths": map[string]interface{}{
 			"/items": map[string]interface{}{
@@ -207,6 +201,7 @@ func TestStripNonGetMethods_NormalPaths(t *testing.T) {
 }
 
 func TestFilterGETPaths(t *testing.T) {
+	t.Parallel()
 	paths := map[string]interface{}{
 		"/auth/token":  map[string]interface{}{"post": "login"},
 		"/bad":         "not-a-map",
@@ -226,19 +221,23 @@ func TestFilterGETPaths(t *testing.T) {
 }
 
 func TestCollectTags(t *testing.T) {
+	t.Parallel()
 	t.Run("not a map", func(t *testing.T) {
+		t.Parallel()
 		tags := make(map[string]struct{})
 		collectTags("string-value", tags)
 		assert.Empty(t, tags)
 	})
 
 	t.Run("no tags key", func(t *testing.T) {
+		t.Parallel()
 		tags := make(map[string]struct{})
 		collectTags(map[string]interface{}{"summary": "x"}, tags)
 		assert.Empty(t, tags)
 	})
 
 	t.Run("tags with non-string items", func(t *testing.T) {
+		t.Parallel()
 		tags := make(map[string]struct{})
 		collectTags(map[string]interface{}{
 			"tags": []interface{}{42, "Valid"},
@@ -249,13 +248,16 @@ func TestCollectTags(t *testing.T) {
 }
 
 func TestPruneUnusedTags(t *testing.T) {
+	t.Parallel()
 	t.Run("tags not a slice", func(t *testing.T) {
+		t.Parallel()
 		spec := map[string]interface{}{"tags": "not-slice"}
 		pruneUnusedTags(spec, map[string]struct{}{"X": {}})
 		assert.Equal(t, "not-slice", spec["tags"])
 	})
 
 	t.Run("tag with empty name skipped", func(t *testing.T) {
+		t.Parallel()
 		spec := map[string]interface{}{
 			"tags": []interface{}{
 				"not-a-map",
@@ -269,6 +271,7 @@ func TestPruneUnusedTags(t *testing.T) {
 	})
 
 	t.Run("unused tag removed", func(t *testing.T) {
+		t.Parallel()
 		spec := map[string]interface{}{
 			"tags": []interface{}{
 				map[string]interface{}{"name": "Keep"},
@@ -282,6 +285,7 @@ func TestPruneUnusedTags(t *testing.T) {
 }
 
 func TestExtractTagName(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name string
 		tag  interface{}
@@ -293,40 +297,46 @@ func TestExtractTagName(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			assert.Equal(t, tt.want, extractTagName(tt.tag))
 		})
 	}
 }
 
-func TestOverrideServerURL(t *testing.T) {
-	t.Run("plain HTTP", func(t *testing.T) {
-		spec := map[string]interface{}{}
-		r := httptest.NewRequest(http.MethodGet, "/", nil)
-		r.Host = "api.example.com"
-		overrideServerURL(spec, r)
-		assert.Equal(t, "http://api.example.com", requireServerURL(t, spec))
-	})
+func TestOverrideServerURL_Removed(t *testing.T) {
+	t.Parallel()
+	// The `servers` block is intentionally omitted from the served spec so
+	// Swagger UI falls back to the origin it was loaded from. This test
+	// pins that contract — the cached spec must not carry a `servers` key.
+	specYAML := `
+info:
+  title: T
+paths:
+  /x:
+    get:
+      summary: x
+servers:
+  - url: "https://baked-in.example.com"
+`
+	path := writeSpecFile(t, specYAML)
 
-	t.Run("TLS request", func(t *testing.T) {
-		spec := map[string]interface{}{}
-		r := httptest.NewRequest(http.MethodGet, "/", nil)
-		r.Host = "secure.example.com"
-		r.TLS = &tls.ConnectionState{}
-		overrideServerURL(spec, r)
-		assert.Equal(t, "https://secure.example.com", requireServerURL(t, spec))
-	})
+	handler, err := filteredOpenAPIHandler(path)
+	require.NoError(t, err)
 
-	t.Run("X-Forwarded-Proto https", func(t *testing.T) {
-		spec := map[string]interface{}{}
-		r := httptest.NewRequest(http.MethodGet, "/", nil)
-		r.Host = "proxy.example.com"
-		r.Header.Set("X-Forwarded-Proto", "https")
-		overrideServerURL(spec, r)
-		assert.Equal(t, "https://proxy.example.com", requireServerURL(t, spec))
-	})
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodGet, "/openapi", nil)
+
+	handler(c)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	var result map[string]interface{}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &result))
+	assert.NotContains(t, result, "servers")
 }
 
 func TestStripAuthDetails(t *testing.T) {
+	t.Parallel()
 	spec := map[string]interface{}{
 		"security": []interface{}{map[string]interface{}{"bearerAuth": []interface{}{}}},
 		"info":     map[string]interface{}{"description": "Hello\n## Authentication\nSecret"},
@@ -343,13 +353,16 @@ func TestStripAuthDetails(t *testing.T) {
 }
 
 func TestStripInfoDescription(t *testing.T) {
+	t.Parallel()
 	t.Run("info not a map", func(t *testing.T) {
+		t.Parallel()
 		spec := map[string]interface{}{"info": "string"}
 		stripInfoDescription(spec)
 		assert.Equal(t, "string", spec["info"])
 	})
 
 	t.Run("description not a string", func(t *testing.T) {
+		t.Parallel()
 		spec := map[string]interface{}{"info": map[string]interface{}{"description": 42}}
 		stripInfoDescription(spec)
 		info := requireMap(t, spec, "info")
@@ -357,6 +370,7 @@ func TestStripInfoDescription(t *testing.T) {
 	})
 
 	t.Run("no authentication section", func(t *testing.T) {
+		t.Parallel()
 		spec := map[string]interface{}{"info": map[string]interface{}{"description": "Just a description"}}
 		stripInfoDescription(spec)
 		info := requireMap(t, spec, "info")
@@ -364,6 +378,7 @@ func TestStripInfoDescription(t *testing.T) {
 	})
 
 	t.Run("with authentication section", func(t *testing.T) {
+		t.Parallel()
 		spec := map[string]interface{}{
 			"info": map[string]interface{}{"description": "Intro\n## Authentication\nDetails"},
 		}
@@ -374,13 +389,16 @@ func TestStripInfoDescription(t *testing.T) {
 }
 
 func TestStripAuthSchemas(t *testing.T) {
+	t.Parallel()
 	t.Run("components not a map", func(t *testing.T) {
+		t.Parallel()
 		spec := map[string]interface{}{"components": "string"}
 		stripAuthSchemas(spec)
 		assert.Equal(t, "string", spec["components"])
 	})
 
 	t.Run("schemas not a map", func(t *testing.T) {
+		t.Parallel()
 		spec := map[string]interface{}{
 			"components": map[string]interface{}{
 				"securitySchemes": "x",
@@ -392,15 +410,22 @@ func TestStripAuthSchemas(t *testing.T) {
 		assert.NotContains(t, components, "securitySchemes")
 	})
 
-	t.Run("Token schemas deleted and RBAC fields stripped", func(t *testing.T) {
+	t.Run("Token schemas deleted and RBAC fields stripped on allow-listed schema", func(t *testing.T) {
+		t.Parallel()
 		spec := map[string]interface{}{
 			"components": map[string]interface{}{
 				"schemas": map[string]interface{}{
 					"TokenRefresh": map[string]interface{}{"type": "object"},
-					"Status": map[string]interface{}{
+					"Component": map[string]interface{}{
 						"type": "object",
 						"properties": map[string]interface{}{
 							"name":    map[string]interface{}{"type": "string"},
+							"creator": map[string]interface{}{"type": "string"},
+						},
+					},
+					"OtherModel": map[string]interface{}{
+						"type": "object",
+						"properties": map[string]interface{}{
 							"creator": map[string]interface{}{"type": "string"},
 						},
 					},
@@ -412,26 +437,40 @@ func TestStripAuthSchemas(t *testing.T) {
 		components := requireMap(t, spec, "components")
 		schemas := requireMap(t, components, "schemas")
 		assert.NotContains(t, schemas, "TokenRefresh")
-		assert.Contains(t, schemas, "Status")
 
-		status := requireMap(t, schemas, "Status")
-		props := requireMap(t, status, "properties")
-		assert.NotContains(t, props, "creator")
+		// Component is allow-listed → `creator` removed.
+		comp := requireMap(t, schemas, "Component")
+		compProps := requireMap(t, comp, "properties")
+		assert.NotContains(t, compProps, "creator")
+
+		// OtherModel is NOT allow-listed → `creator` preserved (regression
+		// guard for the prior global-strip behavior).
+		other := requireMap(t, schemas, "OtherModel")
+		otherProps := requireMap(t, other, "properties")
+		assert.Contains(t, otherProps, "creator")
 	})
 }
 
 func TestStripRBACFields(t *testing.T) {
-	t.Run("not a map", func(_ *testing.T) {
-		stripRBACFields("not-a-map")
+	t.Parallel()
+	fields := map[string]struct{}{
+		"creator": {}, "contact_email": {}, "version": {},
+	}
+
+	t.Run("not a map", func(t *testing.T) {
+		t.Parallel()
+		stripRBACFields("not-a-map", fields)
 	})
 
 	t.Run("no properties or required", func(t *testing.T) {
+		t.Parallel()
 		schema := map[string]interface{}{"type": "object"}
-		stripRBACFields(schema)
+		stripRBACFields(schema, fields)
 		assert.Equal(t, "object", schema["type"])
 	})
 
 	t.Run("properties with rbac fields", func(t *testing.T) {
+		t.Parallel()
 		schema := map[string]interface{}{
 			"properties": map[string]interface{}{
 				"name":          map[string]interface{}{"type": "string"},
@@ -440,7 +479,7 @@ func TestStripRBACFields(t *testing.T) {
 				"version":       map[string]interface{}{"type": "string"},
 			},
 		}
-		stripRBACFields(schema)
+		stripRBACFields(schema, fields)
 
 		props := requireMap(t, schema, "properties")
 		assert.Contains(t, props, "name")
@@ -450,14 +489,120 @@ func TestStripRBACFields(t *testing.T) {
 	})
 
 	t.Run("required with rbac and non-string items", func(t *testing.T) {
+		t.Parallel()
 		schema := map[string]interface{}{
 			"required": []interface{}{"name", "creator", 42, "contact_email", "version"},
 		}
-		stripRBACFields(schema)
+		stripRBACFields(schema, fields)
 
 		required := requireSlice(t, schema, "required")
 		assert.Len(t, required, 2)
 		assert.Contains(t, required, "name")
 		assert.Contains(t, required, 42)
 	})
+}
+
+func TestStripInfoDescription_Sentinels(t *testing.T) {
+	t.Parallel()
+	t.Run("sentinels strip enclosed block", func(t *testing.T) {
+		t.Parallel()
+		spec := map[string]interface{}{
+			"info": map[string]interface{}{
+				"description": "Intro\n<!-- auth-start -->\n## Auth\nsecret\n<!-- auth-end -->\nOutro",
+			},
+		}
+		stripInfoDescription(spec)
+		info := requireMap(t, spec, "info")
+		assert.Equal(t, "Intro\n\nOutro", info["description"])
+	})
+
+	t.Run("sentinel start without end trims to end of string", func(t *testing.T) {
+		t.Parallel()
+		spec := map[string]interface{}{
+			"info": map[string]interface{}{
+				"description": "Intro\n<!-- auth-start -->\n## Auth\nsecret",
+			},
+		}
+		stripInfoDescription(spec)
+		info := requireMap(t, spec, "info")
+		assert.Equal(t, "Intro", info["description"])
+	})
+
+	t.Run("legacy heading fallback still works", func(t *testing.T) {
+		t.Parallel()
+		spec := map[string]interface{}{
+			"info": map[string]interface{}{
+				"description": "Intro\n## Authentication\nsecret",
+			},
+		}
+		stripInfoDescription(spec)
+		info := requireMap(t, spec, "info")
+		assert.Equal(t, "Intro", info["description"])
+	})
+}
+
+func TestSwaggerUIHandler_Routing(t *testing.T) {
+	t.Parallel()
+	r := gin.New()
+	r.GET("/swagger/*any", swaggerUIHandler("/openapi.json"))
+
+	tests := []struct {
+		name          string
+		path          string
+		wantStatus    int
+		wantLocation  string // exact, when redirect
+		wantBodySub   string // substring, when 200
+		wantHdrCTpart string
+	}{
+		{
+			name:         "bare /swagger normalises to /swagger/ via gin's RedirectTrailingSlash",
+			path:         "/swagger",
+			wantStatus:   http.StatusMovedPermanently,
+			wantLocation: "/swagger/",
+		},
+		{
+			name:          "/swagger/ serves index.html via file server",
+			path:          "/swagger/",
+			wantStatus:    http.StatusOK,
+			wantBodySub:   "<html",
+			wantHdrCTpart: "text/html",
+		},
+		{
+			name:          "swagger-initializer.js is intercepted with pinned spec URL",
+			path:          "/swagger/swagger-initializer.js",
+			wantStatus:    http.StatusOK,
+			wantBodySub:   `url: "/openapi.json"`,
+			wantHdrCTpart: "application/javascript",
+		},
+		{
+			name:          "static asset (.css) is served by file server",
+			path:          "/swagger/swagger-ui.css",
+			wantStatus:    http.StatusOK,
+			wantHdrCTpart: "text/css",
+		},
+		{
+			name:         "/swagger/index.html canonicalises to /swagger/ (FileServer behavior, no loop)",
+			path:         "/swagger/index.html",
+			wantStatus:   http.StatusMovedPermanently,
+			wantLocation: "./",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			w := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodGet, tc.path, nil)
+			r.ServeHTTP(w, req)
+			require.Equal(t, tc.wantStatus, w.Code, "body=%s", w.Body.String())
+			if tc.wantLocation != "" {
+				assert.Equal(t, tc.wantLocation, w.Header().Get("Location"))
+			}
+			if tc.wantBodySub != "" {
+				assert.Contains(t, w.Body.String(), tc.wantBodySub)
+			}
+			if tc.wantHdrCTpart != "" {
+				assert.Contains(t, w.Header().Get("Content-Type"), tc.wantHdrCTpart)
+			}
+		})
+	}
 }
