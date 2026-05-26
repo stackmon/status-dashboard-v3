@@ -89,13 +89,16 @@ func GetIncidentsHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 
 		incidents := make([]*Incident, len(r))
 		for i, inc := range r {
-			updates := make([]*IncidentStatus, len(inc.Statuses))
-			for index, status := range inc.Statuses {
-				updates[index] = &IncidentStatus{
+			updates := make([]*IncidentStatus, 0, len(inc.Statuses))
+			for _, status := range inc.Statuses {
+				if inc.Type == event.TypeMaintenance && isInternalStatus(status.Status) {
+					continue
+				}
+				updates = append(updates, &IncidentStatus{
 					Status:    status.Status,
 					Text:      status.Text,
 					Timestamp: SD2Time(status.Timestamp),
-				}
+				})
 			}
 
 			var endDate *SD2Time
@@ -136,12 +139,33 @@ type ComponentAttribute struct {
 	Value string `json:"value"`
 }
 
+func isInternalStatus(status event.Status) bool {
+	return status == event.MaintenancePendingReview || status == event.MaintenanceReviewed
+}
+
+func isCancelledWithoutPublicStatus(inc *db.Incident) bool {
+	if inc.Type == event.TypeMaintenance && inc.Status == event.MaintenanceCancelled {
+		for _, s := range inc.Statuses {
+			switch s.Status { //nolint:exhaustive
+			case event.MaintenancePlanned, event.MaintenanceInProgress,
+				event.MaintenanceModified, event.MaintenanceCompleted:
+				return false
+			}
+		}
+		return true
+	}
+	return false
+}
+
 // isPubliclyVisible returns true if the incident should be visible on public
 // (unauthenticated) V1 endpoints. Maintenance events in pending_review or
 // reviewed status require authorization (see docs/auth/permissions.md).
 func isPubliclyVisible(inc *db.Incident) bool {
 	if inc.Type == event.TypeMaintenance &&
 		(inc.Status == event.MaintenancePendingReview || inc.Status == event.MaintenanceReviewed) {
+		return false
+	}
+	if isCancelledWithoutPublicStatus(inc) {
 		return false
 	}
 	return true
@@ -160,13 +184,16 @@ func toPublicIncidents(dbIncidents []*db.Incident) []*Incident {
 			endDate = &sd2T
 		}
 
-		updates := make([]*IncidentStatus, len(inc.Statuses))
-		for i, status := range inc.Statuses {
-			updates[i] = &IncidentStatus{
+		updates := make([]*IncidentStatus, 0, len(inc.Statuses))
+		for _, status := range inc.Statuses {
+			if inc.Type == event.TypeMaintenance && isInternalStatus(status.Status) {
+				continue
+			}
+			updates = append(updates, &IncidentStatus{
 				Status:    status.Status,
 				Text:      status.Text,
 				Timestamp: SD2Time(status.Timestamp),
-			}
+			})
 		}
 
 		incidents = append(incidents, &Incident{

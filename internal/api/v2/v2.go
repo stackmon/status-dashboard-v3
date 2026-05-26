@@ -308,6 +308,12 @@ func GetIncidentHandler(dbInst *db.DB, logger *zap.Logger, svc *rbac.Service) gi
 			return
 		}
 
+		// Hide cancelled events that never reached a public active status
+		if !isAuth && isCancelledWithoutPublicStatus(r) {
+			apiErrors.RaiseStatusNotFoundErr(c, apiErrors.ErrIncidentDSNotExist)
+			return
+		}
+
 		c.JSON(http.StatusOK, toAPIEvent(r, isAuth))
 	}
 }
@@ -331,7 +337,7 @@ func toAPIEvent(inc *db.Incident, isAuth bool) *Incident {
 		StartDate:   *inc.StartDate,
 		EndDate:     inc.EndDate,
 		System:      &inc.System,
-		Updates:     mapEventUpdates(inc.Statuses),
+		Updates:     mapEventUpdates(inc.Statuses, isAuth),
 		Status:      inc.Status,
 		Type:        inc.Type,
 	}
@@ -1412,6 +1418,7 @@ func PostComponentHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 		if err != nil {
 			if errors.Is(err, db.ErrDBComponentExists) {
 				apiErrors.RaiseBadRequestErr(c, apiErrors.ErrComponentExist)
+				return
 			}
 			apiErrors.RaiseInternalErr(c, err)
 			return
@@ -1723,18 +1730,49 @@ func PatchEventUpdateTextHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerF
 	}
 }
 
-func mapEventUpdates(statuses []db.IncidentStatus) []EventUpdateData {
-	updates := make([]EventUpdateData, len(statuses))
-	for i, s := range statuses {
-		updates[i] = EventUpdateData{
-			ID:        i,
+func mapEventUpdates(statuses []db.IncidentStatus, isAuth bool) []EventUpdateData {
+	updates := make([]EventUpdateData, 0, len(statuses))
+	idx := 0
+	for _, s := range statuses {
+		if !isAuth && isInternalStatus(s.Status) {
+			continue
+		}
+		updates = append(updates, EventUpdateData{
+			ID:        idx,
 			Status:    s.Status,
 			Text:      s.Text,
 			Timestamp: s.Timestamp,
-		}
+		})
+		idx++
 	}
 
 	return updates
+}
+
+// isInternalStatus returns true for statuses that should not be exposed to public (non-authenticated) users.
+func isInternalStatus(status event.Status) bool {
+	switch status {
+	case event.MaintenancePendingReview, event.MaintenanceReviewed:
+		return true
+	default:
+		return false
+	}
+}
+
+// isCancelledWithoutPublicStatus returns true if a cancelled maintenance event never reached
+// a public active status and should be hidden from non-authenticated users.
+func isCancelledWithoutPublicStatus(inc *db.Incident) bool {
+	if inc.Type != event.TypeMaintenance || inc.Status != event.MaintenanceCancelled {
+		return false
+	}
+	for _, s := range inc.Statuses {
+		switch s.Status { //nolint:exhaustive
+		case event.MaintenancePlanned, event.MaintenanceInProgress,
+			event.MaintenanceModified, event.MaintenanceCompleted:
+			return false
+		}
+	}
+	return true
 }
 
 func getRoleFromContext(c *gin.Context, logger *zap.Logger) (rbac.Role, bool) {

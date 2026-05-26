@@ -778,7 +778,7 @@ func TestV2CreateComponentAndList(t *testing.T) {
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
-	assert.Contains(t, w.Body.String(), "component exists")
+	assert.Contains(t, w.Body.String(), "component already exists")
 
 	// Test case 3: Try to create component with invalid attributes (duplicate region)
 	t.Log("Test case 3: Create component with invalid attributes")

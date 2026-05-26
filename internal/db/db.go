@@ -142,6 +142,14 @@ func applyEventsFilters(base *gorm.DB, params *IncidentsParams, isAuth bool) (*g
 			"NOT (incident.type = ? AND incident.status IN (?, ?))",
 			event.TypeMaintenance, event.MaintenancePendingReview, event.MaintenanceReviewed,
 		)
+		// Hide cancelled maintenance events that never reached a public status (planned or later).
+		base = base.Where(
+			"NOT (incident.type = ? AND incident.status = ? AND "+
+				"NOT EXISTS (SELECT 1 FROM incident_status WHERE incident_status.incident_id = incident.id "+
+				"AND incident_status.status IN (?, ?, ?, ?)))",
+			event.TypeMaintenance, event.MaintenanceCancelled,
+			event.MaintenancePlanned, event.MaintenanceInProgress, event.MaintenanceModified, event.MaintenanceCompleted,
+		)
 	}
 
 	return base, nil
@@ -386,6 +394,11 @@ func (db *DB) GetEventsByComponentID(componentID uint, params ...*IncidentsParam
 		Where("icr.component_id = ?", componentID).
 		Where("NOT (incident.type = ? AND incident.status IN (?, ?))",
 			event.TypeMaintenance, event.MaintenancePendingReview, event.MaintenanceReviewed).
+		Where("NOT (incident.type = ? AND incident.status = ? AND "+
+			"NOT EXISTS (SELECT 1 FROM incident_status WHERE incident_status.incident_id = incident.id "+
+			"AND incident_status.status IN (?, ?, ?, ?)))",
+			event.TypeMaintenance, event.MaintenanceCancelled,
+			event.MaintenancePlanned, event.MaintenanceInProgress, event.MaintenanceModified, event.MaintenanceCompleted).
 		Preload("Statuses").
 		Preload("Components", func(db *gorm.DB) *gorm.DB {
 			return db.Select("ID, Name")
@@ -437,6 +450,11 @@ func (db *DB) GetIncidentsByComponentAttr(attr *ComponentAttr, params ...*Incide
 		Where("ca.name = ? AND ca.value = ?", attr.Name, attr.Value).
 		Where("NOT (incident.type = ? AND incident.status IN (?, ?))",
 			event.TypeMaintenance, event.MaintenancePendingReview, event.MaintenanceReviewed).
+		Where("NOT (incident.type = ? AND incident.status = ? AND "+
+			"NOT EXISTS (SELECT 1 FROM incident_status WHERE incident_status.incident_id = incident.id "+
+			"AND incident_status.status IN (?, ?, ?, ?)))",
+			event.TypeMaintenance, event.MaintenanceCancelled,
+			event.MaintenancePlanned, event.MaintenanceInProgress, event.MaintenanceModified, event.MaintenanceCompleted).
 		Preload("Statuses").
 		Preload("Components", func(db *gorm.DB) *gorm.DB {
 			return db.Select("ID, Name")

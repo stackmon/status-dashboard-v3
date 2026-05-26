@@ -138,6 +138,24 @@ func incidentData() v2.IncidentData {
 	}
 }
 
+func infoEventData() v2.IncidentData {
+	impact := 0
+	system := false
+	startDate := time.Now().Add(time.Hour).UTC()
+	endDate := time.Now().Add(2 * time.Hour).UTC()
+
+	return v2.IncidentData{
+		Title:       "RBAC test info event",
+		Description: "Integration test informational event",
+		Impact:      &impact,
+		Components:  []int{1},
+		StartDate:   startDate,
+		EndDate:     &endDate,
+		System:      &system,
+		Type:        event.TypeInformation,
+	}
+}
+
 func patchData(status event.Status, version *int) *v2.PatchIncidentData {
 	return &v2.PatchIncidentData{
 		Message:    "test update",
