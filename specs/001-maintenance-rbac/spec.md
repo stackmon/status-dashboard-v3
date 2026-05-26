@@ -176,6 +176,9 @@ by its future system-level privileges (settings, configuration, etc.) beyond eve
 
 - **FR-022**: System MUST support the following status flow for `creator` role users: pending_review → reviewed → planned → [existing statuses]
 - **FR-022-1**: System MUST NOT include maintenance events with "pending_review" or "reviewed" status in API responses for unauthenticated users
+- **FR-022-2**: System MUST NOT include maintenance events with "cancelled" status in API responses for unauthenticated users when the event never reached a public active status ("planned", "in_progress", "modified", or "completed") in its status history
+- **FR-022-3**: System MUST filter out "pending_review" and "reviewed" status entries from the Updates/statuses array in API responses for unauthenticated users; authenticated users MUST see the complete status history
+- **FR-022-4**: Visibility filtering rules (FR-022-1, FR-022-2, FR-022-3) MUST apply exclusively to maintenance type events; incident and info type events MUST NOT be filtered or hidden regardless of their status
 - **FR-022a**: System MUST support direct "planned" status for events created by `operator` and `admin` role users (bypassing pending_review and reviewed statuses)
 - **FR-022b**: System MUST support "cancelled" as a terminal status reachable from any other status, representing event removal/cancellation
 - **FR-023**: The internal checker goroutine in the existing "checker" module MUST automatically change status from "reviewed" to "planned" without performing additional validation
@@ -183,6 +186,7 @@ by its future system-level privileges (settings, configuration, etc.) beyond eve
 - **FR-023b**: The checker MUST transition events from "reviewed" to "planned" status regardless of elapsed time since initial submission, as time window validation is enforced only at creation time
 - **FR-023c**: The checker MUST transition events from "reviewed" to "planned" status as its sole responsibility during this state change
 - **FR-023d**: System MUST reuse existing error handling patterns from the checker module's incident handling for all maintenance event errors, including validation failures, status transition errors, and approval conflicts
+- **FR-023e**: The checker MUST refetch each maintenance event from the database immediately before performing a write operation to minimize the race window with concurrent API edits; this eliminates the need for a retry loop around version conflicts
 - **FR-024**: System MUST prevent manual status changes that skip steps in the workflow for `creator` role users; `admin` and `operator` role users can transition to any status (including "cancelled")
 - **FR-025**: System MUST maintain an audit trail of status changes including timestamp and user who initiated the change using the existing `incident_status` table (no new table creation required). Status transition logging (timestamp, user_id) is handled by the existing audit trail mechanism in the incident_status table.
 

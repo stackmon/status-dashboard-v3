@@ -226,10 +226,26 @@ Any authenticated user may patch info events to any of these statuses.
 
 ## Visibility Rules
 
-| Condition | `pending_review` / `reviewed` maintenance | `creator` field | `contact_email` field | `version` field |
-|-----------|:-----------------------------------------:|:---------------:|:--------------------:|:---------------:|
-| Unauthenticated | Hidden (404) | Hidden | Hidden | Hidden |
-| Authenticated (any role) | Visible | Visible | Visible | Visible for maintenance events only |
+| Condition | `pending_review` / `reviewed` maintenance | Cancelled maintenance (never reached `planned`) | Internal statuses in Updates | `creator` field | `contact_email` field | `version` field |
+|-----------|:-----------------------------------------:|:-----------------------------------------------:|:----------------------------:|:---------------:|:--------------------:|:---------------:|
+| Unauthenticated | Hidden (404) | Hidden (404) | Filtered out | Hidden | Hidden | Hidden |
+| Authenticated (any role) | Visible | Visible | Visible | Visible | Visible | Visible for maintenance events only |
+
+### Maintenance Internal Status Filtering
+
+Statuses `pending_review` and `reviewed` are considered **internal** (draft workflow) statuses.
+They are filtered from the `updates` array in API responses for unauthenticated users across all
+endpoints (V1, V2, RSS). Authenticated users see the complete status history.
+
+### Cancelled Maintenance Without Public Status
+
+A maintenance event that was cancelled before ever reaching a **public active status** (`planned`,
+`in_progress`, `modified`, or `completed`) is hidden from unauthenticated users entirely.
+This covers the case where a maintenance is created (→ `pending_review`), optionally reviewed
+(→ `reviewed`), and then cancelled without ever becoming publicly visible.
+
+> **Important**: These visibility rules apply **exclusively** to `maintenance` type events.
+> Events of type `incident` and `info` are never filtered or hidden regardless of their status.
 
 ---
 
