@@ -17,9 +17,10 @@ const osPref = "SD"
 const DevelopMode = "devel"
 
 const (
-	DefaultWebURL   = "http://localhost:9000"
-	DefaultHostname = "localhost"
-	DefaultPort     = "8000"
+	DefaultWebURL          = "http://localhost:9000"
+	DefaultHostname        = "localhost"
+	DefaultPort            = "8000"
+	DefaultOpenAPISpecPath = "openapi.yaml"
 
 	// MinSecretKeyLength is the minimum required length for the HMAC secret key.
 	// HMAC-SHA256 requires at least 32 bytes for cryptographic strength.
@@ -47,6 +48,11 @@ type Config struct {
 	WebURL string `envconfig:"WEB_URL"`
 	// Secret key for local HMAC authentication (dev, tests, service-to-service)
 	SecretKeyV1 string `envconfig:"SECRET_KEY"`
+	// OpenAPISpecPath is the filesystem path to the OpenAPI spec served at
+	// /openapi.json. Defaults to "openapi.yaml" (resolved relative to the
+	// process working directory, matching the container's WORKDIR layout).
+	// Override via SD_OPENAPI_SPEC_PATH for tests or non-standard deployments.
+	OpenAPISpecPath string `envconfig:"OPENAPI_SPEC_PATH"`
 	// RBAC configuration
 	RBAC RBACConfig `envconfig:"RBAC"`
 }
@@ -127,6 +133,10 @@ func (c *Config) FillDefaults() {
 
 	if c.WebURL == "" {
 		c.WebURL = DefaultWebURL
+	}
+
+	if c.OpenAPISpecPath == "" {
+		c.OpenAPISpecPath = DefaultOpenAPISpecPath
 	}
 }
 
@@ -273,6 +283,7 @@ func (c *Config) Log(logger *zap.Logger) {
 		zap.String("db", sanitizeDBString(c.DB)),
 		// zap.String("cache", c.Cache),
 		zap.String("log_level", c.LogLevel),
+		zap.String("openapi_spec_path", c.OpenAPISpecPath),
 	)
 
 	if c.Keycloak != nil {

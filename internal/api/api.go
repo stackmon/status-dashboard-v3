@@ -54,7 +54,9 @@ func New(cfg *conf.Config, log *zap.Logger, database *db.DB) (*API, error) {
 		secretKeyV1: cfg.SecretKeyV1,
 		rbac:        rbacService,
 	}
-	a.InitRoutes()
+	if err := a.InitRoutes(cfg.OpenAPISpecPath); err != nil {
+		return nil, fmt.Errorf("init routes: %w", err)
+	}
 	return a, nil
 }
 
