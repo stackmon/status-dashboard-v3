@@ -1,7 +1,6 @@
 package checker
 
 import (
-	"errors"
 	"fmt"
 	"slices"
 	"time"
@@ -11,8 +10,6 @@ import (
 	"github.com/stackmon/otc-status-dashboard/internal/db"
 	"github.com/stackmon/otc-status-dashboard/internal/event"
 )
-
-const maxRetries = 3
 
 type MntStatusHistory struct {
 	hasReviewed   bool
@@ -105,37 +102,28 @@ func (ch *Checker) CheckMaintenance() error {
 }
 
 func (ch *Checker) processMaintenance(mn *db.Incident, activeMaintenances *[]uint) error {
-	for attempt := range maxRetries {
-		if attempt > 0 {
-			fresh, fetchErr := ch.db.GetIncident(int(mn.ID))
-			if fetchErr != nil {
-				return fetchErr
-			}
-			mn = fresh
-			ch.log.Warn("version conflict, retrying maintenance processing",
-				zap.Uint("mntID", mn.ID), zap.Int("attempt", attempt+1))
-		}
-
-		actualStatus := ch.evaluateAndFixMntStatus(mn)
-
-		if mn.Status == actualStatus {
-			trackActiveMaintenance(actualStatus, mn.ID, activeMaintenances)
-			return nil
-		}
-
-		mn.Status = actualStatus
-		if modErr := ch.db.ModifyIncident(mn); modErr != nil {
-			if errors.Is(modErr, db.ErrVersionConflict) {
-				continue
-			}
-			return modErr
-		}
-
-		trackActiveMaintenance(actualStatus, mn.ID, activeMaintenances)
-		return nil
+	// Refetch immediately before the read-modify-write. The bulk
+	// GetMaintenances above is N items old by the time we reach item N;
+	// using its preloaded state for the version check races concurrent
+	// API edits. A single fresh read shrinks the race window from
+	// "duration of the whole tick" to "one DB round-trip", which makes
+	// ErrVersionConflict effectively unreachable without a retry loop.
+	mn, err := ch.db.GetIncident(int(mn.ID))
+	if err != nil {
+		return fmt.Errorf("refetch maintenance %d: %w", mn.ID, err)
 	}
 
-	return fmt.Errorf("max retries (%d) exceeded for maintenance %d", maxRetries, mn.ID)
+	actualStatus := ch.evaluateAndFixMntStatus(mn)
+
+	if mn.Status != actualStatus {
+		mn.Status = actualStatus
+		if modErr := ch.db.ModifyIncident(mn); modErr != nil {
+			return fmt.Errorf("update maintenance %d: %w", mn.ID, modErr)
+		}
+	}
+
+	trackActiveMaintenance(actualStatus, mn.ID, activeMaintenances)
+	return nil
 }
 
 func (ch *Checker) evaluateAndFixMntStatus(mn *db.Incident) event.Status {

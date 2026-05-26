@@ -135,12 +135,14 @@ func TestIsPubliclyVisible(t *testing.T) {
 
 func TestToPublicIncidents_FiltersUpdates(t *testing.T) {
 	testTime := time.Now().UTC()
+	startDate := testTime
 	dbIncidents := []*db.Incident{
 		{
-			ID:     1,
-			Type:   "maintenance",
-			Status: "planned",
-			Text:   stringPtr("Planned maintenance"),
+			ID:        1,
+			Type:      "maintenance",
+			Status:    "planned",
+			Text:      stringPtr("Planned maintenance"),
+			StartDate: &startDate,
 			Statuses: []db.IncidentStatus{
 				{Status: "pending_review", Timestamp: testTime},
 				{Status: "reviewed", Timestamp: testTime},

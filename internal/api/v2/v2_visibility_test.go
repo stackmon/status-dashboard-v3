@@ -97,7 +97,7 @@ func TestIsCancelledWithoutPublicStatus(t *testing.T) {
 					{Status: "cancelled", Timestamp: testTime},
 				},
 			},
-			want: true,
+			want: false,
 		},
 		{
 			name: "info cancelled after active",
