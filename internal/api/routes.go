@@ -22,6 +22,8 @@ const (
 // Returns an error if the OpenAPI spec cannot be read or parsed — callers
 // should propagate this so a misconfigured deployment fails at boot rather
 // than serving 500s on first request.
+//
+//nolint:funlen
 func (a *API) InitRoutes(openAPISpecPath string) error {
 	if a.oa2Prov != nil {
 		authAPI := a.r.Group(authGroupPath)
