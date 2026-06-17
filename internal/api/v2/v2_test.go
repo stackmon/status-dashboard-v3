@@ -560,56 +560,108 @@ func TestCalculateAvailability(t *testing.T) {
 	type testCase struct {
 		testDescription string
 		Component       *db.Component
-		Result          []*MonthlyAvailability
+		Result          func() []*MonthlyAvailability
 	}
 
 	impact := 3
 
-	comp := db.Component{
-		ID:        150,
-		Name:      "DataArts",
-		Incidents: []*db.Incident{},
+	now := time.Now().UTC()
+	currentYear, currentMonth := now.Year(), now.Month()
+
+	prevMonthStart := time.Date(currentYear, currentMonth-1, 1, 0, 0, 0, 0, time.UTC)
+	prevMonthEnd := time.Date(currentYear, currentMonth, 1, 0, 0, 0, 0, time.UTC)
+	prevMonthDuration := prevMonthEnd.Sub(prevMonthStart)
+
+	currMonthStart := time.Date(currentYear, currentMonth, 1, 0, 0, 0, 0, time.UTC)
+	currMonthEnd := time.Date(currentYear, currentMonth+1, 1, 0, 0, 0, 0, time.UTC)
+	currMonthDuration := currMonthEnd.Sub(currMonthStart)
+
+	baseResult := func() []*MonthlyAvailability {
+		results := make([]*MonthlyAvailability, 12)
+		for i := range [12]int{} {
+			year, month := getYearAndMonth(now.Year(), int(now.Month()), 12-i-1)
+			results[i] = &MonthlyAvailability{
+				Year:       year,
+				Month:      month,
+				Percentage: 100,
+			}
+		}
+		return results
 	}
 
-	compForPeriod := comp
-	stDate := time.Date(2025, 6, 21, 0, 0, 0, 0, time.UTC)
-	endDate := time.Date(2025, 7, 2, 20, 0, 0, 0, time.UTC)
-	compForPeriod.Incidents = append(compForPeriod.Incidents, &db.Incident{
-		ID:        1,
-		StartDate: &stDate,
-		EndDate:   &endDate,
-		Impact:    &impact,
-	})
+	roundTo5 := func(val float64) float64 {
+		return float64(int(val*100000+0.5)) / 100000
+	}
 
 	testCases := []testCase{
 		{
-			testDescription: "Test case: June (66.66667%)- July (94.08602%)",
-			Component:       &compForPeriod,
+			testDescription: "Available full month (100% availability)",
+			Component: &db.Component{
+				ID:        1,
+				Name:      "Component1",
+				Incidents: []*db.Incident{},
+			},
 			Result: func() []*MonthlyAvailability {
-				results := make([]*MonthlyAvailability, 12)
-
-				for i := range [12]int{} {
-					year, month := getYearAndMonth(time.Now().Year(), int(time.Now().Month()), 12-i-1)
-					results[i] = &MonthlyAvailability{
-						Year:       year,
-						Month:      month,
-						Percentage: 100,
-					}
-					if month == 6 {
-						results[i] = &MonthlyAvailability{
-							Month:      month,
-							Percentage: 66.66667,
-						}
-					}
-					if month == 7 {
-						results[i] = &MonthlyAvailability{
-							Month:      month,
-							Percentage: 94.08602,
-						}
-					}
-				}
-				return results
-			}(),
+				return baseResult()
+			},
+		},
+		{
+			testDescription: "Available from middle of previous month to middle of current month",
+			Component: &db.Component{
+				ID:   2,
+				Name: "Component2",
+				Incidents: []*db.Incident{
+					{
+						StartDate: func() *time.Time { t := prevMonthStart.Add(prevMonthDuration / 2); return &t }(),
+						EndDate:   func() *time.Time { t := currMonthStart.Add(currMonthDuration / 2); return &t }(),
+						Impact:    &impact,
+					},
+				},
+			},
+			Result: func() []*MonthlyAvailability {
+				res := baseResult()
+				res[10].Percentage = roundTo5(100.0 - (float64(prevMonthDuration/2)/float64(prevMonthDuration))*100.0)
+				res[11].Percentage = roundTo5(100.0 - (float64(currMonthDuration/2)/float64(currMonthDuration))*100.0)
+				return res
+			},
+		},
+		{
+			testDescription: "20% availability in previous month",
+			Component: &db.Component{
+				ID:   3,
+				Name: "Component3",
+				Incidents: []*db.Incident{
+					{
+						StartDate: &prevMonthStart,
+						EndDate:   func() *time.Time { t := prevMonthStart.Add(time.Duration(float64(prevMonthDuration) * 0.8)); return &t }(),
+						Impact:    &impact,
+					},
+				},
+			},
+			Result: func() []*MonthlyAvailability {
+				res := baseResult()
+				res[10].Percentage = roundTo5(20.0)
+				return res
+			},
+		},
+		{
+			testDescription: "Not available the entire previous month (0% availability)",
+			Component: &db.Component{
+				ID:   4,
+				Name: "Component4",
+				Incidents: []*db.Incident{
+					{
+						StartDate: &prevMonthStart,
+						EndDate:   &prevMonthEnd,
+						Impact:    &impact,
+					},
+				},
+			},
+			Result: func() []*MonthlyAvailability {
+				res := baseResult()
+				res[10].Percentage = 0.0
+				return res
+			},
 		},
 	}
 
@@ -619,9 +671,11 @@ func TestCalculateAvailability(t *testing.T) {
 
 		t.Logf("Test '%s': Calculated availability: %+v", tc.testDescription, result)
 
+		expected := tc.Result()
 		assert.Len(t, result, 12)
 		for i, r := range result {
-			assert.InEpsilon(t, tc.Result[i].Percentage, r.Percentage, 0.0001)
+			assert.InDelta(t, expected[i].Percentage, r.Percentage, 0.0001,
+				"month %d/%d mismatch in case '%s'", expected[i].Year, expected[i].Month, tc.testDescription)
 		}
 	}
 }

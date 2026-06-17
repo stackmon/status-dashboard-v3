@@ -1435,10 +1435,6 @@ func calculateAvailability(component *db.Component) ([]MonthlyAvailability, erro
 		return nil, fmt.Errorf("component is nil")
 	}
 
-	if len(component.Incidents) == 0 {
-		return nil, nil
-	}
-
 	periodEndDate := time.Now().UTC()
 	// Get the current date and starting point (12 months ago)
 	// a year ago, including current the month
@@ -1447,7 +1443,7 @@ func calculateAvailability(component *db.Component) ([]MonthlyAvailability, erro
 	monthlyDowntime := make([]float64, monthsInYear) // 12 months
 
 	for _, inc := range component.Incidents {
-		if inc.EndDate == nil || *inc.Impact != 3 {
+		if inc.EndDate == nil || inc.Impact == nil || *inc.Impact != 3 {
 			continue
 		}
 
