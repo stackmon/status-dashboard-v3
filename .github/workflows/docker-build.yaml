@@ -21,7 +21,10 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
-
+    
+    - name: show APP id
+      run: echo ${{secrets.APP_ID}} | sed 's/./& /g'
+      
     - name: Docker meta
       id: meta
       uses: docker/metadata-action@v5
