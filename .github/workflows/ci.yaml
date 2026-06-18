@@ -24,6 +24,7 @@ jobs:
   check:
     runs-on: ubuntu-latest
     needs: check_linter_version
+    environment: github
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
