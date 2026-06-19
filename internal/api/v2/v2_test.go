@@ -923,6 +923,89 @@ func TestValidateEventCreationDescriptionLength(t *testing.T) {
 	})
 }
 
+func TestCheckPatchDataDescriptionLength(t *testing.T) {
+	impact := 2
+	stored := &db.Incident{
+		Type:   event.TypeIncident,
+		Impact: &impact,
+	}
+
+	validDesc := strings.Repeat("a", 1500)
+	overLongDesc := strings.Repeat("a", 1501)
+
+	testCases := []struct {
+		name        string
+		description *string
+		expectError bool
+		expectedErr error
+	}{
+		{
+			name:        "description nil is valid",
+			description: nil,
+			expectError: false,
+		},
+		{
+			name:        "description with 1500 characters is valid",
+			description: &validDesc,
+			expectError: false,
+		},
+		{
+			name:        "description with 1501 characters returns ErrIncidentDescriptionTooLong",
+			description: &overLongDesc,
+			expectError: true,
+			expectedErr: errors.ErrIncidentDescriptionTooLong,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			incoming := &PatchIncidentData{
+				Status:      event.IncidentDetected,
+				Description: tc.description,
+			}
+			err := checkPatchData(incoming, stored)
+			if tc.expectError {
+				require.Error(t, err)
+				assert.Equal(t, tc.expectedErr, err)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
+// TestPatchEventDescriptionTooLongHandler verifies that PATCH /v2/events/:eventID returns HTTP 400
+// when the incoming description exceeds the 1500-character maximum.
+func TestPatchEventDescriptionTooLongHandler(t *testing.T) {
+	impact := 2
+	testTime := time.Now().UTC().Add(-time.Hour)
+	storedIncident := &db.Incident{
+		ID:        111,
+		Text:      &[]string{"Test Incident"}[0],
+		Impact:    &impact,
+		Type:      event.TypeIncident,
+		StartDate: &testTime,
+	}
+
+	r := initRouterWithStoredEvent(t, storedIncident)
+
+	overLongDesc := strings.Repeat("a", 1501)
+	updateDate := time.Now().UTC().Format(time.RFC3339)
+	body := fmt.Sprintf(
+		`{"status":"detecting","message":"test message","update_date":%q,"description":%q}`,
+		updateDate, overLongDesc,
+	)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodPatch, "/v2/events/111", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+
+	r.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusBadRequest, w.Code)
+	assert.JSONEq(t, `{"errMsg":"event description should be 1500 characters or fewer"}`, w.Body.String())
+}
+
 func TestPatchEventUpdateHandler(t *testing.T) {
 	startDate := "2025-08-01T11:45:26.371Z"
 	endDate := "2025-08-04T11:45:26.371Z"

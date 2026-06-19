@@ -1050,6 +1050,10 @@ func validateStatusesPatch(incoming *PatchIncidentData, stored *db.Incident) err
 }
 
 func checkPatchData(incoming *PatchIncidentData, stored *db.Incident) error {
+	if incoming.Description != nil && utf8.RuneCountInString(*incoming.Description) > maxDescriptionLength {
+		return apiErrors.ErrIncidentDescriptionTooLong
+	}
+
 	// incoming.Type is now validated by the 'oneof' binding tag in PatchIncidentData
 	effectiveType := stored.Type
 	if incoming.Type != "" {
