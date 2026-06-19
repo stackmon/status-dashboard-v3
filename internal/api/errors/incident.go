@@ -6,6 +6,7 @@ var ErrIncidentDSNotExist = errors.New("event does not exist")
 var ErrIncidentEndDateShouldBeEmpty = errors.New("event end_date should be empty")
 var ErrIncidentStartDateInFuture = errors.New("event start_date should not be in the future")
 var ErrIncidentUpdatesShouldBeEmpty = errors.New("event updates should be empty")
+var ErrIncidentDescriptionTooLong = errors.New("event description should be 1500 characters or fewer")
 var ErrIncidentTypeImpactMismatch = errors.New(
 	"impact must be 0 for type 'maintenance' or 'info' and gt 0 for 'incident'",
 )

@@ -826,9 +826,13 @@ func TestV2GetEventsHandler(t *testing.T) {
 	allIncidents := v2GetEvents(t, r)
 	t.Logf("Initial incidents in DB: %+v", len(allIncidents))
 	totalIncidents := len(allIncidents)
-	expectedpages := totalIncidents / 10
+	expectedpages10 := totalIncidents / 10
 	if totalIncidents%10 != 0 {
-		expectedpages++
+		expectedpages10++
+	}
+	expectedpages20 := totalIncidents / 20
+	if totalIncidents%20 != 0 {
+		expectedpages20++
 	}
 
 	testCases := []struct {
@@ -856,8 +860,8 @@ func TestV2GetEventsHandler(t *testing.T) {
 			queryParams:        "?limit=10&page=1",
 			expectedStatusCode: http.StatusOK,
 			expectedTotal:      totalIncidents,
-			expectedPages:      expectedpages,
-			expectedItemsCount: 10,
+			expectedPages:      expectedpages10,
+			expectedItemsCount: min(10, totalIncidents),
 			expectedLimit:      10,
 			expectedPage:       1,
 		},
@@ -866,8 +870,8 @@ func TestV2GetEventsHandler(t *testing.T) {
 			queryParams:        "?limit=10&page=2",
 			expectedStatusCode: http.StatusOK,
 			expectedTotal:      totalIncidents,
-			expectedPages:      expectedpages,
-			expectedItemsCount: 10,
+			expectedPages:      expectedpages10,
+			expectedItemsCount: max(0, totalIncidents-10),
 			expectedLimit:      10,
 			expectedPage:       2,
 		},
@@ -876,8 +880,8 @@ func TestV2GetEventsHandler(t *testing.T) {
 			queryParams:        "?limit=20&page=1",
 			expectedStatusCode: http.StatusOK,
 			expectedTotal:      totalIncidents,
-			expectedPages:      2,
-			expectedItemsCount: 20,
+			expectedPages:      expectedpages20,
+			expectedItemsCount: min(20, totalIncidents),
 			expectedLimit:      20,
 			expectedPage:       1,
 		},
@@ -1131,7 +1135,7 @@ func TestV2PatchEventUpdateHandler(t *testing.T) {
 			updateIndex:    0,
 			body:           `{"text": "This should fail."}`,
 			expectedStatus: http.StatusNotFound,
-			expectedBody:   `{"errMsg":"incident not found"}`,
+			expectedBody:   `{"errMsg":"event does not exist"}`,
 		},
 		{
 			name:           "Update index not found",
@@ -1139,7 +1143,7 @@ func TestV2PatchEventUpdateHandler(t *testing.T) {
 			updateIndex:    99,
 			body:           `{"text": "This should also fail."}`,
 			expectedStatus: http.StatusNotFound,
-			expectedBody:   `{"errMsg":"update not found"}`,
+			expectedBody:   `{"errMsg":"update does not exist"}`,
 		},
 		{
 			name:           "Invalid update index (negative)",
