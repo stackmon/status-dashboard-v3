@@ -1028,8 +1028,10 @@ components:
       properties:
         components:
           type: array
+          minItems: 1
+          uniqueItems: true
           items:
-            type: string
+            type: integer
           example: [218, 254]
     IncidentStatus:
       type: object

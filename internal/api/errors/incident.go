@@ -47,6 +47,11 @@ var ErrMaintenanceContactEmailInvalid = errors.New("contact_email has invalid fo
 var ErrMaintenanceEndDateBeforeStart = errors.New("end_date must be after start_date")
 var ErrMaintenanceDescriptionRequired = errors.New("description is required for maintenance")
 
+// Errors for extract restrictions
+
+var ErrExtractForbiddenRole = errors.New("extract is only available for operators and admins")
+var ErrExtractForbiddenType = errors.New("extract is only available for incident type events")
+
 // Errors for version conflict (optimistic locking)
 
 var ErrVersionConflict = errors.New("version conflict: event has been modified by another user")

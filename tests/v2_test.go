@@ -641,6 +641,18 @@ func TestV2PostIncidentExtractHandler(t *testing.T) {
 	r.ServeHTTP(w, req)
 	require.Equal(t, http.StatusBadRequest, w.Code)
 	assert.JSONEq(t, `{"errMsg":"can not move all components to the new incident, keep at least one"}`, w.Body.String())
+
+	t.Log("start negative case, try to extract duplicate components, should return error")
+	movedComponents = IncidentData{Components: []int{1, 1}}
+	data, err = json.Marshal(movedComponents)
+	require.NoError(t, err)
+
+	w = httptest.NewRecorder()
+	req, _ = http.NewRequest(http.MethodPost, v2IncidentsEndpoint+fmt.Sprintf("/%d/extract", result.Result[0].IncidentID), bytes.NewReader(data))
+	req.Header.Set("Authorization", "Bearer "+adminToken)
+	r.ServeHTTP(w, req)
+	require.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Contains(t, w.Body.String(), "unique")
 }
 
 func v2CreateIncident(t *testing.T, r *gin.Engine, inc *v2.IncidentData) *v2.PostIncidentResp {

@@ -265,6 +265,8 @@ Extracts components from an existing event into a new event.
 
 ### Request Body
 
+- `components`: Array of component IDs (integers) to extract. Must contain at least 1 item and all items must be unique.
+
 ```json
 {
   "components": [254]

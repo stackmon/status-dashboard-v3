@@ -69,6 +69,12 @@ func initTestsWithHMAC(t *testing.T) *gin.Engine {
 		api.RBACAuthorizationMW(rbacSvc, logger),
 		api.CheckEventExistenceMW(d, logger),
 		v2.PatchIncidentHandler(d, logger))
+	v2Api.POST("events/:eventID/extract",
+		api.AuthenticationMW(prov, logger, testHMACSecret),
+		api.RBACAuthorizationMW(rbacSvc, logger),
+		api.CheckEventExistenceMW(d, logger),
+		api.ValidateComponentsMW(d, logger),
+		v2.PostIncidentExtractHandler(d, logger))
 
 	return r
 }
@@ -293,4 +299,37 @@ func assertPatchStatus(t *testing.T, r *gin.Engine, eventID int, status event.St
 	w := patchEvent(t, r, eventID, patchData(status, version), token)
 	assert.Equal(t, wantHTTP, w.Code, "PATCH to %s: want HTTP %d, got %d; body: %s",
 		status, wantHTTP, w.Code, w.Body.String())
+}
+
+// extractComponents sends POST /v2/events/:eventID/extract.
+func extractComponents(t *testing.T, r *gin.Engine, eventID int, componentIDs []int, token string) *httptest.ResponseRecorder {
+	t.Helper()
+	body := v2.PostIncidentExtractData{Components: componentIDs}
+	data, err := json.Marshal(body)
+	require.NoError(t, err)
+
+	url := fmt.Sprintf("/v2/events/%d/extract", eventID)
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodPost, url, bytes.NewReader(data))
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	r.ServeHTTP(w, req)
+	return w
+}
+
+// incidentDataMultiComponent creates an incident with two components for extract tests.
+func incidentDataMultiComponent() v2.IncidentData {
+	impact := 1
+	system := false
+	startDate := time.Now().UTC()
+
+	return v2.IncidentData{
+		Title:      "Extract test incident",
+		Impact:     &impact,
+		Components: []int{1, 2},
+		StartDate:  startDate,
+		System:     &system,
+		Type:       event.TypeIncident,
+	}
 }

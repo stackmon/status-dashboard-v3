@@ -572,8 +572,8 @@ func TestCalculateAvailability(t *testing.T) {
 	}
 
 	compForPeriod := comp
-	stDate := time.Date(2025, 6, 21, 0, 0, 0, 0, time.UTC)
-	endDate := time.Date(2025, 7, 2, 20, 0, 0, 0, time.UTC)
+	stDate := time.Date(2026, 4, 21, 0, 0, 0, 0, time.UTC)
+	endDate := time.Date(2026, 5, 2, 20, 0, 0, 0, time.UTC)
 	compForPeriod.Incidents = append(compForPeriod.Incidents, &db.Incident{
 		ID:        1,
 		StartDate: &stDate,
@@ -583,7 +583,7 @@ func TestCalculateAvailability(t *testing.T) {
 
 	testCases := []testCase{
 		{
-			testDescription: "Test case: June (66.66667%)- July (94.08602%)",
+			testDescription: "Test case: April (66.66667%) - May (94.08602%)",
 			Component:       &compForPeriod,
 			Result: func() []*MonthlyAvailability {
 				results := make([]*MonthlyAvailability, 12)
@@ -595,13 +595,13 @@ func TestCalculateAvailability(t *testing.T) {
 						Month:      month,
 						Percentage: 100,
 					}
-					if month == 6 {
+					if month == 4 {
 						results[i] = &MonthlyAvailability{
 							Month:      month,
 							Percentage: 66.66667,
 						}
 					}
-					if month == 7 {
+					if month == 5 {
 						results[i] = &MonthlyAvailability{
 							Month:      month,
 							Percentage: 94.08602,

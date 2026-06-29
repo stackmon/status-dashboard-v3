@@ -1,12 +1,15 @@
 package v2
 
 import (
+	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 
 	"github.com/stackmon/otc-status-dashboard/internal/api/rbac"
@@ -586,4 +589,169 @@ func TestPrepareIncidentPatchNonMaintenance(t *testing.T) {
 	result := prepareIncidentPatch(c, logger, stored, incoming)
 
 	assert.True(t, result, "non-maintenance incident patch should pass without RBAC check")
+}
+
+func TestGetComponentsToExtract(t *testing.T) {
+	stored := []db.Component{
+		{ID: 1, Name: "Comp-A"},
+		{ID: 2, Name: "Comp-B"},
+		{ID: 3, Name: "Comp-C"},
+	}
+
+	tests := []struct {
+		name        string
+		requestIDs  []int
+		expectCount int
+		expectErr   string
+	}{
+		{
+			name:        "Valid: extract one component",
+			requestIDs:  []int{1},
+			expectCount: 1,
+		},
+		{
+			name:        "Valid: extract two of three components",
+			requestIDs:  []int{1, 3},
+			expectCount: 2,
+		},
+		{
+			name:       "Error: component not in incident",
+			requestIDs: []int{999},
+			expectErr:  "component 999 is not in the incident",
+		},
+		{
+			name:       "Error: one valid and one invalid",
+			requestIDs: []int{1, 42},
+			expectErr:  "component 42 is not in the incident",
+		},
+		{
+			name:       "Error: move all components",
+			requestIDs: []int{1, 2, 3},
+			expectErr:  "can not move all components",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result, err := getComponentsToExtract(tc.requestIDs, stored)
+			if tc.expectErr != "" {
+				require.ErrorContains(t, err, tc.expectErr)
+				assert.Nil(t, result)
+			} else {
+				require.NoError(t, err)
+				assert.Len(t, result, tc.expectCount)
+			}
+		})
+	}
+}
+
+func TestExtractRoleRestriction(t *testing.T) {
+	tests := []struct {
+		name         string
+		role         rbac.Role
+		eventType    string
+		expectStatus int
+		expectErr    string
+	}{
+		{
+			name:         "Admin can extract incident",
+			role:         rbac.Admin,
+			eventType:    event.TypeIncident,
+			expectStatus: 400, // passes role+type checks, fails on empty body
+		},
+		{
+			name:         "Operator can extract incident",
+			role:         rbac.Operator,
+			eventType:    event.TypeIncident,
+			expectStatus: 400, // passes role+type checks, fails on empty body
+		},
+		{
+			name:         "Creator cannot extract incident",
+			role:         rbac.Creator,
+			eventType:    event.TypeIncident,
+			expectStatus: 403,
+			expectErr:    apiErrors.ErrExtractForbiddenRole.Error(),
+		},
+		{
+			name:         "NoRole cannot extract incident",
+			role:         rbac.NoRole,
+			eventType:    event.TypeIncident,
+			expectStatus: 403,
+			expectErr:    apiErrors.ErrAuthForbidden.Error(),
+		},
+		{
+			name:         "Admin cannot extract maintenance",
+			role:         rbac.Admin,
+			eventType:    event.TypeMaintenance,
+			expectStatus: 403,
+			expectErr:    apiErrors.ErrExtractForbiddenType.Error(),
+		},
+		{
+			name:         "Admin cannot extract info",
+			role:         rbac.Admin,
+			eventType:    event.TypeInformation,
+			expectStatus: 403,
+			expectErr:    apiErrors.ErrExtractForbiddenType.Error(),
+		},
+		{
+			name:         "Operator cannot extract maintenance",
+			role:         rbac.Operator,
+			eventType:    event.TypeMaintenance,
+			expectStatus: 403,
+			expectErr:    apiErrors.ErrExtractForbiddenType.Error(),
+		},
+		{
+			name:         "Operator cannot extract info",
+			role:         rbac.Operator,
+			eventType:    event.TypeInformation,
+			expectStatus: 403,
+			expectErr:    apiErrors.ErrExtractForbiddenType.Error(),
+		},
+		{
+			name:         "Creator cannot extract maintenance",
+			role:         rbac.Creator,
+			eventType:    event.TypeMaintenance,
+			expectStatus: 403,
+			expectErr:    apiErrors.ErrExtractForbiddenRole.Error(),
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			gin.SetMode(gin.TestMode)
+			w := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(w)
+
+			// Provide an HTTP request so body binding doesn't panic
+			// when role+type checks pass through.
+			c.Request = httptest.NewRequest(
+				http.MethodPost, "/", strings.NewReader(`{}`),
+			)
+			c.Request.Header.Set("Content-Type", "application/json")
+
+			impact := 2
+			stored := &db.Incident{
+				ID:     1,
+				Type:   tc.eventType,
+				Impact: &impact,
+				Components: []db.Component{
+					{ID: 1, Name: "Comp-A"},
+					{ID: 2, Name: "Comp-B"},
+				},
+			}
+			c.Set("event", stored)
+
+			if tc.role != rbac.NoRole {
+				c.Set(RoleContextKey, tc.role)
+			}
+
+			handler := PostIncidentExtractHandler(nil, zap.NewNop())
+			handler(c)
+
+			assert.Equal(t, tc.expectStatus, w.Code)
+			if tc.expectErr != "" {
+				assert.Contains(t, w.Body.String(), tc.expectErr)
+			}
+		})
+	}
 }

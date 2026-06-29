@@ -1238,8 +1238,34 @@ func updateFields(income *PatchIncidentData, stored *db.Incident) {
 	}
 }
 
-type PostIncidentSeparateData struct {
-	Components []int `json:"components" binding:"required,min=1"`
+type PostIncidentExtractData struct {
+	Components []int `json:"components" binding:"required,min=1,unique"`
+}
+
+// getComponentsToExtract checks that all requested components belong to the incident
+// and that at least one component remains after extraction.
+func getComponentsToExtract(
+	requestedIDs []int, storedComponents []db.Component,
+) ([]db.Component, error) {
+	storedMap := make(map[int]db.Component, len(storedComponents))
+	for _, sc := range storedComponents {
+		storedMap[int(sc.ID)] = sc
+	}
+
+	moved := make([]db.Component, 0, len(requestedIDs))
+	for _, id := range requestedIDs {
+		sc, ok := storedMap[id]
+		if !ok {
+			return nil, fmt.Errorf("component %d is not in the incident", id)
+		}
+		moved = append(moved, sc)
+	}
+
+	if len(moved) == len(storedComponents) {
+		return nil, errors.New("can not move all components to the new incident, keep at least one")
+	}
+
+	return moved, nil
 }
 
 func PostIncidentExtractHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
@@ -1252,7 +1278,25 @@ func PostIncidentExtractHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFu
 			return
 		}
 
-		var incData PostIncidentSeparateData
+		// Extract is only available for operators and admins.
+		role, ok := getRoleFromContext(c, logger)
+		if !ok {
+			return
+		}
+		if !role.CanApprove() {
+			logger.Debug("extract denied: insufficient role", zap.Int("role", int(role)))
+			apiErrors.RaiseForbiddenErr(c, apiErrors.ErrExtractForbiddenRole)
+			return
+		}
+
+		// Extract is only available for incident type events.
+		if storedInc.Type != event.TypeIncident {
+			logger.Debug("extract denied: event type is not incident", zap.String("type", storedInc.Type))
+			apiErrors.RaiseForbiddenErr(c, apiErrors.ErrExtractForbiddenType)
+			return
+		}
+
+		var incData PostIncidentExtractData
 		if err := c.ShouldBindBodyWithJSON(&incData); err != nil {
 			logger.Warn("component extraction failed: invalid request body", zap.Error(err))
 			apiErrors.RaiseBadRequestErr(c, err)
@@ -1265,26 +1309,9 @@ func PostIncidentExtractHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFu
 			zap.Uint("incident_id", storedInc.ID),
 		)
 
-		var movedComponents []db.Component
-		var movedCounter int
-		for _, incCompID := range incData.Components {
-			present := false
-			for _, storedComp := range storedInc.Components {
-				if incCompID == int(storedComp.ID) {
-					present = true
-					movedComponents = append(movedComponents, storedComp)
-					movedCounter++
-					break
-				}
-			}
-			if !present {
-				apiErrors.RaiseBadRequestErr(c, fmt.Errorf("component %d is not in the incident", incCompID))
-				return
-			}
-		}
-
-		if movedCounter == len(storedInc.Components) {
-			apiErrors.RaiseBadRequestErr(c, fmt.Errorf("can not move all components to the new incident, keep at least one"))
+		movedComponents, err := getComponentsToExtract(incData.Components, storedInc.Components)
+		if err != nil {
+			apiErrors.RaiseBadRequestErr(c, err)
 			return
 		}
 
