@@ -82,7 +82,7 @@ internal/
     templates/
       maintenance_created_pending_review.tmpl
       maintenance_created_planned.tmpl
-    maintenance_changed.tmpl
+            maintenance_changed.tmpl
       maintenance_update_text_changed.tmpl
       maintenance_status_changed_by_checker.tmpl
   db/
@@ -314,9 +314,8 @@ outbox row for each resolved address in the same business transaction.
 flowchart LR
     K[Notification kind] --> R{Kind}
     R -->|created_pending_review| A[operator + admin role lists]
-    R -->|all other kinds| B[ ]
     A --> M[merge]
-    B --> M
+    R -->|all other kinds| M
     CE[contact_email] --> M
     M --> D[normalize + dedup] --> OUT[one outbox row per recipient]
 ```
