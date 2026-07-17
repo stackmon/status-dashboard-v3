@@ -41,6 +41,7 @@ func New(cfg *conf.Config, log *zap.Logger, database *db.DB) (*API, error) {
 	r := gin.New()
 	r.Use(Logger(log), gin.Recovery())
 	r.Use(ErrorHandle())
+	r.Use(SecurityHeaders())
 	r.Use(CORSMiddleware())
 	r.NoRoute(errors.Return404)
 

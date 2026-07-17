@@ -380,6 +380,14 @@ func Logger(log *zap.Logger) gin.HandlerFunc {
 	}
 }
 
+func SecurityHeaders() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		c.Writer.Header().Set("X-Frame-Options", "DENY")
+		c.Writer.Header().Set("Content-Security-Policy", "frame-ancestors 'none'")
+		c.Next()
+	}
+}
+
 func CORSMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
