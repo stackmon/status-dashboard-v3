@@ -322,3 +322,20 @@ func TestAuthenticationMW_RSA_WithAndWithoutGroup(t *testing.T) {
 	w = performRequestWithAuth(mw, "Bearer "+signedWithoutGroup)
 	assert.Equal(t, http.StatusUnauthorized, w.Code, "expected 401 when RSA token lacks required group")
 }
+
+func TestSecurityHeaders(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(SecurityHeaders())
+	r.GET("/test", func(c *gin.Context) {
+		c.String(http.StatusOK, "ok")
+	})
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, "DENY", w.Header().Get("X-Frame-Options"))
+	assert.Equal(t, "frame-ancestors 'none'", w.Header().Get("Content-Security-Policy"))
+}
