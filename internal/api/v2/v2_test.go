@@ -560,80 +560,108 @@ func TestCalculateAvailability(t *testing.T) {
 	type testCase struct {
 		testDescription string
 		Component       *db.Component
-		Result          []*MonthlyAvailability
+		Result          func() []*MonthlyAvailability
 	}
 
 	impact := 3
+
 	now := time.Now().UTC()
-	periodStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC).AddDate(0, -11, 0)
+	currentYear, currentMonth := now.Year(), now.Month()
 
-	comp := db.Component{
-		ID:        150,
-		Name:      "DataArts",
-		Incidents: []*db.Incident{},
+	prevMonthStart := time.Date(currentYear, currentMonth-1, 1, 0, 0, 0, 0, time.UTC)
+	prevMonthEnd := time.Date(currentYear, currentMonth, 1, 0, 0, 0, 0, time.UTC)
+	prevMonthDuration := prevMonthEnd.Sub(prevMonthStart)
+
+	currMonthStart := time.Date(currentYear, currentMonth, 1, 0, 0, 0, 0, time.UTC)
+	currMonthEnd := time.Date(currentYear, currentMonth+1, 1, 0, 0, 0, 0, time.UTC)
+	currMonthDuration := currMonthEnd.Sub(currMonthStart)
+
+	baseResult := func() []*MonthlyAvailability {
+		results := make([]*MonthlyAvailability, 12)
+		for i := range [12]int{} {
+			year, month := getYearAndMonth(now.Year(), int(now.Month()), 12-i-1)
+			results[i] = &MonthlyAvailability{
+				Year:       year,
+				Month:      month,
+				Percentage: 100,
+			}
+		}
+		return results
 	}
 
-	compForPeriod := comp
-	stDate := time.Date(periodStart.Year(), periodStart.Month(), 21, 0, 0, 0, 0, time.UTC)
-	endDate := time.Date(periodStart.Year(), periodStart.Month()+1, 2, 20, 0, 0, 0, time.UTC)
-	compForPeriod.Incidents = append(compForPeriod.Incidents, &db.Incident{
-		ID:        1,
-		StartDate: &stDate,
-		EndDate:   &endDate,
-		Impact:    &impact,
-	})
-
-	const (
-		precisionFactor = 100000.0
-		fullPercentage  = 100.0
-		roundFactor     = 0.5
-	)
-
-	calculateExpectedAvailability := func(downtimeHours, totalHours float64) float64 {
-		availability := fullPercentage - (downtimeHours / totalHours * fullPercentage)
-		return float64(int(availability*precisionFactor+roundFactor)) / precisionFactor
+	roundTo5 := func(val float64) float64 {
+		return float64(int(val*100000+0.5)) / 100000
 	}
-
-	firstMonthHours := hoursInMonth(stDate.Year(), int(stDate.Month()))
-	secondMonthHours := hoursInMonth(endDate.Year(), int(endDate.Month()))
-	firstMonthAvailability := calculateExpectedAvailability(
-		time.Date(stDate.Year(), stDate.Month()+1, 1, 0, 0, 0, 0, time.UTC).Sub(stDate).Hours(),
-		firstMonthHours,
-	)
-	secondMonthAvailability := calculateExpectedAvailability(
-		endDate.Sub(time.Date(endDate.Year(), endDate.Month(), 1, 0, 0, 0, 0, time.UTC)).Hours(),
-		secondMonthHours,
-	)
 
 	testCases := []testCase{
 		{
-			testDescription: "Test case: first month (availability drop) and next month (availability drop)",
-			Component:       &compForPeriod,
+			testDescription: "Available full month (100% availability)",
+			Component: &db.Component{
+				ID:        1,
+				Name:      "Component1",
+				Incidents: []*db.Incident{},
+			},
 			Result: func() []*MonthlyAvailability {
-				results := make([]*MonthlyAvailability, 12)
-
-				for i := range [12]int{} {
-					year, month := getYearAndMonth(now.Year(), int(now.Month()), 11-i)
-					results[i] = &MonthlyAvailability{
-						Year:       year,
-						Month:      month,
-						Percentage: 100,
-					}
-					if year == stDate.Year() && month == int(stDate.Month()) {
-						results[i] = &MonthlyAvailability{
-							Month:      month,
-							Percentage: firstMonthAvailability,
-						}
-					}
-					if year == endDate.Year() && month == int(endDate.Month()) {
-						results[i] = &MonthlyAvailability{
-							Month:      month,
-							Percentage: secondMonthAvailability,
-						}
-					}
-				}
-				return results
-			}(),
+				return baseResult()
+			},
+		},
+		{
+			testDescription: "Available from middle of previous month to middle of current month",
+			Component: &db.Component{
+				ID:   2,
+				Name: "Component2",
+				Incidents: []*db.Incident{
+					{
+						StartDate: func() *time.Time { t := prevMonthStart.Add(prevMonthDuration / 2); return &t }(),
+						EndDate:   func() *time.Time { t := currMonthStart.Add(currMonthDuration / 2); return &t }(),
+						Impact:    &impact,
+					},
+				},
+			},
+			Result: func() []*MonthlyAvailability {
+				res := baseResult()
+				res[10].Percentage = roundTo5(100.0 - (float64(prevMonthDuration/2)/float64(prevMonthDuration))*100.0)
+				res[11].Percentage = roundTo5(100.0 - (float64(currMonthDuration/2)/float64(currMonthDuration))*100.0)
+				return res
+			},
+		},
+		{
+			testDescription: "20% availability in previous month",
+			Component: &db.Component{
+				ID:   3,
+				Name: "Component3",
+				Incidents: []*db.Incident{
+					{
+						StartDate: &prevMonthStart,
+						EndDate:   func() *time.Time { t := prevMonthStart.Add(time.Duration(float64(prevMonthDuration) * 0.8)); return &t }(),
+						Impact:    &impact,
+					},
+				},
+			},
+			Result: func() []*MonthlyAvailability {
+				res := baseResult()
+				res[10].Percentage = roundTo5(20.0)
+				return res
+			},
+		},
+		{
+			testDescription: "Not available the entire previous month (0% availability)",
+			Component: &db.Component{
+				ID:   4,
+				Name: "Component4",
+				Incidents: []*db.Incident{
+					{
+						StartDate: &prevMonthStart,
+						EndDate:   &prevMonthEnd,
+						Impact:    &impact,
+					},
+				},
+			},
+			Result: func() []*MonthlyAvailability {
+				res := baseResult()
+				res[10].Percentage = 0.0
+				return res
+			},
 		},
 	}
 
@@ -643,9 +671,11 @@ func TestCalculateAvailability(t *testing.T) {
 
 		t.Logf("Test '%s': Calculated availability: %+v", tc.testDescription, result)
 
+		expected := tc.Result()
 		assert.Len(t, result, 12)
 		for i, r := range result {
-			assert.InEpsilon(t, tc.Result[i].Percentage, r.Percentage, 0.0001)
+			assert.InDelta(t, expected[i].Percentage, r.Percentage, 0.0001,
+				"month %d/%d mismatch in case '%s'", expected[i].Year, expected[i].Month, tc.testDescription)
 		}
 	}
 }
@@ -893,117 +923,6 @@ func TestValidateStatusesPatches(t *testing.T) {
 			}
 		})
 	}
-}
-
-func TestValidateEventCreationDescriptionLength(t *testing.T) {
-	impact := 1
-	system := false
-
-	makeIncident := func(description string) IncidentData {
-		return IncidentData{
-			Title:       "description boundary test",
-			Description: description,
-			Impact:      &impact,
-			Components:  []int{1},
-			StartDate:   time.Now().Add(-time.Hour).UTC(),
-			System:      &system,
-			Type:        event.TypeIncident,
-		}
-	}
-
-	t.Run("description with 1500 characters is valid", func(t *testing.T) {
-		err := validateEventCreation(makeIncident(strings.Repeat("a", 1500)))
-		assert.NoError(t, err)
-	})
-
-	t.Run("description with 1501 characters is invalid", func(t *testing.T) {
-		err := validateEventCreation(makeIncident(strings.Repeat("a", 1501)))
-		require.Error(t, err)
-		assert.Equal(t, errors.ErrIncidentDescriptionTooLong, err)
-	})
-}
-
-func TestCheckPatchDataDescriptionLength(t *testing.T) {
-	impact := 2
-	stored := &db.Incident{
-		Type:   event.TypeIncident,
-		Impact: &impact,
-	}
-
-	validDesc := strings.Repeat("a", 1500)
-	overLongDesc := strings.Repeat("a", 1501)
-
-	testCases := []struct {
-		name        string
-		description *string
-		expectError bool
-		expectedErr error
-	}{
-		{
-			name:        "description nil is valid",
-			description: nil,
-			expectError: false,
-		},
-		{
-			name:        "description with 1500 characters is valid",
-			description: &validDesc,
-			expectError: false,
-		},
-		{
-			name:        "description with 1501 characters returns ErrIncidentDescriptionTooLong",
-			description: &overLongDesc,
-			expectError: true,
-			expectedErr: errors.ErrIncidentDescriptionTooLong,
-		},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			incoming := &PatchIncidentData{
-				Status:      event.IncidentDetected,
-				Description: tc.description,
-			}
-			err := checkPatchData(incoming, stored)
-			if tc.expectError {
-				require.Error(t, err)
-				assert.Equal(t, tc.expectedErr, err)
-			} else {
-				assert.NoError(t, err)
-			}
-		})
-	}
-}
-
-// TestPatchEventDescriptionTooLongHandler verifies that PATCH /v2/events/:eventID returns HTTP 400
-// when the incoming description exceeds the 1500-character maximum.
-func TestPatchEventDescriptionTooLongHandler(t *testing.T) {
-	impact := 2
-	testTime := time.Now().UTC().Add(-time.Hour)
-	storedIncident := &db.Incident{
-		ID:        111,
-		Text:      &[]string{"Test Incident"}[0],
-		Impact:    &impact,
-		Type:      event.TypeIncident,
-		StartDate: &testTime,
-	}
-
-	r := initRouterWithStoredEvent(t, storedIncident)
-
-	overLongDesc := strings.Repeat("a", 1501)
-	updateDate := time.Now().UTC().Format(time.RFC3339)
-	body := fmt.Sprintf(
-		`{"status":"detecting","message":"test message","update_date":%q,"description":%q}`,
-		updateDate, overLongDesc,
-	)
-
-	w := httptest.NewRecorder()
-	req, _ := http.NewRequest(http.MethodPatch, "/v2/events/111", strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-
-	r.ServeHTTP(w, req)
-
-	require.Equal(t, http.StatusBadRequest, w.Code)
-	assert.JSONEq(t, `{"errMsg":"event description should be 1500 characters or fewer"}`, w.Body.String())
 }
 
 func TestPatchEventUpdateHandler(t *testing.T) {

@@ -1151,13 +1151,36 @@ func TestV2GetComponentsAvailability(t *testing.T) {
 	t.Logf("start to test GET %s", v2AvailabilityEndpoint)
 	r, _, _ := initTests(t)
 
+	// Ensure component 7 exists (created by TestV2CreateComponentAndList when running full suite)
+	newComponent := v2.PostComponentData{
+		Name: "Domain Name System",
+		Attributes: []v2.ComponentAttribute{
+			{Name: "type", Value: "dns"},
+			{Name: "region", Value: "EU-DE"},
+			{Name: "category", Value: "Network"},
+		},
+	}
+	data, _ := json.Marshal(newComponent)
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodPost, "/v2/components", bytes.NewReader(data))
+	r.ServeHTTP(w, req)
+	// Ignore error — component may already exist from a previous test run
+
 	// Incident preparation
 	t.Log("create an incident")
 
+	now := time.Now().UTC()
 	components := []int{7}
 	impact := 3
 	title := "Test incident for dns N1"
-	startDate := time.Date(2025, 7, 1, 0, 0, 0, 0, time.UTC)
+
+	// Use relative dates to stay within the 12-month availability window.
+	// Compute exact midpoints so each incident covers exactly 50% of its month.
+	monthN1Start := time.Date(now.Year(), now.Month()-5, 1, 0, 0, 0, 0, time.UTC)
+	monthN1End := time.Date(now.Year(), now.Month()-4, 1, 0, 0, 0, 0, time.UTC)
+	monthN1Mid := monthN1Start.Add(monthN1End.Sub(monthN1Start) / 2) // exact midpoint
+
+	startDate := monthN1Start
 	system := false
 
 	// Incident N1
@@ -1178,17 +1201,23 @@ func TestV2GetComponentsAvailability(t *testing.T) {
 
 	// Incident closing
 	incidentN1 := v2GetIncident(t, r, resultN1.Result[0].IncidentID)
-	endDate := time.Date(2025, 7, 16, 12, 0, 0, 0, time.UTC)
+	endDate := monthN1Mid
 	incidentN1.EndDate = &endDate
 	v2PatchIncident(t, r, incidentN1)
 
 	t.Logf("Incident patched: %+v", incidentN1)
 
 	// Incident N2
+	// Month M-4 to M-3: incident from midpoint of M-4 to midpoint of M-3 (~50% each)
+	monthN2MStart := time.Date(now.Year(), now.Month()-4, 1, 0, 0, 0, 0, time.UTC)
+	monthN2MEnd := time.Date(now.Year(), now.Month()-3, 1, 0, 0, 0, 0, time.UTC)
+	monthN3MEnd := time.Date(now.Year(), now.Month()-2, 1, 0, 0, 0, 0, time.UTC)
+	monthN2Mid := monthN2MStart.Add(monthN2MEnd.Sub(monthN2MStart) / 2)
+	monthN3Mid := monthN2MEnd.Add(monthN3MEnd.Sub(monthN2MEnd) / 2)
 
 	title = "Test incident for dns N2"
-	startDate = time.Date(2025, 8, 16, 12, 0, 0, 0, time.UTC)
-	endDate = time.Date(2025, 9, 16, 00, 00, 00, 0, time.UTC)
+	startDate = monthN2Mid
+	endDate = monthN3Mid
 
 	incidentCreateDataN2 := v2.IncidentData{
 		Title:      title,
@@ -1215,8 +1244,8 @@ func TestV2GetComponentsAvailability(t *testing.T) {
 
 	// Test case 1: Successful availability listing
 	t.Log("Test case 1: List availability successfully")
-	w := httptest.NewRecorder()
-	req, _ := http.NewRequest(http.MethodGet, v2AvailabilityEndpoint, nil)
+	w = httptest.NewRecorder()
+	req, _ = http.NewRequest(http.MethodGet, v2AvailabilityEndpoint, nil)
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
@@ -1229,7 +1258,12 @@ func TestV2GetComponentsAvailability(t *testing.T) {
 	assert.NotEmpty(t, availability)
 
 	// Test case 2: Check if the availability data is correct
-	targetMonths := map[int]bool{7: true, 8: true, 9: true}
+	// Target months are M-5, M-4, M-3 (the months where incidents caused ~50% downtime)
+	targetMonths := map[int]bool{
+		int(monthN1Start.Month()):  true,
+		int(monthN2MStart.Month()): true,
+		int(monthN2MEnd.Month()):   true,
+	}
 
 	for _, compAvail := range availability.Data {
 		if compAvail.ID == 7 {
