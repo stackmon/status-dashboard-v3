@@ -13,7 +13,7 @@ The plan has two parts:
 
 | # | Stage | What it delivers | Depends on |
 |---|-------|------------------|------------|
-| 1 | Database | Outbox and log tables | — |
+| 1 | Database | Outbox table | — |
 | 2 | Configuration | SMTP + notification settings | 1 |
 | 3 | Storage layer | Go code to read/write the tables | 2 |
 | 4 | Notification core | Recipients, templates, email sending | 3 |
@@ -38,13 +38,14 @@ so every stage leaves the system working.
 
 Files: `db/migrations/000007_notification.up.sql`, `db/migrations/000007_notification.down.sql`
 
-- [ ] Create table `notification_outbox` (see architecture §3.1).
-- [ ] Create table `notification_log` with `attempted_at`.
+- [ ] Create table `notification_outbox` (see architecture §4).
 - [ ] Add index `idx_outbox_dispatch` (pending rows).
 - [ ] Add index `idx_outbox_stale_processing` (stale leases).
-- [ ] Add unique index `idx_outbox_deduplication`.
-- [ ] Write the down migration (drop both tables).
+- [ ] Add unique index `idx_outbox_dedup`.
+- [ ] Write the down migration (drop the table).
 - [ ] Verify: `make migrate-up` then `make migrate-down` runs clean.
+
+Note: no separate `notification_log` table — delivery outcome lives on the outbox row.
 
 ## Stage 2 — Configuration
 
@@ -52,8 +53,8 @@ Files: `internal/conf/conf.go`, `internal/conf/conf_test.go`
 
 - [ ] Add `SD_NOTIFICATIONS_ENABLED`.
 - [ ] Add SMTP settings: host, port, from, user, password, TLS.
-- [ ] Add role email lists: admins, operators.
-- [ ] Validate: if enabled, SMTP host/port/from are required.
+- [ ] Add review-audience email lists: `SD_NOTIFICATIONS_EMAILS_OPERATORS`, `SD_NOTIFICATIONS_EMAILS_ADMINS`.
+- [ ] Validate: if enabled, SMTP host/port/from and at least one review address are required.
 - [ ] Mask SMTP secrets in logs.
 - [ ] Verify: `go test ./internal/conf/...` passes.
 
@@ -61,26 +62,25 @@ Files: `internal/conf/conf.go`, `internal/conf/conf_test.go`
 
 Files: `internal/db/notification.go`, `internal/db/models.go`
 
-- [ ] Add GORM models for outbox and log.
+- [ ] Add GORM model for the outbox.
 - [ ] Enqueue method that accepts a shared transaction.
 - [ ] Claim method: `FOR UPDATE SKIP LOCKED`, set `processing`, `attempts++`.
-- [ ] Mark sent / failed method.
+- [ ] Mark sent / failed method (updates status + last_error on the row).
 - [ ] Lease recovery method (respects max attempts).
-- [ ] Write outbox result + log in one transaction.
 - [ ] Verify: unit tests for enqueue, claim, recovery, dedup conflict.
 
 ## Stage 4 — Notification core
 
 Files: `internal/notification/` (`notification.go`, `resolver.go`, `renderer.go`, `smtp.go`, `templates/`)
 
-- [ ] Define event kinds as typed constants.
-- [ ] Recipient resolver: role lists + `contact_email`, normalize + dedup.
-- [ ] Build `deduplication_key` = `change_id : kind : recipient`.
-- [ ] Change summary builder (title, description, dates, status, update text).
+- [ ] Define the three event kinds as typed constants (`pending_review`, `reviewed`, `status_changed`).
+- [ ] Recipient rules by resulting status: review audience (operator + admin lists) + `contact_email`, normalize + dedup.
+- [ ] Build `dedup_key` = `change_id : kind : recipient`.
+- [ ] Change summary builder (title, dates, old/new status).
 - [ ] Email templates + renderer (subject, body, deep link).
-- [ ] SMTP sender with timeout and TLS.
+- [ ] SMTP sender using `github.com/wneessen/go-mail` (direct OTC SMTP endpoint, timeout + TLS).
 - [ ] Promote `google/uuid` to a direct dependency.
-- [ ] Verify: unit tests for resolver, dedup key, summary, rendering.
+- [ ] Verify: unit tests for recipient rules, dedup key, summary, rendering.
 
 ## Stage 5 — Transaction-safe writes
 
@@ -102,14 +102,14 @@ Files: `internal/api/v2/v2.go`, `internal/api/api.go`, `internal/api/routes.go`
 - [ ] Wrap each maintenance write + enqueue in one transaction.
 - [ ] Generate a fresh `change_id` per successful change.
 - [ ] Enqueue only for maintenance, only on success, only when enabled.
-- [ ] Map kinds: created_pending_review, created_planned, changed, update_text_changed.
+- [ ] Map kind by resulting status: `pending_review`, `reviewed`, `status_changed`.
 - [ ] Verify: no outbox row on 400/403/409/500; integration test for recipients.
 
 ## Stage 7 — Checker triggers
 
 Files: `internal/checker/maintenance.go`, `internal/checker/checker.go`
 
-- [ ] Enqueue kind `maintenance_status_changed_by_checker`, actor `checker`.
+- [ ] Enqueue kind `status_changed`, actor `checker`.
 - [ ] Publish inside the winning optimistic-lock transaction only.
 - [ ] On version conflict, publish nothing.
 - [ ] One notification per real transition (no duplicates from backfill).
@@ -122,6 +122,7 @@ Files: `internal/notification/worker.go`
 - [ ] Ticker loop: recover leases → claim batch → commit → send.
 - [ ] Send outside the DB transaction.
 - [ ] Per-row `recover()` isolation.
+- [ ] On result, update outbox status + last_error on the row.
 - [ ] Backoff with cap; move to `failed` at max attempts.
 - [ ] Bounded batch size and concurrency (lease > SMTP timeout + wait).
 - [ ] Graceful shutdown: stop claiming, drain in-flight.
@@ -141,11 +142,11 @@ Files: `cmd/main.go`, `internal/app/app.go`
 
 Files: `internal/notification/*_test.go`, `tests/notifications_test.go`
 
-- [ ] Unit: resolver, summary, renderer, worker retry/lease.
-- [ ] Integration: each kind → expected recipients.
-- [ ] Integration: checker transition emits one row.
-- [ ] Failure path: SMTP down → failed log.
-- [ ] Failure path: DB error → no orphan intent.
+- [ ] Unit: recipient rules, summary, renderer, worker retry/lease.
+- [ ] Integration: each kind → expected recipients (review audience + creator vs creator only).
+- [ ] Integration: checker transition emits one row to the creator.
+- [ ] Failure path: SMTP down → outbox row marked failed with error.
+- [ ] Failure path: DB error → no orphan email task.
 - [ ] Dedup: same change cannot enqueue the same recipient twice.
 - [ ] Verify: `make test`, `make test-acc`, `make lint` all pass.
 
