@@ -35,6 +35,32 @@ func TestV2GetIncidentsHandler(t *testing.T) {
 	t.Logf("start to test GET %s", v2IncidentsEndpoint)
 	r, _, _ := initTests(t)
 
+	// Clean up and create a known incident for this test
+	truncateIncidents(t)
+
+	components := []int{1}
+	impact := 1
+	title := "Test incident for get handler"
+	startDate := time.Now().Add(-24 * time.Hour).UTC()
+	system := false
+	incidentCreateData := v2.IncidentData{
+		Title:      title,
+		Impact:     &impact,
+		Components: components,
+		StartDate:  startDate,
+		System:     &system,
+		Type:       event.TypeIncident,
+	}
+
+	// Create incident via API
+	createBody, err := json.Marshal(incidentCreateData)
+	require.NoError(t, err)
+	createReq, _ := http.NewRequest(http.MethodPost, v2IncidentsEndpoint, bytes.NewReader(createBody))
+	createReq.Header.Set("Content-Type", "application/json")
+	createW := httptest.NewRecorder()
+	r.ServeHTTP(createW, createReq)
+	require.Equal(t, http.StatusOK, createW.Code, "failed to create test incident: %s", createW.Body.String())
+
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest(http.MethodGet, v2IncidentsEndpoint, nil)
 	req.Header.Set("Authorization", "Bearer "+adminToken)
@@ -45,8 +71,20 @@ func TestV2GetIncidentsHandler(t *testing.T) {
 
 	assert.Equal(t, 200, w.Code)
 
-	err := json.Unmarshal(w.Body.Bytes(), &incidents)
+	err = json.Unmarshal(w.Body.Bytes(), &incidents)
 	require.NoError(t, err)
+	require.NotEmpty(t, incidents["data"], "expected at least one incident")
+
+	found := false
+	for _, inc := range incidents["data"] {
+		if inc.Title == title {
+			assert.Equal(t, impact, *inc.Impact)
+			assert.Equal(t, event.TypeIncident, inc.Type)
+			found = true
+			break
+		}
+	}
+	require.True(t, found, "expected incident with title %q not found", title)
 }
 
 func TestV2GetComponentsHandler(t *testing.T) {
@@ -182,6 +220,52 @@ func TestV2PostIncidentsHandlerNegative(t *testing.T) {
 		assert.Equal(t, c.ExpectedCode, w.Code)
 		assert.Equal(t, c.Expected, w.Body.String())
 	}
+}
+
+func TestV2PostIncidentsDescriptionLengthLimits(t *testing.T) {
+	t.Log("start to test description length limits for /v2/incidents")
+	truncateIncidents(t)
+	r, _, _ := initTests(t)
+
+	impact := 1
+	system := false
+	base := v2.IncidentData{
+		Title:      "Incident with boundary description length",
+		Impact:     &impact,
+		Components: []int{1},
+		StartDate:  time.Now().Add(-time.Hour).UTC(),
+		System:     &system,
+		Type:       event.TypeIncident,
+	}
+
+	t.Run("description with 1500 characters is accepted", func(t *testing.T) {
+		data := base
+		data.Description = strings.Repeat("a", 1500)
+
+		payload, err := json.Marshal(data)
+		require.NoError(t, err)
+
+		w := httptest.NewRecorder()
+		req, _ := http.NewRequest(http.MethodPost, v2IncidentsEndpoint, bytes.NewReader(payload))
+		r.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+	})
+
+	t.Run("description with 1501 characters is rejected", func(t *testing.T) {
+		data := base
+		data.Description = strings.Repeat("a", 1501)
+
+		payload, err := json.Marshal(data)
+		require.NoError(t, err)
+
+		w := httptest.NewRecorder()
+		req, _ := http.NewRequest(http.MethodPost, v2IncidentsEndpoint, bytes.NewReader(payload))
+		r.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusBadRequest, w.Code)
+		assert.JSONEq(t, fmt.Sprintf(`{"errMsg":"%s"}`, apiErrors.ErrIncidentDescriptionTooLong), w.Body.String())
+	})
 }
 
 func TestV2PostIncidentsHandler(t *testing.T) {
@@ -337,6 +421,7 @@ func TestV2PostIncidentsHandler(t *testing.T) {
 	result = v2CreateIncident(t, r, &incidentCreateData)
 	require.NotNil(t, result, "v2CreateIncident returned nil")
 	assert.NotZero(t, result.Result[0].IncidentID)
+	assert.Equal(t, len(incidents)+4, result.Result[0].IncidentID)
 	assert.Equal(t, 3, result.Result[0].ComponentID)
 }
 
@@ -916,29 +1001,45 @@ func TestV2GetIncidentsFilteredHandler(t *testing.T) {
 			queryParams:   nil,
 			expectedIDs:   []int{resolvedID, majorID, outageID, activeID, maintenanceID},
 			expectedCount: 5,
+			expectedIDs:   []int{1, 2, 3, 4, 5, 6, 7, 8, 9},
+			expectedCount: 9,
 		},
 		{
 			name:          "Filter by start_date",
 			queryParams:   map[string]string{"start_date": startDateFilter},
 			expectedIDs:   []int{resolvedID, majorID, outageID, activeID, maintenanceID},
 			expectedCount: 5,
+			name:          "Filter by start_date",
+			queryParams:   map[string]string{"start_date": time.Date(2025, 2, 1, 0, 0, 0, 0, time.UTC).Format(time.RFC3339)},
+			// Incidents starting on or after 2025-02-01
+			expectedIDs:   []int{1, 2, 3, 4, 5, 6, 7, 8, 9},
+			expectedCount: 9,
 		},
 		{
 			name:          "Filter by end_date",
 			queryParams:   map[string]string{"end_date": endDateFilter},
 			expectedIDs:   []int{resolvedID},
 			expectedCount: 1,
+			name:          "Filter by end_date",
+			queryParams:   map[string]string{"end_date": time.Date(2025, 5, 23, 0, 0, 0, 0, time.UTC).Format(time.RFC3339)},
+			// Incidents starting on or before 2025-05-23
+			expectedIDs:   []int{},
+			expectedCount: 0,
 		},
 		{
 			name:          "Filter by impact minor (1)",
 			queryParams:   map[string]string{"impact": "1"},
 			expectedIDs:   []int{resolvedID, activeID},
 			expectedCount: 2,
+			expectedIDs:   []int{1, 2, 3, 5, 6, 8, 9},
+			expectedCount: 7,
 		},
 		{
 			name:          "Filter by impact major (2)",
 			queryParams:   map[string]string{"impact": "2"},
 			expectedIDs:   []int{majorID},
+			expectedCount: 1,
+			expectedIDs:   []int{7},
 			expectedCount: 1,
 		},
 		{
@@ -946,12 +1047,16 @@ func TestV2GetIncidentsFilteredHandler(t *testing.T) {
 			queryParams:   map[string]string{"impact": "0"},
 			expectedIDs:   []int{maintenanceID},
 			expectedCount: 1,
+			expectedIDs:   []int{4},
+			expectedCount: 1,
 		},
 		{
 			name:          "Filter by component_id 1",
 			queryParams:   map[string]string{"components": "1"},
 			expectedIDs:   []int{resolvedID, maintenanceID},
 			expectedCount: 2,
+			expectedIDs:   []int{1, 4, 6, 7, 8},
+			expectedCount: 5,
 		},
 		{
 			name:          "Filter by non-existent component_id 8",
@@ -964,42 +1069,60 @@ func TestV2GetIncidentsFilteredHandler(t *testing.T) {
 			queryParams:   map[string]string{"system": "true"},
 			expectedIDs:   []int{resolvedID, outageID},
 			expectedCount: 2,
+			expectedIDs:   []int{},
+			expectedCount: 0,
 		},
 		{
 			name:          "Filter by system false",
 			queryParams:   map[string]string{"system": "false"},
 			expectedIDs:   []int{majorID, activeID, maintenanceID},
 			expectedCount: 3,
+			expectedIDs:   []int{1, 2, 3, 4, 5, 6, 7, 8, 9},
+			expectedCount: 9,
 		},
 		{
 			name:          "Filter by active true",
 			queryParams:   map[string]string{"active": "true"},
 			expectedIDs:   []int{majorID, outageID, activeID},
 			expectedCount: 3,
+			expectedIDs:   []int{8, 9},
+			expectedCount: 2,
 		},
 		{
 			name:          "Combination: active true and impact 1",
 			queryParams:   map[string]string{"active": "true", "impact": "1"},
 			expectedIDs:   []int{activeID},
 			expectedCount: 1,
+			expectedIDs:   []int{8, 9},
+			expectedCount: 2,
 		},
 		{
 			name:          "Combination: component_id 3 and system true",
 			queryParams:   map[string]string{"components": "3", "system": "true"},
 			expectedIDs:   []int{outageID},
 			expectedCount: 1,
+			expectedIDs:   []int{},
+			expectedCount: 0,
 		},
 		{
 			name:          "Date range: resolved window",
 			queryParams:   map[string]string{"start_date": startDateFilter, "end_date": endDateFilter},
 			expectedIDs:   []int{resolvedID},
 			expectedCount: 1,
+			name:          "Date range: 2025-05-01 to 2025-05-24",
+			queryParams:   map[string]string{"start_date": time.Date(2025, 5, 01, 0, 0, 0, 0, time.UTC).Format(time.RFC3339), "end_date": time.Date(2025, 5, 24, 0, 0, 0, 0, time.UTC).Format(time.RFC3339)},
+			// Incidents starting between 2025-05-01 and 2025-05-24 (inclusive for start_date)
+			// No pre-existing incidents in this range.
+			expectedIDs:   []int{},
+			expectedCount: 0,
 		},
 		{
 			name:          "Filter by impact 3 (outage)",
 			queryParams:   map[string]string{"impact": "3"},
 			expectedIDs:   []int{outageID},
 			expectedCount: 1,
+			expectedIDs:   []int{},
+			expectedCount: 0,
 		},
 	}
 

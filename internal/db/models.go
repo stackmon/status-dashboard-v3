@@ -96,7 +96,7 @@ func (c *ComponentAttr) TableName() string {
 type Incident struct {
 	ID           uint             `json:"id"`
 	Text         *string          `json:"text" gorm:"not null"`
-	Description  *string          `json:"description" gorm:"type:varchar(500)"`
+	Description  *string          `json:"description" gorm:"type:varchar(1500)"`
 	StartDate    *time.Time       `json:"start_date" gorm:"not null"`
 	EndDate      *time.Time       `json:"end_date"`
 	Impact       *int             `json:"impact" gorm:"not null"`

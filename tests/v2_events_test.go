@@ -870,6 +870,14 @@ func TestV2GetEventsHandler(t *testing.T) {
 	allIncidents := v2GetEvents(t, r)
 	t.Logf("Initial incidents in DB: %+v", len(allIncidents))
 	totalIncidents := len(allIncidents)
+	expectedpages10 := totalIncidents / 10
+	if totalIncidents%10 != 0 {
+		expectedpages10++
+	}
+	expectedpages20 := totalIncidents / 20
+	if totalIncidents%20 != 0 {
+		expectedpages20++
+	}
 
 	testCases := []struct {
 		name               string
@@ -889,6 +897,9 @@ func TestV2GetEventsHandler(t *testing.T) {
 			name:               "Pagination with limit 10, page 1",
 			queryParams:        "?limit=10&page=1",
 			expectedStatusCode: http.StatusOK,
+			expectedTotal:      totalIncidents,
+			expectedPages:      expectedpages10,
+			expectedItemsCount: min(10, totalIncidents),
 			expectedLimit:      10,
 			expectedPage:       1,
 		},
@@ -896,6 +907,9 @@ func TestV2GetEventsHandler(t *testing.T) {
 			name:               "Pagination with limit 10, page 2",
 			queryParams:        "?limit=10&page=2",
 			expectedStatusCode: http.StatusOK,
+			expectedTotal:      totalIncidents,
+			expectedPages:      expectedpages10,
+			expectedItemsCount: max(0, totalIncidents-10),
 			expectedLimit:      10,
 			expectedPage:       2,
 		},
@@ -903,6 +917,9 @@ func TestV2GetEventsHandler(t *testing.T) {
 			name:               "Pagination with limit 20, page 1",
 			queryParams:        "?limit=20&page=1",
 			expectedStatusCode: http.StatusOK,
+			expectedTotal:      totalIncidents,
+			expectedPages:      expectedpages20,
+			expectedItemsCount: min(20, totalIncidents),
 			expectedLimit:      20,
 			expectedPage:       1,
 		},
