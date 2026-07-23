@@ -650,7 +650,6 @@ func TestCalculateAvailability(t *testing.T) {
 	}
 }
 
-
 func TestValidateEventCreationDescriptionLength(t *testing.T) {
 	impact := 1
 	system := false

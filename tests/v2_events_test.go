@@ -870,14 +870,6 @@ func TestV2GetEventsHandler(t *testing.T) {
 	allIncidents := v2GetEvents(t, r)
 	t.Logf("Initial incidents in DB: %+v", len(allIncidents))
 	totalIncidents := len(allIncidents)
-	expectedpages10 := totalIncidents / 10
-	if totalIncidents%10 != 0 {
-		expectedpages10++
-	}
-	expectedpages20 := totalIncidents / 20
-	if totalIncidents%20 != 0 {
-		expectedpages20++
-	}
 
 	testCases := []struct {
 		name               string
