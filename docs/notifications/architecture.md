@@ -12,17 +12,19 @@ the right people.** Everything below explains how that happens without slowing d
 
 There are two audiences:
 
-1. **Review audience** — the RBAC roles that can review and approve maintenance: **Operator** and
-   **Admin** (see [../auth/rbac.md](../auth/rbac.md) and [../auth/permissions.md](../auth/permissions.md)).
-   Their addresses are predefined email lists in configuration (one list per role), not taken from
-   the request. Operationally this is the SMOD team.
+1. **Review audience** — notified while the maintenance still needs a human decision. It consists of:
+   - the RBAC roles that can review and approve maintenance: **Operator** and **Admin**
+     (see [../auth/rbac.md](../auth/rbac.md) and [../auth/permissions.md](../auth/permissions.md)),
+     via per-role email lists in configuration; plus
+   - a fixed **SMOD team** address (`SD_NOTIFICATIONS_SMOD_EMAIL`, for example `support@com.com`).
+   None of these come from the request — they are all predefined in configuration.
 2. **Creator** — the maintenance contact address. It arrives in the create request
    (field `contact_email`) and is stored in the `incident.contact_email` column.
 
 The recipients are decided by the **resulting maintenance status**:
 
-| Maintenance goes to… | Review audience (Operator + Admin) | Creator |
-|----------------------|:----------------------------------:|:-------:|
+| Maintenance goes to… | Review audience (Operator + Admin + SMOD team) | Creator |
+|----------------------|:----------------------------------------------:|:-------:|
 | `pending_review` (just created for review) | ✅ | ✅ |
 | `reviewed` (approved) | ✅ | ✅ |
 | `planned` | ❌ | ✅ |
@@ -33,7 +35,8 @@ The recipients are decided by the **resulting maintenance status**:
 In words:
 
 - While the maintenance still needs a human decision (`pending_review`, `reviewed`),
-  the review audience (operators and admins) and the creator are informed.
+  the review audience (operators, admins, and the fixed SMOD team address) and the creator are
+  informed.
 - Once it is an ordinary lifecycle change (`planned` → `in_progress` → `completed`, or `cancelled`),
   only the creator is informed.
 
@@ -92,10 +95,12 @@ did.
 
 ### Recipient rules
 **What it does:** looks at the resulting maintenance status and produces the recipient list
-(review audience — operators and admins — the creator, or both) using the table in §1.
+(review audience — operators, admins, and the fixed SMOD team address — the creator, or both) using
+the table in §1.
 **Why it exists:** it keeps the "who gets what" logic in one small, testable place instead of
-scattered across handlers. The review audience maps to the RBAC roles that can approve maintenance;
-their addresses come from configured per-role email lists, not from the requester's token.
+scattered across handlers. The operator and admin parts map to the RBAC roles that can approve
+maintenance; their addresses and the SMOD team address come from configuration, not from the
+requester's token.
 
 ### notification_outbox (table)
 **What it does:** a durable to-do list of emails. One row = one email to one recipient.
@@ -181,15 +186,16 @@ The columns fall into five groups:
 
 ### Example: one maintenance change becomes several rows
 
-Maintenance #42 is created in `pending_review`. Recipients are the operator list, the admin list,
-and the creator. The producer generates one `change_id` and inserts three rows in the same
-transaction as the maintenance creation:
+Maintenance #42 is created in `pending_review`. Recipients are the SMOD team address, the operator
+list, the admin list, and the creator. The producer generates one `change_id` and inserts one row
+per recipient in the same transaction as the maintenance creation:
 
 | id | kind | incident_id | recipient | change_id | status |
 |----|------|:-----------:|-----------|-----------|--------|
-| 1 | `pending_review` | 42 | ops@com.com | `a1b2…` | `pending` |
-| 2 | `pending_review` | 42 | admin@com.com | `a1b2…` | `pending` |
-| 3 | `pending_review` | 42 | creator@com.com | `a1b2…` | `pending` |
+| 1 | `pending_review` | 42 | support@com.com | `a1b2…` | `pending` |
+| 2 | `pending_review` | 42 | ops@com.com | `a1b2…` | `pending` |
+| 3 | `pending_review` | 42 | admin@com.com | `a1b2…` | `pending` |
+| 4 | `pending_review` | 42 | creator@com.com | `a1b2…` | `pending` |
 
 The worker then:
 
@@ -199,7 +205,7 @@ The worker then:
    (backoff), or `failed` with `last_error` after the maximum attempts.
 
 Three separate rows give **independent retries**: if the email to the admin list fails, only that
-row is retried — the operator and creator emails are not sent again.
+row is retried — the SMOD team, operator, and creator emails are not sent again.
 
 ### Do we need a separate `notification_log` table?
 
@@ -264,14 +270,15 @@ Extends `conf.Config` in [internal/conf/conf.go](../../internal/conf/conf.go), u
 | `SD_SMTP_FROM` | sender address |
 | `SD_SMTP_USER` / `SD_SMTP_PASSWORD` | mail server credentials |
 | `SD_SMTP_TLS` | use TLS |
+| `SD_NOTIFICATIONS_SMOD_EMAIL` | fixed SMOD team review recipient |
 | `SD_NOTIFICATIONS_EMAILS_OPERATORS` | review recipients with the Operator role |
 | `SD_NOTIFICATIONS_EMAILS_ADMINS` | review recipients with the Admin role |
 
 The creator recipient is **not** configured — it is the maintenance `contact_email` stored in the
-database. The operator and admin lists together form the review audience (the SMOD team).
+database. The SMOD team address plus the operator and admin lists together form the review audience.
 
 Validation: when notifications are enabled, SMTP host/port/from must be set, and at least one
-review-audience address (operator or admin) must be configured.
+review-audience address (SMOD team, operator, or admin) must be configured.
 SMTP secrets are masked in logs (reuse the existing `maskSecret`).
 
 **Transport:** the target is the OTC (Open Telekom Cloud) SMTP endpoint, reached by a direct SMTP

@@ -22,11 +22,13 @@ Scope is intentionally limited to **email notifications only** for maintenance e
 
 There are two recipient audiences:
 
-1. **Review audience** — the RBAC roles that can review and approve maintenance: **Operator** and
-   **Admin** (see [../auth/rbac.md](../auth/rbac.md), [../auth/permissions.md](../auth/permissions.md)).
-   Their addresses are predefined per-role email lists in configuration
-   (`SD_NOTIFICATIONS_EMAILS_OPERATORS`, `SD_NOTIFICATIONS_EMAILS_ADMINS`), not derived from the
-   request token. Operationally this is the SMOD team.
+1. **Review audience** — notified while the maintenance still needs a human decision. It consists of:
+   - the RBAC roles that can review and approve maintenance: **Operator** and **Admin**
+     (see [../auth/rbac.md](../auth/rbac.md), [../auth/permissions.md](../auth/permissions.md)),
+     via per-role email lists (`SD_NOTIFICATIONS_EMAILS_OPERATORS`, `SD_NOTIFICATIONS_EMAILS_ADMINS`);
+     plus
+   - a fixed **SMOD team** address (`SD_NOTIFICATIONS_SMOD_EMAIL`, for example `support@com.com`).
+   All review addresses are predefined in configuration, not derived from the request token.
 2. **Creator** — the maintenance contact address supplied in the create request
    (`contact_email`) and stored in `incident.contact_email` (for example `creator@com.com`).
 
@@ -34,8 +36,8 @@ There are two recipient audiences:
 
 Recipients are determined by the **resulting maintenance status**:
 
-| Resulting status | Review audience (Operator + Admin) | Creator |
-|------------------|:----------------------------------:|:-------:|
+| Resulting status | Review audience (Operator + Admin + SMOD team) | Creator |
+|------------------|:----------------------------------------------:|:-------:|
 | `pending_review` | ✅ | ✅ |
 | `reviewed` | ✅ | ✅ |
 | `planned` | ❌ | ✅ |
@@ -43,8 +45,8 @@ Recipients are determined by the **resulting maintenance status**:
 | `completed` | ❌ | ✅ |
 | `cancelled` | ❌ | ✅ |
 
-- Review states (`pending_review`, `reviewed`) notify the review audience (operators and admins) and
-  the creator.
+- Review states (`pending_review`, `reviewed`) notify the review audience (operators, admins, and
+  the fixed SMOD team address) and the creator.
 - Lifecycle states (`planned`, `in_progress`, `completed`, `cancelled`) notify the creator only.
 - The rule is identical whether the status changed via the API or via the checker.
 
@@ -52,11 +54,11 @@ Recipients are determined by the **resulting maintenance status**:
 
 1. `maintenance_pending_review`
 - Trigger: maintenance created with resulting status `pending_review`.
-- Recipients: review audience (Operator + Admin) + creator.
+- Recipients: review audience (Operator + Admin + SMOD team) + creator.
 
 2. `maintenance_reviewed`
 - Trigger: maintenance moved to `reviewed` (approved).
-- Recipients: review audience (Operator + Admin) + creator.
+- Recipients: review audience (Operator + Admin + SMOD team) + creator.
 
 3. `maintenance_status_changed`
 - Trigger: maintenance moved to `planned`, `in_progress`, `completed`, or `cancelled`
@@ -155,9 +157,10 @@ maintenance change always has a durable email task that survives restarts.
 > No external mail gateway or HTTP mail API is used. Email is composed and sent with the maintained
 > `github.com/wneessen/go-mail` library, not bare `net/smtp`.
 
-3. Review audience recipients (RBAC roles that approve maintenance):
-- `SD_NOTIFICATIONS_EMAILS_OPERATORS`
-- `SD_NOTIFICATIONS_EMAILS_ADMINS`
+3. Review audience recipients (predefined, not from the request):
+- `SD_NOTIFICATIONS_SMOD_EMAIL` (fixed SMOD team address)
+- `SD_NOTIFICATIONS_EMAILS_OPERATORS` (RBAC Operator role)
+- `SD_NOTIFICATIONS_EMAILS_ADMINS` (RBAC Admin role)
 
 4. Creator recipient:
 - Not configured — taken from the maintenance `contact_email` field stored in the DB.
@@ -170,10 +173,10 @@ maintenance change always has a durable email task that survives restarts.
 
 ## Acceptance Criteria
 
-1. Creating a maintenance in `pending_review` sends email to the review audience (operators and
+1. Creating a maintenance in `pending_review` sends email to the review audience (SMOD team,
+   operators, and admins) and the creator.
+2. Moving a maintenance to `reviewed` sends email to the review audience (SMOD team, operators, and
    admins) and the creator.
-2. Moving a maintenance to `reviewed` sends email to the review audience (operators and admins) and
-   the creator.
 3. Moving a maintenance to `planned`, `in_progress`, `completed`, or `cancelled` sends email to the
    creator only.
 4. Checker-driven transitions follow the same rules as API-driven ones.
@@ -195,14 +198,14 @@ Acceptance criteria:
 
 ### Story 2: Review Audience Is Notified About Review States
 
-As an operator or admin (review audience),
+As an operator, admin, or SMOD team member (review audience),
 I want an email when a maintenance needs review or is approved,
 so that I can act on it quickly.
 
 Acceptance criteria:
-1. When a maintenance is created in `pending_review`, the operator and admin review lists are notified.
-2. When a maintenance is moved to `reviewed`, the operator and admin review lists are notified.
-3. The review addresses come from `SD_NOTIFICATIONS_EMAILS_OPERATORS` and `SD_NOTIFICATIONS_EMAILS_ADMINS`.
+1. When a maintenance is created in `pending_review`, the SMOD team address and the operator and admin lists are notified.
+2. When a maintenance is moved to `reviewed`, the SMOD team address and the operator and admin lists are notified.
+3. The review addresses come from `SD_NOTIFICATIONS_SMOD_EMAIL`, `SD_NOTIFICATIONS_EMAILS_OPERATORS`, and `SD_NOTIFICATIONS_EMAILS_ADMINS`.
 
 ### Story 3: Checker Changes Produce Notifications
 

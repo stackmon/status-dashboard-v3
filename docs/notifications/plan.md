@@ -53,7 +53,7 @@ Files: `internal/conf/conf.go`, `internal/conf/conf_test.go`
 
 - [ ] Add `SD_NOTIFICATIONS_ENABLED`.
 - [ ] Add SMTP settings: host, port, from, user, password, TLS.
-- [ ] Add review-audience email lists: `SD_NOTIFICATIONS_EMAILS_OPERATORS`, `SD_NOTIFICATIONS_EMAILS_ADMINS`.
+- [ ] Add review-audience recipients: `SD_NOTIFICATIONS_SMOD_EMAIL` (fixed), `SD_NOTIFICATIONS_EMAILS_OPERATORS`, `SD_NOTIFICATIONS_EMAILS_ADMINS`.
 - [ ] Validate: if enabled, SMTP host/port/from and at least one review address are required.
 - [ ] Mask SMTP secrets in logs.
 - [ ] Verify: `go test ./internal/conf/...` passes.
@@ -74,7 +74,7 @@ Files: `internal/db/notification.go`, `internal/db/models.go`
 Files: `internal/notification/` (`notification.go`, `resolver.go`, `renderer.go`, `smtp.go`, `templates/`)
 
 - [ ] Define the three event kinds as typed constants (`pending_review`, `reviewed`, `status_changed`).
-- [ ] Recipient rules by resulting status: review audience (operator + admin lists) + `contact_email`, normalize + dedup.
+- [ ] Recipient rules by resulting status: review audience (SMOD fixed address + operator + admin lists) + `contact_email`, normalize + dedup.
 - [ ] Build `dedup_key` = `change_id : kind : recipient`.
 - [ ] Change summary builder (title, dates, old/new status).
 - [ ] Email templates + renderer (subject, body, deep link).
