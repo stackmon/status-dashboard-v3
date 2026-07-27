@@ -66,7 +66,8 @@ flowchart TB
     C -->|"same DB transaction"| P
     P --> RULES
     RULES -->|"one row per recipient"| OUT
-    W -->|"picks pending rows"| OUT
+    P -. "signal after commit" .-> W
+    W -->|"claims due rows (on signal or rare sweep)"| OUT
     W --> REN
     W --> S
     S --> MAIL
@@ -76,9 +77,13 @@ The flow has two independent halves:
 
 1. **Recording the intent** (fast, inside the request): a maintenance change writes one email task
    per recipient into the `notification_outbox` table, in the **same transaction** as the change.
-2. **Sending the email** (background): a worker reads the outbox and delivers the emails.
+2. **Sending the email** (background): the worker is triggered **right after the change commits**
+   and sends immediately. A **low-frequency safety sweep** catches anything the immediate path
+   missed — retries and rows orphaned by a pod crash.
 
 The API never waits for the mail server. If email fails, the maintenance change is unaffected.
+Because dispatch is event-driven, there is **no constant polling**: on an idle system (our volume is
+about 41 maintenances in 2 months) the worker does almost nothing.
 
 ---
 
@@ -108,9 +113,14 @@ requester's token.
 It survives restarts, so nothing is lost if a pod dies.
 
 ### Delivery worker
-**What it does:** a background loop that runs in every pod, picks pending rows, and sends them.
+**What it does:** runs in every pod. On the happy path it is triggered right after a maintenance
+change commits and sends the emails immediately. It also runs a **low-frequency safety sweep** to
+pick up retries and rows orphaned by a pod crash.
 **Why it exists:** it moves the slow network work (SMTP) out of the API request path and retries
-failures on its own.
+failures on its own. Because dispatch is event-driven rather than a tight polling loop, an idle
+system consumes almost no resources — which matters at our low event volume. Crucially, retry state
+lives in the outbox row (`next_attempt_at`), **not in memory**, so pending retries survive a pod
+restart and are shared across pods.
 
 ### Renderer
 **What it does:** turns a stored task into a real email — subject, body, and a link to the
@@ -130,7 +140,7 @@ handling.
 
 ## 4. Data model — one table
 
-Migration `000007_notification.up.sql` / `.down.sql`, following the existing `golang-migrate`
+Migration `000008_notification.up.sql` / `.down.sql`, following the existing `golang-migrate`
 layout under `db/migrations/`.
 
 ### `notification_outbox`
@@ -227,6 +237,19 @@ ever required, a log table can be added later without changing the delivery desi
 Every pod runs one worker. Because there are multiple pods, they coordinate through PostgreSQL so
 the same email is not sent twice at the same time.
 
+**What wakes the worker:**
+
+1. **A signal after commit (happy path).** When a maintenance change commits, the publisher signals
+   the in-process worker (via a channel) to send right away. No waiting for a poll tick.
+2. **A low-frequency safety-sweep ticker.** Every few minutes the worker also scans for due rows —
+   `pending` rows whose `next_attempt_at` has passed (retries) and rows stuck in `processing` after
+   a crash. On our volume this sweep almost always finds zero rows, so its cost is negligible; it
+   exists purely to guarantee nothing is stranded if a signal was missed (e.g. the sending pod
+   restarted).
+
+This keeps the design cheap when idle **and** durable: retries are driven by `next_attempt_at` in
+the database, not by in-memory timers, so a pod restart never loses a pending retry.
+
 ```mermaid
 stateDiagram-v2
     [*] --> Pending: enqueue
@@ -255,6 +278,27 @@ The loop, in plain steps:
 
 **Timing rule:** the lease timeout must be longer than the SMTP timeout so a slow-but-alive send is
 never reclaimed by another pod.
+
+### Design note: why retries live in the database, not in memory
+
+At our volume (about 41 maintenances in 2 months) a tempting simplification is to skip the outbox
+row and, right after saving the maintenance, send the email in a goroutine — keeping failed emails
+in memory and retrying every 15 minutes. We deliberately do **not** do this. The retry *interval* is
+kept (a failed row becomes eligible again after a backoff delay), but the retry *state* lives in the
+outbox row (`attempts`, `next_attempt_at`, `last_error`), not in process memory, for two reasons:
+
+1. **Pod restarts lose in-memory state.** In Kubernetes pods restart routinely (deploys, OOM,
+   rescheduling). An in-memory retry timer would silently drop every email waiting to be retried —
+   exactly the "problem with retries after a few failed attempts" we need to avoid. A row in the
+   database survives the restart and is picked up by the safety sweep.
+2. **Multiple pods cannot share memory.** With ≥2 pods, an in-memory queue in one pod is invisible to
+   the others, so retries cannot be coordinated and the same email could be retried twice or not at
+   all. The shared outbox table plus `FOR UPDATE SKIP LOCKED` gives one owner per row across all
+   pods.
+
+This costs almost nothing extra: the durable row is the same record the "save then send" idea would
+keep anyway — we simply reuse it as the retry source instead of adding a separate in-memory
+mechanism.
 
 ---
 
@@ -298,6 +342,10 @@ the sender address for alerts.
 4. **At-least-once delivery.** In a rare case (the mail server accepts the email but the pod dies
    before writing `sent`), the email may be sent twice after recovery. This is accepted: a rare
    duplicate is better than a lost notification, and plain SMTP offers no safe way to avoid it.
+5. **Cheap when idle.** Dispatch is event-driven; the only recurring background activity is a rare
+   safety sweep that returns nothing on an idle system. Retry state lives in the outbox row
+   (`next_attempt_at`), not in memory, so retries survive pod restarts and are coordinated across
+   pods — unlike an in-memory retry timer, which would lose pending emails on restart.
 
 ---
 

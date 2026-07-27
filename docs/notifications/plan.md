@@ -36,7 +36,7 @@ so every stage leaves the system working.
 
 ## Stage 1 — Database
 
-Files: `db/migrations/000007_notification.up.sql`, `db/migrations/000007_notification.down.sql`
+Files: `db/migrations/000008_notification.up.sql`, `db/migrations/000008_notification.down.sql`
 
 - [ ] Create table `notification_outbox` (see architecture §4).
 - [ ] Add index `idx_outbox_dispatch` (pending rows).

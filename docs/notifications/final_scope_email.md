@@ -90,7 +90,10 @@ maintenance change always has a durable email task that survives restarts.
 
 1. The email task is written to `notification_outbox` in the same transaction as the maintenance
    change.
-2. A background worker pulls pending rows and sends email asynchronously.
+2. The delivery worker is triggered right after the change commits and sends the email
+   asynchronously; a low-frequency safety sweep picks up retries and rows orphaned by a pod crash.
+   There is no constant polling, so an idle system (about 41 maintenances in 2 months) consumes
+   almost no resources.
 3. The delivery outcome (`sent` / `failed` + error) is recorded on the outbox row itself.
    No separate log table is used.
 
@@ -118,6 +121,8 @@ maintenance change always has a durable email task that survives restarts.
 
 4. Backoff and bounded retries:
 - Progressive delay between attempts.
+- Retry state lives in the outbox row (`next_attempt_at`), not in memory, so pending retries survive
+  pod restarts and stay coordinated across pods.
 - Finite maximum attempts, then `failed` with a reason.
 
 5. Recipient handling:
