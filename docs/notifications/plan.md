@@ -53,8 +53,13 @@ Files: `internal/conf/conf.go`, `internal/conf/conf_test.go`
 
 - [ ] Add `SD_NOTIFICATIONS_ENABLED`.
 - [ ] Add SMTP settings: host, port, from, user, password, TLS.
+- [ ] Add timing settings:
+  - `SD_SMTP_TIMEOUT` (e.g., 30s — SMTP connection/send timeout).
+  - `SD_NOTIFICATIONS_LEASE_TIMEOUT` (e.g., 60s — must be > SMTP_TIMEOUT).
+  - `SD_NOTIFICATIONS_MAX_ATTEMPTS` (e.g., 5 — max retries).
+  - `SD_NOTIFICATIONS_BACKOFF_INTERVAL` (e.g., 5m minimum, with exponential cap).
 - [ ] Add review-audience recipients: `SD_NOTIFICATIONS_SMOD_EMAIL` (fixed), `SD_NOTIFICATIONS_EMAILS_OPERATORS`, `SD_NOTIFICATIONS_EMAILS_ADMINS`.
-- [ ] Validate: if enabled, SMTP host/port/from and at least one review address are required.
+- [ ] Validate: if enabled, SMTP host/port/from, lease timeout > SMTP timeout, and at least one review address are required.
 - [ ] Mask SMTP secrets in logs.
 - [ ] Verify: `go test ./internal/conf/...` passes.
 
@@ -74,13 +79,21 @@ Files: `internal/db/notification.go`, `internal/db/models.go`
 Files: `internal/notification/` (`notification.go`, `resolver.go`, `renderer.go`, `smtp.go`, `templates/`)
 
 - [ ] Define the three event kinds as typed constants (`pending_review`, `reviewed`, `status_changed`).
+- [ ] Map kind by resulting maintenance status:
+  - `kind='pending_review'` if `status='pending_review'`.
+  - `kind='reviewed'` if `status='reviewed'`.
+  - `kind='status_changed'` for all other statuses (`planned`, `in_progress`, `completed`, `cancelled`).
 - [ ] Recipient rules by resulting status: review audience (SMOD fixed address + operator + admin lists) + `contact_email`, normalize + dedup.
-- [ ] Build `dedup_key` = `change_id : kind : recipient`.
+- [ ] Build `dedup_key` as string `change_id : kind : recipient` (stored in JSONB, used in unique constraint).
+- [ ] Build and serialize `payload` snapshot (JSONB): title, dates, old/new status, actor, incident link. This is stored in DB so worker never re-reads the incident.
 - [ ] Change summary builder (title, dates, old/new status).
-- [ ] Email templates + renderer (subject, body, deep link).
+- [ ] Email templates in `internal/notification/templates/` (subject.txt, body.html, etc.).
+  - Use Go `text/template` with payload snapshot as context.
+  - Load and parse templates on worker startup (fail fast if invalid).
+- [ ] Email renderer (subject, body, deep link from payload).
 - [ ] SMTP sender using `github.com/wneessen/go-mail` (direct OTC SMTP endpoint, timeout + TLS).
 - [ ] Promote `google/uuid` to a direct dependency.
-- [ ] Verify: unit tests for recipient rules, dedup key, summary, rendering.
+- [ ] Verify: unit tests for kind mapping, recipient rules, dedup key, summary, payload serialization, and rendering.
 
 ## Stage 5 — Transaction-safe writes
 
@@ -119,14 +132,21 @@ Files: `internal/checker/maintenance.go`, `internal/checker/checker.go`
 
 Files: `internal/notification/worker.go`
 
-- [ ] Ticker loop: recover leases → claim batch → commit → send.
-- [ ] Send outside the DB transaction.
-- [ ] Per-row `recover()` isolation.
-- [ ] On result, update outbox status + last_error on the row.
-- [ ] Backoff with cap; move to `failed` at max attempts.
-- [ ] Bounded batch size and concurrency (lease > SMTP timeout + wait).
-- [ ] Graceful shutdown: stop claiming, drain in-flight.
-- [ ] Verify: unit tests for backoff, lease limit, panic isolation, no double-claim.
+- [ ] Implement two wake-up paths:
+  - **(Hot path)** Publisher signals in-process worker via channel after DB commit — sends immediately.
+  - **(Safety path)** Low-frequency ticker (e.g., every 5 min) scans for due rows (retries + stale locks).
+- [ ] Recover stuck rows: if `status='processing'` and `locked_at` is older than lease timeout, recover to `pending` (or `failed` if max attempts exhausted).
+- [ ] Claim batch: `SELECT ... FOR UPDATE SKIP LOCKED` where `status='pending'` and `next_attempt_at <= now()`. Mark as `processing`, set `locked_by`/`locked_at`, increment `attempts`.
+- [ ] Commit claim transaction, **then** send (never hold DB lock during SMTP).
+- [ ] Per-row `recover()` isolation: each send runs in panic guard so one failure does not crash worker.
+- [ ] On result, update outbox:
+  - Success → `status = 'sent'`, `updated_at = now()`.
+  - Failure with retries left → `status = 'pending'`, `next_attempt_at = now() + backoff()`, `last_error = err`.
+  - Failure, no retries left → `status = 'failed'`, `last_error = err`.
+- [ ] Backoff strategy: exponential with cap (e.g., 5min → 10min → 20min → 40min → max 2h).
+- [ ] Bounded batch size (e.g., 50 rows) and concurrency (lease_timeout > SMTP_timeout + send time).
+- [ ] Graceful shutdown: stop claiming new rows, finish in-flight sends, wait for graceful deadline.
+- [ ] Verify: unit tests for backoff math, lease recovery, panic isolation, `FOR UPDATE SKIP LOCKED` no double-claim, signal path and ticker path.
 
 ## Stage 9 — Wiring
 
@@ -154,9 +174,16 @@ Files: `internal/notification/*_test.go`, `tests/notifications_test.go`
 
 Files: worker metrics/logging, runbook
 
-- [ ] Metrics: queue depth (pending/processing), stale leases, sent/failed, retries, latency.
-- [ ] Structured logs with `outbox_id` and `incident_id`.
-- [ ] Retention job (delete sent rows/logs in batches; keep failed longer).
-- [ ] Feature-flag rollout: off in prod, enable in staging first.
-- [ ] Runbook: how to re-drive `status='failed'` rows.
-- [ ] Verify: failed deliveries are queryable and re-drivable.
+- [ ] Prometheus metrics:
+  - `notification_outbox_pending` (gauge) — count of `status='pending'` rows.
+  - `notification_outbox_processing` (gauge) — count of `status='processing'` rows.
+  - `notification_sent_total` (counter) — cumulative sent, labeled by `kind` and `incident_id`.
+  - `notification_failed_total` (counter) — cumulative failures, labeled by `kind` and `last_error` category.
+  - `notification_delivery_duration_seconds` (histogram) — end-to-end latency from claim to sent/failed.
+  - `notification_stale_leases_recovered_total` (counter) — count of recovered stuck rows.
+  - `notification_attempts_total` (counter) — cumulative send attempts by outcome.
+- [ ] Structured logs with `outbox_id`, `incident_id`, `recipient`, `kind`, `attempts`, `error` (if failed).
+- [ ] Retention job: delete `status='sent'` rows older than N days (e.g., 30 days); keep `status='failed'` longer (e.g., 90 days) for audit and re-drive.
+- [ ] Feature-flag rollout: disabled in prod initially, enable in staging first, then prod after operational validation.
+- [ ] Runbook: query and re-drive stuck rows (update `status='pending'`, `attempts=0`, `next_attempt_at=now()` for selected `outbox.id` rows).
+- [ ] Verify: failed deliveries are queryable by incident/recipient/kind; re-drive mechanism tested end-to-end.
