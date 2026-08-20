@@ -177,68 +177,25 @@ func (is *IncidentStatus) BeforeUpdate(_ *gorm.DB) error {
 	return nil
 }
 
-// NotificationOutbox is a db table representation.
+// NotificationOutbox stores one email task per recipient.
 type NotificationOutbox struct {
-	ID               uint       `json:"-" gorm:"primaryKey;autoIncrement:true"`
-	Kind             string     `json:"kind" gorm:"type:varchar(64)"`
-	IncidentID       uint       `json:"-"`
-	Payload          []byte     `json:"payload" gorm:"type:jsonb"`
-	Recipient        string     `json:"recipient" gorm:"type:varchar(255)"`
-	ChangeID         string     `json:"change_id" gorm:"type:uuid"`
-	DeduplicationKey string     `json:"deduplication_key" gorm:"type:varchar(255)"`
-	Status           string     `json:"status" gorm:"type:varchar(20)"`
-	Attempts         int        `json:"attempts"`
-	NextAttemptAt    time.Time  `json:"next_attempt_at" gorm:"type:timestamptz"`
-	LockedBy         *string    `json:"locked_by" gorm:"type:varchar(255)"`
-	LockedAt         *time.Time `json:"locked_at" gorm:"type:timestamptz"`
-	LastError        *string    `json:"last_error"`
-	CreatedAt        *time.Time `json:"created_at,omitempty"`
-	UpdatedAt        *time.Time `json:"updated_at,omitempty"`
+	ID            uint           `json:"id" gorm:"primaryKey;autoIncrement:true"`
+	Kind          string         `json:"kind" gorm:"type:varchar(64);not null"`
+	IncidentID    uint           `json:"incident_id" gorm:"not null"`
+	Recipient     string         `json:"recipient" gorm:"type:varchar(255);not null"`
+	Payload       map[string]any `json:"payload" gorm:"type:jsonb;not null"`
+	ChangeID      string         `json:"change_id" gorm:"type:uuid;not null"`
+	DedupKey      string         `json:"dedup_key" gorm:"column:dedup_key;type:varchar(255);not null;uniqueIndex"`
+	Status        string         `json:"status" gorm:"type:varchar(20);not null;default:pending"`
+	Attempts      int            `json:"attempts" gorm:"not null;default:0"`
+	NextAttemptAt *time.Time     `json:"next_attempt_at" gorm:"type:timestamptz"`
+	LockedBy      *string        `json:"locked_by" gorm:"type:varchar(255)"`
+	LockedAt      *time.Time     `json:"locked_at" gorm:"type:timestamptz"`
+	LastError     *string        `json:"last_error" gorm:"type:text"`
+	CreatedAt     time.Time      `json:"created_at" gorm:"autoCreateTime"`
+	UpdatedAt     time.Time      `json:"updated_at" gorm:"autoUpdateTime"`
 }
 
 func (no *NotificationOutbox) TableName() string {
 	return "notification_outbox"
-}
-
-// BeforeSave GORM hook to set created_at and updated_at.
-func (no *NotificationOutbox) BeforeSave(_ *gorm.DB) error {
-	now := time.Now().UTC()
-	if no.CreatedAt == nil {
-		no.CreatedAt = &now
-	}
-	if no.UpdatedAt == nil {
-		no.UpdatedAt = &now
-	}
-	return nil
-}
-
-// BeforeUpdate GORM hook to set updated_at.
-func (no *NotificationOutbox) BeforeUpdate(_ *gorm.DB) error {
-	now := time.Now().UTC()
-	no.UpdatedAt = &now
-	return nil
-}
-
-// NotificationLog is a db table representation.
-type NotificationLog struct {
-	ID          uint       `json:"-" gorm:"primaryKey;autoIncrement:true"`
-	OutboxID    uint       `json:"outbox_id" gorm:"not null"`
-	IncidentID  uint       `json:"-"`
-	Recipient   string     `json:"recipient" gorm:"type:varchar(255)"`
-	Status      string     `json:"status" gorm:"type:varchar(20)"`
-	Error       *string    `json:"error" gorm:"type:text"`
-	AttemptedAt *time.Time `json:"attempted_at" gorm:"type:timestamptz"`
-}
-
-func (nl *NotificationLog) TableName() string {
-	return "notification_log"
-}
-
-// BeforeCreate GORM hook to set attempted_at.
-func (nl *NotificationLog) BeforeCreate(_ *gorm.DB) error {
-	now := time.Now().UTC()
-	if nl.AttemptedAt == nil {
-		nl.AttemptedAt = &now
-	}
-	return nil
 }
