@@ -14,6 +14,10 @@ const (
 	NotificationStatusProcessing = "processing"
 	NotificationStatusSent       = "sent"
 	NotificationStatusFailed     = "failed"
+
+	NotificationKindPendingReview = "pending_review"
+	NotificationKindReviewed      = "reviewed"
+	NotificationKindStatusChanged = "status_changed"
 )
 
 var (

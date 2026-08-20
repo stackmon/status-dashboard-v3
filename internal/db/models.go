@@ -183,7 +183,7 @@ type NotificationOutbox struct {
 	Kind          string         `json:"kind" gorm:"type:varchar(64);not null"`
 	IncidentID    uint           `json:"incident_id" gorm:"not null"`
 	Recipient     string         `json:"recipient" gorm:"type:varchar(255);not null"`
-	Payload       map[string]any `json:"payload" gorm:"type:jsonb;not null"`
+	Payload       map[string]any `json:"payload" gorm:"type:jsonb;not null;serializer:json"`
 	ChangeID      string         `json:"change_id" gorm:"type:uuid;not null"`
 	DedupKey      string         `json:"dedup_key" gorm:"column:dedup_key;type:varchar(255);not null;uniqueIndex"`
 	Status        string         `json:"status" gorm:"type:varchar(20);not null;default:pending"`

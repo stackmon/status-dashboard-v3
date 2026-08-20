@@ -339,6 +339,139 @@ func TestMergeConfigs(t *testing.T) {
 	})
 }
 
+func baseNotifConfig() Config {
+	return Config{
+		Port:        "8000",
+		SecretKeyV1: "my-secret-key-that-is-32-chars!!", // 32 chars
+		RBAC:        RBACConfig{Admins: "sd_admins"},
+	}
+}
+
+func TestValidateNotifications(t *testing.T) {
+	tests := []struct {
+		name      string
+		mutate    func(c *Config)
+		expectErr bool
+		errSubstr string
+	}{
+		{
+			name:      "disabled skips all notification checks",
+			mutate:    func(c *Config) { c.Notifications.Enabled = false },
+			expectErr: false,
+		},
+		{
+			name: "enabled with full valid config passes",
+			mutate: func(c *Config) {
+				c.Notifications = NotificationsConfig{
+					Enabled:         true,
+					LeaseTimeout:    "60s",
+					MaxAttempts:     "5",
+					BackoffInterval: "5m",
+					SmodEmail:       "support@com.com",
+				}
+				c.SMTP = SMTPConfig{Host: "smtp.otc", Port: "587", From: "sd@com.com", Timeout: "30s"}
+			},
+			expectErr: false,
+		},
+		{
+			name: "enabled without SMTP host fails",
+			mutate: func(c *Config) {
+				c.Notifications = NotificationsConfig{Enabled: true, SmodEmail: "support@com.com"}
+				c.SMTP = SMTPConfig{Port: "587", From: "sd@com.com", Timeout: "30s"}
+			},
+			expectErr: true,
+			errSubstr: "SD_SMTP_HOST",
+		},
+		{
+			name: "enabled without any review address fails",
+			mutate: func(c *Config) {
+				c.Notifications = NotificationsConfig{Enabled: true, LeaseTimeout: "60s", MaxAttempts: "5", BackoffInterval: "5m"}
+				c.SMTP = SMTPConfig{Host: "smtp.otc", Port: "587", From: "sd@com.com", Timeout: "30s"}
+			},
+			expectErr: true,
+			errSubstr: "at least one review address",
+		},
+		{
+			name: "lease timeout not greater than smtp timeout fails",
+			mutate: func(c *Config) {
+				c.Notifications = NotificationsConfig{
+					Enabled: true, LeaseTimeout: "30s", MaxAttempts: "5", BackoffInterval: "5m", SmodEmail: "support@com.com",
+				}
+				c.SMTP = SMTPConfig{Host: "smtp.otc", Port: "587", From: "sd@com.com", Timeout: "30s"}
+			},
+			expectErr: true,
+			errSubstr: "must be greater than",
+		},
+		{
+			name: "invalid smtp timeout fails",
+			mutate: func(c *Config) {
+				c.Notifications = NotificationsConfig{
+					Enabled: true, LeaseTimeout: "60s", MaxAttempts: "5", BackoffInterval: "5m", SmodEmail: "support@com.com",
+				}
+				c.SMTP = SMTPConfig{Host: "smtp.otc", Port: "587", From: "sd@com.com", Timeout: "notaduration"}
+			},
+			expectErr: true,
+			errSubstr: "SD_SMTP_TIMEOUT",
+		},
+		{
+			name: "non-positive max attempts fails",
+			mutate: func(c *Config) {
+				c.Notifications = NotificationsConfig{
+					Enabled: true, LeaseTimeout: "60s", MaxAttempts: "0", BackoffInterval: "5m", SmodEmail: "support@com.com",
+				}
+				c.SMTP = SMTPConfig{Host: "smtp.otc", Port: "587", From: "sd@com.com", Timeout: "30s"}
+			},
+			expectErr: true,
+			errSubstr: "SD_NOTIFICATIONS_MAX_ATTEMPTS",
+		},
+		{
+			name: "invalid backoff interval fails",
+			mutate: func(c *Config) {
+				c.Notifications = NotificationsConfig{
+					Enabled: true, LeaseTimeout: "60s", MaxAttempts: "5", BackoffInterval: "bad", SmodEmail: "support@com.com",
+				}
+				c.SMTP = SMTPConfig{Host: "smtp.otc", Port: "587", From: "sd@com.com", Timeout: "30s"}
+			},
+			expectErr: true,
+			errSubstr: "SD_NOTIFICATIONS_BACKOFF_INTERVAL",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := baseNotifConfig()
+			tc.mutate(&cfg)
+			err := cfg.Validate()
+			if tc.expectErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tc.errSubstr)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestFillDefaults_Notifications(t *testing.T) {
+	t.Run("fills notification timing defaults when enabled", func(t *testing.T) {
+		c := &Config{Notifications: NotificationsConfig{Enabled: true}}
+		c.FillDefaults()
+
+		assert.Equal(t, DefaultSMTPTimeout, c.SMTP.Timeout)
+		assert.Equal(t, DefaultLeaseTimeout, c.Notifications.LeaseTimeout)
+		assert.Equal(t, DefaultMaxAttempts, c.Notifications.MaxAttempts)
+		assert.Equal(t, DefaultBackoffInterval, c.Notifications.BackoffInterval)
+	})
+
+	t.Run("leaves notification timing empty when disabled", func(t *testing.T) {
+		c := &Config{Notifications: NotificationsConfig{Enabled: false}}
+		c.FillDefaults()
+
+		assert.Empty(t, c.SMTP.Timeout)
+		assert.Empty(t, c.Notifications.LeaseTimeout)
+	})
+}
+
 func TestConfig_Log(t *testing.T) {
 	logger := zaptest.NewLogger(t)
 
