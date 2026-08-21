@@ -338,6 +338,27 @@ func prepareMockForModifyEventUpdate(
 	mock.ExpectCommit()
 }
 
+// initRouterWithStoredEvent returns a *gin.Engine with a single PATCH /v2/events/:eventID route
+// that injects the given incident into the gin context (simulating CheckEventExistenceMW) so that
+// PatchIncidentHandler can be exercised without a real database lookup.
+func initRouterWithStoredEvent(t *testing.T, incident *db.Incident) *gin.Engine {
+	t.Helper()
+
+	d, _, err := db.NewWithMock()
+	require.NoError(t, err)
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	log, _ := zap.NewDevelopment()
+
+	r.PATCH("/v2/events/:eventID", func(c *gin.Context) {
+		c.Set("event", incident)
+		c.Next()
+	}, PatchIncidentHandler(d, log))
+
+	return r
+}
+
 // EventExistenceCheckForTests duplicates logic from api.EventExistenceCheck but exists in package v2 tests.
 func EventExistenceCheckForTests(dbInst *db.DB, _ *zap.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {

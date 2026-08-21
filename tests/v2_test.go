@@ -35,6 +35,33 @@ func TestV2GetIncidentsHandler(t *testing.T) {
 	t.Logf("start to test GET %s", v2IncidentsEndpoint)
 	r, _, _ := initTests(t)
 
+	// Clean up and create a known incident for this test
+	truncateIncidents(t)
+
+	components := []int{1}
+	impact := 1
+	title := "Test incident for get handler"
+	startDate := time.Now().Add(-24 * time.Hour).UTC()
+	system := false
+	incidentCreateData := v2.IncidentData{
+		Title:      title,
+		Impact:     &impact,
+		Components: components,
+		StartDate:  startDate,
+		System:     &system,
+		Type:       event.TypeIncident,
+	}
+
+	// Create incident via API
+	createBody, err := json.Marshal(incidentCreateData)
+	require.NoError(t, err)
+	createReq, _ := http.NewRequest(http.MethodPost, v2IncidentsEndpoint, bytes.NewReader(createBody))
+	createReq.Header.Set("Content-Type", "application/json")
+	createReq.Header.Set("Authorization", "Bearer "+adminToken)
+	createW := httptest.NewRecorder()
+	r.ServeHTTP(createW, createReq)
+	require.Equal(t, http.StatusOK, createW.Code, "failed to create test incident: %s", createW.Body.String())
+
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest(http.MethodGet, v2IncidentsEndpoint, nil)
 	req.Header.Set("Authorization", "Bearer "+adminToken)
@@ -45,8 +72,20 @@ func TestV2GetIncidentsHandler(t *testing.T) {
 
 	assert.Equal(t, 200, w.Code)
 
-	err := json.Unmarshal(w.Body.Bytes(), &incidents)
+	err = json.Unmarshal(w.Body.Bytes(), &incidents)
 	require.NoError(t, err)
+	require.NotEmpty(t, incidents["data"], "expected at least one incident")
+
+	found := false
+	for _, inc := range incidents["data"] {
+		if inc.Title == title {
+			assert.Equal(t, impact, *inc.Impact)
+			assert.Equal(t, event.TypeIncident, inc.Type)
+			found = true
+			break
+		}
+	}
+	require.True(t, found, "expected incident with title %q not found", title)
 }
 
 func TestV2GetComponentsHandler(t *testing.T) {
@@ -182,6 +221,54 @@ func TestV2PostIncidentsHandlerNegative(t *testing.T) {
 		assert.Equal(t, c.ExpectedCode, w.Code)
 		assert.Equal(t, c.Expected, w.Body.String())
 	}
+}
+
+func TestV2PostIncidentsDescriptionLengthLimits(t *testing.T) {
+	t.Log("start to test description length limits for /v2/incidents")
+	truncateIncidents(t)
+	r, _, _ := initTests(t)
+
+	impact := 1
+	system := false
+	base := v2.IncidentData{
+		Title:      "Incident with boundary description length",
+		Impact:     &impact,
+		Components: []int{1},
+		StartDate:  time.Now().Add(-time.Hour).UTC(),
+		System:     &system,
+		Type:       event.TypeIncident,
+	}
+
+	t.Run("description with 1500 characters is accepted", func(t *testing.T) {
+		data := base
+		data.Description = strings.Repeat("a", 1500)
+
+		payload, err := json.Marshal(data)
+		require.NoError(t, err)
+
+		w := httptest.NewRecorder()
+		req, _ := http.NewRequest(http.MethodPost, v2IncidentsEndpoint, bytes.NewReader(payload))
+		req.Header.Set("Authorization", "Bearer "+adminToken)
+		r.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+	})
+
+	t.Run("description with 1501 characters is rejected", func(t *testing.T) {
+		data := base
+		data.Description = strings.Repeat("a", 1501)
+
+		payload, err := json.Marshal(data)
+		require.NoError(t, err)
+
+		w := httptest.NewRecorder()
+		req, _ := http.NewRequest(http.MethodPost, v2IncidentsEndpoint, bytes.NewReader(payload))
+		req.Header.Set("Authorization", "Bearer "+adminToken)
+		r.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusBadRequest, w.Code)
+		assert.JSONEq(t, fmt.Sprintf(`{"errMsg":"%s"}`, apiErrors.ErrIncidentDescriptionTooLong), w.Body.String())
+	})
 }
 
 func TestV2PostIncidentsHandler(t *testing.T) {
@@ -337,6 +424,7 @@ func TestV2PostIncidentsHandler(t *testing.T) {
 	result = v2CreateIncident(t, r, &incidentCreateData)
 	require.NotNil(t, result, "v2CreateIncident returned nil")
 	assert.NotZero(t, result.Result[0].IncidentID)
+	assert.Equal(t, len(incidents)+4, result.Result[0].IncidentID)
 	assert.Equal(t, 3, result.Result[0].ComponentID)
 }
 
@@ -1217,16 +1305,29 @@ func TestV2GetComponentsAvailability(t *testing.T) {
 
 	components := []int{7}
 	impact := 3
-	title := "Test incident for dns N1"
-	startDate := time.Date(2025, 7, 1, 0, 0, 0, 0, time.UTC)
 	system := false
+	now := time.Now().UTC()
 
-	// Incident N1
+	// Use relative dates within the 12-month availability window.
+	// Pick 3 months ago as anchor; calculate midpoints to get exactly 50% downtime per month.
+	month1Start := time.Date(now.Year(), now.Month()-3, 1, 0, 0, 0, 0, time.UTC)
+	month1Days := time.Date(month1Start.Year(), month1Start.Month()+1, 1, 0, 0, 0, 0, time.UTC).Sub(month1Start)
+	month1End := month1Start.Add(month1Days / 2) // exactly half the month
+
+	month2Start := time.Date(now.Year(), now.Month()-2, 1, 0, 0, 0, 0, time.UTC)
+	month2Days := time.Date(month2Start.Year(), month2Start.Month()+1, 1, 0, 0, 0, 0, time.UTC).Sub(month2Start)
+	month2Mid := month2Start.Add(month2Days / 2)
+
+	month3Start := time.Date(now.Year(), now.Month()-1, 1, 0, 0, 0, 0, time.UTC)
+	month3Days := time.Date(month3Start.Year(), month3Start.Month()+1, 1, 0, 0, 0, 0, time.UTC).Sub(month3Start)
+	month3Mid := month3Start.Add(month3Days / 2)
+
+	// Incident N1: covers exactly first half of month (now-3)
 	incidentCreateDataN1 := v2.IncidentData{
-		Title:      title,
+		Title:      "Test incident for dns N1",
 		Impact:     &impact,
 		Components: components,
-		StartDate:  startDate,
+		StartDate:  month1Start,
 		EndDate:    nil,
 		System:     &system,
 		Type:       event.TypeIncident,
@@ -1234,28 +1335,19 @@ func TestV2GetComponentsAvailability(t *testing.T) {
 
 	resultN1 := v2CreateIncident(t, r, &incidentCreateDataN1)
 	require.NotNil(t, resultN1, "v2CreateIncident returned nil")
-
 	assert.Len(t, resultN1.Result, len(incidentCreateDataN1.Components))
 
-	// Incident closing
 	incidentN1 := v2GetIncident(t, r, resultN1.Result[0].IncidentID)
-	endDate := time.Date(2025, 7, 16, 12, 0, 0, 0, time.UTC)
-	incidentN1.EndDate = &endDate
+	incidentN1.EndDate = &month1End
 	v2PatchIncident(t, r, incidentN1)
+	t.Logf("Incident N1 patched: %v - %v", month1Start, month1End)
 
-	t.Logf("Incident patched: %+v", incidentN1)
-
-	// Incident N2
-
-	title = "Test incident for dns N2"
-	startDate = time.Date(2025, 8, 16, 12, 0, 0, 0, time.UTC)
-	endDate = time.Date(2025, 9, 16, 00, 00, 00, 0, time.UTC)
-
+	// Incident N2: covers second half of month (now-2) + first half of month (now-1)
 	incidentCreateDataN2 := v2.IncidentData{
-		Title:      title,
+		Title:      "Test incident for dns N2",
 		Impact:     &impact,
 		Components: components,
-		StartDate:  startDate,
+		StartDate:  month2Mid,
 		EndDate:    nil,
 		System:     &system,
 		Type:       event.TypeIncident,
@@ -1263,16 +1355,12 @@ func TestV2GetComponentsAvailability(t *testing.T) {
 
 	resultN2 := v2CreateIncident(t, r, &incidentCreateDataN2)
 	require.NotNil(t, resultN2, "v2CreateIncident returned nil")
-
 	assert.Len(t, resultN2.Result, len(incidentCreateDataN2.Components))
 
-	// Incident closing
 	incidentN2 := v2GetIncident(t, r, resultN2.Result[0].IncidentID)
-
-	incidentN2.EndDate = &endDate
+	incidentN2.EndDate = &month3Mid
 	v2PatchIncident(t, r, incidentN2)
-
-	t.Logf("Incident patched: %+v", incidentN2)
+	t.Logf("Incident N2 patched: %v - %v", month2Mid, month3Mid)
 
 	// Test case 1: Successful availability listing
 	t.Log("Test case 1: List availability successfully")
@@ -1290,7 +1378,12 @@ func TestV2GetComponentsAvailability(t *testing.T) {
 	assert.NotEmpty(t, availability)
 
 	// Test case 2: Check if the availability data is correct
-	targetMonths := map[int]bool{7: true, 8: true, 9: true}
+	// All 3 target months should have exactly 50% availability
+	targetMonths := map[int]bool{
+		int(month1Start.Month()): true,
+		int(month2Start.Month()): true,
+		int(month3Start.Month()): true,
+	}
 
 	for _, compAvail := range availability.Data {
 		if compAvail.ID == 7 {

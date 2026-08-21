@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"sort"
 	"time"
+	"unicode/utf8"
 
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
@@ -19,6 +20,7 @@ import (
 const (
 	defaultIncidentLimit = 50
 	defaultPageNumber    = 1
+	maxDescriptionLength = 1500
 )
 
 const (
@@ -898,6 +900,10 @@ type ProcessComponentResp struct {
 }
 
 func validateEventCreation(incData IncidentData) error {
+	if err := validateEventDescription(incData); err != nil {
+		return err
+	}
+
 	if err := validateEventCreationImpact(incData); err != nil {
 		return err
 	}
@@ -908,6 +914,14 @@ func validateEventCreation(incData IncidentData) error {
 
 	if len(incData.Updates) != 0 {
 		return apiErrors.ErrIncidentUpdatesShouldBeEmpty
+	}
+
+	return nil
+}
+
+func validateEventDescription(incData IncidentData) error {
+	if utf8.RuneCountInString(incData.Description) > maxDescriptionLength {
+		return apiErrors.ErrIncidentDescriptionTooLong
 	}
 
 	return nil
@@ -1147,6 +1161,10 @@ func validateStatusesPatch(incoming *PatchIncidentData, stored *db.Incident) err
 }
 
 func checkPatchData(incoming *PatchIncidentData, stored *db.Incident) error {
+	if incoming.Description != nil && utf8.RuneCountInString(*incoming.Description) > maxDescriptionLength {
+		return apiErrors.ErrIncidentDescriptionTooLong
+	}
+
 	// incoming.Type is now validated by the 'oneof' binding tag in PatchIncidentData
 	effectiveType := stored.Type
 	if incoming.Type != "" {

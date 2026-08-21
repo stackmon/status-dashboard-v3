@@ -564,6 +564,8 @@ func TestCalculateAvailability(t *testing.T) {
 	}
 
 	impact := 3
+	now := time.Now().UTC()
+	periodStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC).AddDate(0, -11, 0)
 
 	comp := db.Component{
 		ID:        150,
@@ -572,8 +574,8 @@ func TestCalculateAvailability(t *testing.T) {
 	}
 
 	compForPeriod := comp
-	stDate := time.Date(2026, 4, 21, 0, 0, 0, 0, time.UTC)
-	endDate := time.Date(2026, 5, 2, 20, 0, 0, 0, time.UTC)
+	stDate := time.Date(periodStart.Year(), periodStart.Month(), 21, 0, 0, 0, 0, time.UTC)
+	endDate := time.Date(periodStart.Year(), periodStart.Month()+1, 2, 20, 0, 0, 0, time.UTC)
 	compForPeriod.Incidents = append(compForPeriod.Incidents, &db.Incident{
 		ID:        1,
 		StartDate: &stDate,
@@ -581,30 +583,52 @@ func TestCalculateAvailability(t *testing.T) {
 		Impact:    &impact,
 	})
 
+	const (
+		precisionFactor = 100000.0
+		fullPercentage  = 100.0
+		roundFactor     = 0.5
+	)
+
+	calculateExpectedAvailability := func(downtimeHours, totalHours float64) float64 {
+		availability := fullPercentage - (downtimeHours / totalHours * fullPercentage)
+		return float64(int(availability*precisionFactor+roundFactor)) / precisionFactor
+	}
+
+	firstMonthHours := hoursInMonth(stDate.Year(), int(stDate.Month()))
+	secondMonthHours := hoursInMonth(endDate.Year(), int(endDate.Month()))
+	firstMonthAvailability := calculateExpectedAvailability(
+		time.Date(stDate.Year(), stDate.Month()+1, 1, 0, 0, 0, 0, time.UTC).Sub(stDate).Hours(),
+		firstMonthHours,
+	)
+	secondMonthAvailability := calculateExpectedAvailability(
+		endDate.Sub(time.Date(endDate.Year(), endDate.Month(), 1, 0, 0, 0, 0, time.UTC)).Hours(),
+		secondMonthHours,
+	)
+
 	testCases := []testCase{
 		{
-			testDescription: "Test case: April (66.66667%) - May (94.08602%)",
+			testDescription: "Test case: first month (availability drop) and next month (availability drop)",
 			Component:       &compForPeriod,
 			Result: func() []*MonthlyAvailability {
 				results := make([]*MonthlyAvailability, 12)
 
 				for i := range [12]int{} {
-					year, month := getYearAndMonth(time.Now().Year(), int(time.Now().Month()), 12-i-1)
+					year, month := getYearAndMonth(now.Year(), int(now.Month()), 11-i)
 					results[i] = &MonthlyAvailability{
 						Year:       year,
 						Month:      month,
 						Percentage: 100,
 					}
-					if month == 4 {
+					if year == stDate.Year() && month == int(stDate.Month()) {
 						results[i] = &MonthlyAvailability{
 							Month:      month,
-							Percentage: 66.66667,
+							Percentage: firstMonthAvailability,
 						}
 					}
-					if month == 5 {
+					if year == endDate.Year() && month == int(endDate.Month()) {
 						results[i] = &MonthlyAvailability{
 							Month:      month,
-							Percentage: 94.08602,
+							Percentage: secondMonthAvailability,
 						}
 					}
 				}
@@ -624,6 +648,117 @@ func TestCalculateAvailability(t *testing.T) {
 			assert.InEpsilon(t, tc.Result[i].Percentage, r.Percentage, 0.0001)
 		}
 	}
+}
+
+func TestValidateEventCreationDescriptionLength(t *testing.T) {
+	impact := 1
+	system := false
+
+	makeIncident := func(description string) IncidentData {
+		return IncidentData{
+			Title:       "description boundary test",
+			Description: description,
+			Impact:      &impact,
+			Components:  []int{1},
+			StartDate:   time.Now().Add(-time.Hour).UTC(),
+			System:      &system,
+			Type:        event.TypeIncident,
+		}
+	}
+
+	t.Run("description with 1500 characters is valid", func(t *testing.T) {
+		err := validateEventCreation(makeIncident(strings.Repeat("a", 1500)))
+		assert.NoError(t, err)
+	})
+
+	t.Run("description with 1501 characters is invalid", func(t *testing.T) {
+		err := validateEventCreation(makeIncident(strings.Repeat("a", 1501)))
+		require.Error(t, err)
+		assert.Equal(t, errors.ErrIncidentDescriptionTooLong, err)
+	})
+}
+
+func TestCheckPatchDataDescriptionLength(t *testing.T) {
+	impact := 2
+	stored := &db.Incident{
+		Type:   event.TypeIncident,
+		Impact: &impact,
+	}
+
+	validDesc := strings.Repeat("a", 1500)
+	overLongDesc := strings.Repeat("a", 1501)
+
+	testCases := []struct {
+		name        string
+		description *string
+		expectError bool
+		expectedErr error
+	}{
+		{
+			name:        "description nil is valid",
+			description: nil,
+			expectError: false,
+		},
+		{
+			name:        "description with 1500 characters is valid",
+			description: &validDesc,
+			expectError: false,
+		},
+		{
+			name:        "description with 1501 characters returns ErrIncidentDescriptionTooLong",
+			description: &overLongDesc,
+			expectError: true,
+			expectedErr: errors.ErrIncidentDescriptionTooLong,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			incoming := &PatchIncidentData{
+				Status:      event.IncidentDetected,
+				Description: tc.description,
+			}
+			err := checkPatchData(incoming, stored)
+			if tc.expectError {
+				require.Error(t, err)
+				assert.Equal(t, tc.expectedErr, err)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
+// TestPatchEventDescriptionTooLongHandler verifies that PATCH /v2/events/:eventID returns HTTP 400
+// when the incoming description exceeds the 1500-character maximum.
+func TestPatchEventDescriptionTooLongHandler(t *testing.T) {
+	impact := 2
+	testTime := time.Now().UTC().Add(-time.Hour)
+	storedIncident := &db.Incident{
+		ID:        111,
+		Text:      &[]string{"Test Incident"}[0],
+		Impact:    &impact,
+		Type:      event.TypeIncident,
+		StartDate: &testTime,
+	}
+
+	r := initRouterWithStoredEvent(t, storedIncident)
+
+	overLongDesc := strings.Repeat("a", 1501)
+	updateDate := time.Now().UTC().Format(time.RFC3339)
+	body := fmt.Sprintf(
+		`{"status":"detecting","message":"test message","update_date":%q,"description":%q}`,
+		updateDate, overLongDesc,
+	)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodPatch, "/v2/events/111", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+
+	r.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusBadRequest, w.Code)
+	assert.JSONEq(t, `{"errMsg":"event description should be 1500 characters or fewer"}`, w.Body.String())
 }
 
 func TestPatchEventUpdateHandler(t *testing.T) {

@@ -14,3 +14,13 @@ bin/
 .vscode
 __debug*
 *.out
+
+# dumps
+*test*.sql
+*prod*.sql
+*dump*.sql
+
+# ai tools
+.github/agents
+.github/prompts
+.specify
