@@ -84,3 +84,9 @@ func (ch *Checker) Shutdown(done chan struct{}) error {
 func (ch *Checker) Close() error {
 	return ch.db.Close()
 }
+
+// Publisher returns the checker's notification publisher so the delivery worker's
+// Notify can be wired in during app startup.
+func (ch *Checker) Publisher() *notification.Publisher {
+	return ch.notifier
+}

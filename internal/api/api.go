@@ -72,3 +72,9 @@ func New(cfg *conf.Config, log *zap.Logger, database *db.DB) (*API, error) {
 func (a *API) Router() *gin.Engine {
 	return a.r
 }
+
+// Publisher returns the notification publisher so the delivery worker's Notify can
+// be wired in during app startup.
+func (a *API) Publisher() *notification.Publisher {
+	return a.notifier
+}

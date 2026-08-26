@@ -139,6 +139,7 @@ func (ch *Checker) processMaintenance(mn *db.Incident, activeMaintenances *[]uin
 		if err != nil {
 			return fmt.Errorf("update maintenance %d: %w", mn.ID, err)
 		}
+		ch.notifier.Notify() // wake the worker after the commit
 	}
 
 	trackActiveMaintenance(actualStatus, mn.ID, activeMaintenances)

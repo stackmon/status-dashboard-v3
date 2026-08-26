@@ -15,6 +15,8 @@ type Publisher struct {
 	enabled  bool
 	resolver *Resolver
 	db       *db.DB
+	// notify wakes the delivery worker after a change commits (hot path). Optional.
+	notify func()
 }
 
 // NewPublisher builds a Publisher from the parsed config. When cfg.Enabled is false
@@ -25,6 +27,22 @@ func NewPublisher(cfg Config, database *db.DB) *Publisher {
 		resolver: NewResolver(cfg),
 		db:       database,
 	}
+}
+
+// SetNotify wires the post-commit wake-up callback (typically Worker.Notify).
+func (p *Publisher) SetNotify(fn func()) {
+	if p != nil {
+		p.notify = fn
+	}
+}
+
+// Notify signals the delivery worker that new rows may be due. Call it after the
+// business transaction commits. Nil-safe and a no-op when disabled or unwired.
+func (p *Publisher) Notify() {
+	if p == nil || !p.enabled || p.notify == nil {
+		return
+	}
+	p.notify()
 }
 
 // Enabled reports whether notifications should be published. It is nil-safe so

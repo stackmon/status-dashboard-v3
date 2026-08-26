@@ -964,7 +964,7 @@ func validateEventCreationTimes(incData IncidentData) error {
 func createEvent(dbInst *db.DB, log *zap.Logger, inc *db.Incident, userID *string, pub *notification.Publisher) error {
 	log.Info("start to save an event to the database")
 
-	return dbInst.WithTx(context.Background(), func(tx *gorm.DB) error {
+	err := dbInst.WithTx(context.Background(), func(tx *gorm.DB) error {
 		id, err := dbInst.SaveIncidentTx(tx, inc)
 		if err != nil {
 			return err
@@ -1019,6 +1019,10 @@ func createEvent(dbInst *db.DB, log *zap.Logger, inc *db.Incident, userID *strin
 		// A newly created maintenance has no previous status.
 		return publishMaintenanceChange(context.Background(), tx, pub, inc, "", userID)
 	})
+	if err == nil && inc.Type == event.TypeMaintenance {
+		pub.Notify() // wake the worker after the commit
+	}
+	return err
 }
 
 // optionalPublisher extracts the single optional publisher from a variadic arg.
@@ -1138,6 +1142,10 @@ func PatchIncidentHandler(dbInst *db.DB, logger *zap.Logger, pub ...*notificatio
 				zap.Uint("event_id", storedIncident.ID), zap.Error(err))
 			apiErrors.RaiseInternalErr(c, err)
 			return
+		}
+
+		if storedIncident.Type == event.TypeMaintenance {
+			publisher.Notify() // wake the worker after the commit
 		}
 
 		logger.Info("maintenance status transition",
