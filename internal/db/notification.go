@@ -64,7 +64,9 @@ func (db *DB) Enqueue(ctx context.Context, tx *gorm.DB, row NotificationOutbox) 
 // ClaimPending claims a batch of due rows for processing.
 // It must use `FOR UPDATE SKIP LOCKED` semantics and mark rows as processing,
 // increment attempts, and store lease metadata.
-func (db *DB) ClaimPending(ctx context.Context, tx *gorm.DB, limit int, leaseOwner string, leaseTimeout time.Duration) ([]NotificationOutbox, error) {
+func (db *DB) ClaimPending(
+	ctx context.Context, tx *gorm.DB, limit int, leaseOwner string, _ time.Duration,
+) ([]NotificationOutbox, error) {
 	var rows []NotificationOutbox
 
 	return rows, db.execWithTx(ctx, tx, func(gtx *gorm.DB) error {
@@ -135,7 +137,9 @@ func (db *DB) getRowByID(tx *gorm.DB, id uint) (*NotificationOutbox, error) {
 // MarkFailed marks a row as failed or pending with retry metadata.
 // If retries remain, keep status='pending' and set next_attempt_at.
 // Otherwise set status='failed' and last_error.
-func (db *DB) MarkFailed(ctx context.Context, tx *gorm.DB, id uint, errText string, maxAttempts int, backoff func(attempts int) time.Time) error {
+func (db *DB) MarkFailed(
+	ctx context.Context, tx *gorm.DB, id uint, errText string, maxAttempts int, backoff func(attempts int) time.Time,
+) error {
 	return db.execWithTx(ctx, tx, func(gtx *gorm.DB) error {
 		row, err := db.getRowByID(gtx, id)
 		if err != nil {
@@ -162,7 +166,9 @@ func (db *DB) MarkFailed(ctx context.Context, tx *gorm.DB, id uint, errText stri
 
 // RecoverStaleProcessing returns stale processing rows back to pending,
 // or marks them failed if they exhausted all attempts.
-func (db *DB) RecoverStaleProcessing(ctx context.Context, tx *gorm.DB, leaseTimeout time.Duration, maxAttempts int) ([]NotificationOutbox, error) {
+func (db *DB) RecoverStaleProcessing(
+	ctx context.Context, tx *gorm.DB, leaseTimeout time.Duration, maxAttempts int,
+) ([]NotificationOutbox, error) {
 	var rows []NotificationOutbox
 
 	return rows, db.execWithTx(ctx, tx, func(gtx *gorm.DB) error {

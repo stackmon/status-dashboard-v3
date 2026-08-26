@@ -4,4 +4,3 @@ package db
 // MarkSent, MarkFailed, RecoverStaleProcessing) is verified against a real
 // Postgres container in tests/notifications_test.go, because FOR UPDATE SKIP
 // LOCKED and transactional lease semantics cannot be exercised with sqlmock.
-

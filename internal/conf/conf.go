@@ -179,8 +179,8 @@ func (c *Config) validateNotifications() error {
 		return fmt.Errorf("SD_NOTIFICATIONS_MAX_ATTEMPTS must be a positive integer")
 	}
 
-	if _, err := time.ParseDuration(c.Notifications.BackoffInterval); err != nil {
-		return fmt.Errorf("invalid SD_NOTIFICATIONS_BACKOFF_INTERVAL: %w", err)
+	if _, parseErr := time.ParseDuration(c.Notifications.BackoffInterval); parseErr != nil {
+		return fmt.Errorf("invalid SD_NOTIFICATIONS_BACKOFF_INTERVAL: %w", parseErr)
 	}
 
 	return nil
