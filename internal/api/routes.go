@@ -64,7 +64,7 @@ func (a *API) InitRoutes(openAPISpecPath string) error {
 			AuthenticationMW(a.oa2Prov, a.log, a.secretKeyV1),
 			RBACAuthorizationMW(a.rbac, a.log),
 			ValidateComponentsMW(a.db, a.log),
-			v2.PostIncidentHandler(a.db, a.log),
+			v2.PostIncidentHandler(a.db, a.log, a.notifier),
 		)
 		v2API.GET("incidents/:eventID",
 			SetJWTClaims(a.oa2Prov, a.log, a.secretKeyV1),
@@ -73,7 +73,7 @@ func (a *API) InitRoutes(openAPISpecPath string) error {
 			AuthenticationMW(a.oa2Prov, a.log, a.secretKeyV1),
 			RBACAuthorizationMW(a.rbac, a.log),
 			CheckEventExistenceMW(a.db, a.log),
-			v2.PatchIncidentHandler(a.db, a.log))
+			v2.PatchIncidentHandler(a.db, a.log, a.notifier))
 		v2API.POST("incidents/:eventID/extract",
 			AuthenticationMW(a.oa2Prov, a.log, a.secretKeyV1),
 			RBACAuthorizationMW(a.rbac, a.log),
@@ -95,7 +95,7 @@ func (a *API) InitRoutes(openAPISpecPath string) error {
 			AuthenticationMW(a.oa2Prov, a.log, a.secretKeyV1),
 			RBACAuthorizationMW(a.rbac, a.log),
 			ValidateComponentsMW(a.db, a.log),
-			v2.PostIncidentHandler(a.db, a.log))
+			v2.PostIncidentHandler(a.db, a.log, a.notifier))
 		v2API.GET("events/:eventID",
 			SetJWTClaims(a.oa2Prov, a.log, a.secretKeyV1),
 			v2.GetIncidentHandler(a.db, a.log, a.rbac))
@@ -103,7 +103,7 @@ func (a *API) InitRoutes(openAPISpecPath string) error {
 			AuthenticationMW(a.oa2Prov, a.log, a.secretKeyV1),
 			RBACAuthorizationMW(a.rbac, a.log),
 			CheckEventExistenceMW(a.db, a.log),
-			v2.PatchIncidentHandler(a.db, a.log))
+			v2.PatchIncidentHandler(a.db, a.log, a.notifier))
 		v2API.POST("events/:eventID/extract",
 			AuthenticationMW(a.oa2Prov, a.log, a.secretKeyV1),
 			RBACAuthorizationMW(a.rbac, a.log),

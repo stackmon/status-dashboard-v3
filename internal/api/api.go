@@ -11,6 +11,7 @@ import (
 	"github.com/stackmon/otc-status-dashboard/internal/api/rbac"
 	"github.com/stackmon/otc-status-dashboard/internal/conf"
 	"github.com/stackmon/otc-status-dashboard/internal/db"
+	"github.com/stackmon/otc-status-dashboard/internal/notification"
 )
 
 type API struct {
@@ -20,6 +21,7 @@ type API struct {
 	oa2Prov     *auth.Provider
 	secretKeyV1 string
 	rbac        *rbac.Service
+	notifier    *notification.Publisher
 }
 
 func New(cfg *conf.Config, log *zap.Logger, database *db.DB) (*API, error) {
@@ -47,6 +49,11 @@ func New(cfg *conf.Config, log *zap.Logger, database *db.DB) (*API, error) {
 
 	rbacService := rbac.New(cfg.RBAC.Creators, cfg.RBAC.Operators, cfg.RBAC.Admins)
 
+	ncfg, err := notification.ConfigFromConf(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("could not parse notification config: %w", err)
+	}
+
 	a := &API{
 		r:           r,
 		db:          database,
@@ -54,6 +61,7 @@ func New(cfg *conf.Config, log *zap.Logger, database *db.DB) (*API, error) {
 		oa2Prov:     oa2Prov,
 		secretKeyV1: cfg.SecretKeyV1,
 		rbac:        rbacService,
+		notifier:    notification.NewPublisher(ncfg, database),
 	}
 	if err := a.InitRoutes(cfg.OpenAPISpecPath); err != nil {
 		return nil, fmt.Errorf("init routes: %w", err)
