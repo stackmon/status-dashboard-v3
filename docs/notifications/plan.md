@@ -172,18 +172,25 @@ Files: `internal/notification/*_test.go`, `tests/notifications_test.go`
 
 ## Stage 11 — Operations
 
-Files: worker metrics/logging, runbook
+Files: `internal/notification/metrics.go`, `internal/db/notification_ops.go`,
+`internal/api/v2/notifications.go`, `internal/notification/worker.go`
 
-- [ ] Prometheus metrics:
-  - `notification_outbox_pending` (gauge) — count of `status='pending'` rows.
-  - `notification_outbox_processing` (gauge) — count of `status='processing'` rows.
-  - `notification_sent_total` (counter) — cumulative sent, labeled by `kind` and `incident_id`.
-  - `notification_failed_total` (counter) — cumulative failures, labeled by `kind` and `last_error` category.
-  - `notification_delivery_duration_seconds` (histogram) — end-to-end latency from claim to sent/failed.
-  - `notification_stale_leases_recovered_total` (counter) — count of recovered stuck rows.
-  - `notification_attempts_total` (counter) — cumulative send attempts by outcome.
-- [ ] Structured logs with `outbox_id`, `incident_id`, `recipient`, `kind`, `attempts`, `error` (if failed).
-- [ ] Retention job: delete `status='sent'` rows older than N days (e.g., 30 days); keep `status='failed'` longer (e.g., 90 days) for audit and re-drive.
-- [ ] Feature-flag rollout: disabled in prod initially, enable in staging first, then prod after operational validation.
-- [ ] Runbook: query and re-drive stuck rows (update `status='pending'`, `attempts=0`, `next_attempt_at=now()` for selected `outbox.id` rows).
-- [ ] Verify: failed deliveries are queryable by incident/recipient/kind; re-drive mechanism tested end-to-end.
+Observability reads directly from the outbox row (the single source of truth). Two interfaces
+expose it, plus retention and re-drive.
+
+- [x] Prometheus `/metrics` (enabled only when notifications are on, dedicated registry):
+  - Queue-depth gauges (pulled from the DB on each scrape): `notification_outbox_pending`,
+    `_processing`, `_failed`, `_stale_processing`, `_retry_backlog`, `_oldest_pending_age_seconds`.
+  - Worker series: `notification_sent_total{kind}`, `notification_failed_total{kind}`,
+    `notification_attempts_total`, `notification_stale_recovered_total`,
+    `notification_delivery_duration_seconds` (histogram).
+  - Note: no per-`incident_id` label (cardinality); `kind` only.
+- [x] Admin ops API (`/v2/notifications/…`, admin role): `GET /stats`, `GET /failed`,
+  `POST /redrive` (reset `failed` → `pending`, optionally by id, then wake the worker).
+- [x] Structured logs with `outbox_id`, `incident_id`, `recipient`, `kind`, `attempts`, `error`.
+- [x] Retention (worker safety sweep): delete `status='sent'` older than 30 days in batches
+  (`idx_outbox_retention`). `status='failed'` kept indefinitely (unfinished work, re-drivable).
+- [x] Feature-flag rollout: gated by `SD_NOTIFICATIONS_ENABLED` (off by default; enable staging first).
+- [x] Re-drive: via the `POST /v2/notifications/redrive` endpoint (not a manual SQL runbook).
+- [x] Verify: failed deliveries queryable via `/stats` + `/failed`; re-drive tested end-to-end;
+  `make test`, `make test-acc`, `make lint` all pass.

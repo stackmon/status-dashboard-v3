@@ -53,7 +53,7 @@ func testWorker(t *testing.T, d *db.DB, sender notification.Sender, maxAttempts 
 		MaxAttempts:  maxAttempts,
 		BackoffBase:  5 * time.Minute,
 		Timeout:      30 * time.Second,
-	}, d, sender, zap.NewNop())
+	}, d, sender, zap.NewNop(), nil)
 	require.NoError(t, err)
 	return w
 }

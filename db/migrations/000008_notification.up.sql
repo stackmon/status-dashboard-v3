@@ -26,3 +26,8 @@ CREATE INDEX IF NOT EXISTS idx_outbox_stale_processing
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_outbox_dedup
     ON notification_outbox (dedup_key);
+
+-- Supports retention pruning and the sent-count ops stat.
+CREATE INDEX IF NOT EXISTS idx_outbox_retention
+    ON notification_outbox (updated_at)
+    WHERE status = 'sent';

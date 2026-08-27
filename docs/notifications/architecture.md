@@ -175,6 +175,11 @@ CREATE INDEX idx_outbox_stale_processing
 
 CREATE UNIQUE INDEX idx_outbox_dedup
     ON notification_outbox (dedup_key);
+
+-- Supports retention pruning and the sent-count observability stat.
+CREATE INDEX idx_outbox_retention
+    ON notification_outbox (updated_at)
+    WHERE status = 'sent';
 ```
 
 ### Column groups, explained
@@ -314,6 +319,10 @@ Extends `conf.Config` in [internal/conf/conf.go](../../internal/conf/conf.go), u
 | `SD_SMTP_FROM` | sender address |
 | `SD_SMTP_USER` / `SD_SMTP_PASSWORD` | mail server credentials |
 | `SD_SMTP_TLS` | use TLS |
+| `SD_SMTP_TIMEOUT` | SMTP connect/send timeout (Go duration, e.g. `30s`) |
+| `SD_NOTIFICATIONS_LEASE_TIMEOUT` | processing lease; must exceed the SMTP timeout |
+| `SD_NOTIFICATIONS_MAX_ATTEMPTS` | retry limit before a row is marked `failed` |
+| `SD_NOTIFICATIONS_BACKOFF_INTERVAL` | base retry delay (exponential, capped at 2h) |
 | `SD_NOTIFICATIONS_SMOD_EMAIL` | fixed SMOD team review recipient |
 | `SD_NOTIFICATIONS_EMAILS_OPERATORS` | review recipients with the Operator role |
 | `SD_NOTIFICATIONS_EMAILS_ADMINS` | review recipients with the Admin role |
@@ -365,3 +374,43 @@ own. With multiple pods, extra pools would multiply PostgreSQL connections. Budg
 
 On shutdown the worker stops claiming new rows and finishes in-flight sends; anything unfinished is
 recovered by the lease mechanism on the next run.
+
+---
+
+## 9. Observability and retention
+
+The outbox row is the single source of truth for delivery state, so observability reads directly
+from it — there is no separate metrics store. Two interfaces expose the same data:
+
+### Prometheus `/metrics`
+
+Registered only when notifications are enabled (on a dedicated registry, scoped to notification
+series). Two kinds of series:
+
+- **Worker counters/histogram** (updated as rows are delivered): `notification_sent_total{kind}`,
+  `notification_failed_total{kind}`, `notification_attempts_total`,
+  `notification_stale_recovered_total`, `notification_delivery_duration_seconds`.
+- **Queue-depth gauges** (pulled on each scrape by a DB-backed collector, so they always reflect
+  current state): `notification_outbox_pending`, `_processing`, `_failed`, `_stale_processing`,
+  `_retry_backlog`, `_oldest_pending_age_seconds`.
+
+### Admin ops API (`/v2/notifications/…`)
+
+For manual inspection and recovery, admin-only:
+
+- `GET /stats` — the same queue-depth snapshot as JSON.
+- `GET /failed` — the most recent terminal-`failed` rows.
+- `POST /redrive` — reset `failed` rows back to `pending` (optionally by id) and wake the worker.
+
+### Retention
+
+Delivery outcome lives on the outbox row, which also serves as the audit trail. To keep the table
+(and the count queries above) small, the worker prunes on its safety sweep:
+
+- `sent` rows older than **30 days** are deleted in batches (`idx_outbox_retention` supports it).
+- `failed` rows are **kept indefinitely** — they are unfinished work: queryable via the ops API and
+  re-drivable. (At our volume this is negligible; a longer sent-retention window is a one-constant
+  change if a longer audit history is ever wanted.)
+
+Structured logs carry `outbox_id`, `incident_id`, `recipient`, `kind`, and `attempts` for
+per-delivery tracing.

@@ -8,6 +8,9 @@ import (
 
 	"go.uber.org/zap"
 
+	"github.com/gin-gonic/gin"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/stackmon/otc-status-dashboard/internal/api"
 	"github.com/stackmon/otc-status-dashboard/internal/conf"
 	"github.com/stackmon/otc-status-dashboard/internal/db"
@@ -16,6 +19,8 @@ import (
 
 const (
 	readHeaderTimeout = 3 * time.Second
+	// notificationStaleThreshold flags a processing row as stuck in the /metrics gauge.
+	notificationStaleThreshold = 2 * time.Minute
 )
 
 type App struct {
@@ -63,8 +68,9 @@ func New(c *conf.Config, log *zap.Logger) (*App, error) {
 	return a, nil
 }
 
-// buildWorker constructs the delivery worker and wires the API publisher's hot-path
-// signal to it. It returns nil (no worker) when notifications are disabled.
+// buildWorker constructs the delivery worker, registers Prometheus metrics on a
+// /metrics endpoint, and wires the API publisher's hot-path signal to it. It returns
+// nil (no worker) when notifications are disabled.
 func buildWorker(c *conf.Config, log *zap.Logger, dbNew *db.DB, apiNew *api.API) (*notification.Worker, error) {
 	ncfg, err := notification.ConfigFromConf(c)
 	if err != nil {
@@ -78,7 +84,15 @@ func buildWorker(c *conf.Config, log *zap.Logger, dbNew *db.DB, apiNew *api.API)
 	if err != nil {
 		return nil, fmt.Errorf("build smtp sender: %w", err)
 	}
-	worker, err := notification.NewWorker(ncfg, dbNew, sender, log)
+
+	// Dedicated registry so /metrics exposes just the notification signals.
+	reg := prometheus.NewRegistry()
+	metrics := notification.NewMetrics()
+	metrics.MustRegister(reg)
+	reg.MustRegister(notification.NewStatsCollector(dbNew, notificationStaleThreshold))
+	apiNew.Router().GET("/metrics", gin.WrapH(promhttp.HandlerFor(reg, promhttp.HandlerOpts{})))
+
+	worker, err := notification.NewWorker(ncfg, dbNew, sender, log, metrics)
 	if err != nil {
 		return nil, fmt.Errorf("build notification worker: %w", err)
 	}

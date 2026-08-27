@@ -14,6 +14,11 @@ import (
 const (
 	defaultBatchSize  = 50
 	defaultSweepEvery = 5 * time.Minute
+
+	// retentionAge keeps delivered rows for audit/re-drive, then prunes them so the
+	// outbox (and the ops stat queries over it) stay small. Failed rows are kept.
+	retentionAge   = 30 * 24 * time.Hour
+	retentionBatch = 500
 )
 
 // Worker delivers queued outbox rows. On the happy path it is woken by Notify right
@@ -34,11 +39,14 @@ type Worker struct {
 	batchSize  int
 	sweepEvery time.Duration
 
+	metrics *Metrics
+
 	signal chan struct{}
 }
 
-// NewWorker builds a delivery worker from the parsed config and a sender.
-func NewWorker(cfg Config, database *db.DB, sender Sender, log *zap.Logger) (*Worker, error) {
+// NewWorker builds a delivery worker from the parsed config and a sender. metrics
+// may be nil (the record* calls are nil-safe).
+func NewWorker(cfg Config, database *db.DB, sender Sender, log *zap.Logger, metrics *Metrics) (*Worker, error) {
 	renderer, err := NewRenderer()
 	if err != nil {
 		return nil, err
@@ -55,6 +63,7 @@ func NewWorker(cfg Config, database *db.DB, sender Sender, log *zap.Logger) (*Wo
 		backoff:      Backoff(cfg.BackoffBase),
 		batchSize:    defaultBatchSize,
 		sweepEvery:   defaultSweepEvery,
+		metrics:      metrics,
 		signal:       make(chan struct{}, 1),
 	}, nil
 }
@@ -84,6 +93,7 @@ func (w *Worker) Run(ctx context.Context) {
 			w.drainQuietly(ctx)
 		case <-ticker.C:
 			w.drainQuietly(ctx)
+			w.runRetention(ctx)
 		}
 	}
 }
@@ -94,12 +104,27 @@ func (w *Worker) drainQuietly(ctx context.Context) {
 	}
 }
 
+// runRetention prunes delivered rows older than retentionAge on the safety sweep.
+func (w *Worker) runRetention(ctx context.Context) {
+	before := time.Now().UTC().Add(-retentionAge)
+	n, err := w.db.DeleteSentBefore(ctx, before, retentionBatch)
+	if err != nil && ctx.Err() == nil {
+		w.log.Error("notification retention failed", zap.Error(err))
+		return
+	}
+	if n > 0 {
+		w.log.Info("notification retention pruned sent rows", zap.Int64("count", n))
+	}
+}
+
 // Drain recovers stale rows, then claims and sends batches until none remain due.
 // It is exported so it can be driven deterministically in tests.
 func (w *Worker) Drain(ctx context.Context) error {
-	if _, err := w.db.RecoverStaleProcessing(ctx, nil, w.leaseTimeout, w.maxAttempts); err != nil {
-		return err
+	recovered, rerr := w.db.RecoverStaleProcessing(ctx, nil, w.leaseTimeout, w.maxAttempts)
+	if rerr != nil {
+		return rerr
 	}
+	w.metrics.recordStaleRecovered(len(recovered))
 
 	for {
 		if ctx.Err() != nil {
@@ -126,18 +151,24 @@ func (w *Worker) Drain(ctx context.Context) error {
 // deliver sends one claimed row and records the outcome. Failures (including panics)
 // are isolated per row so one bad email cannot stop the batch.
 func (w *Worker) deliver(ctx context.Context, row db.NotificationOutbox) {
-	if err := w.sendGuarded(ctx, row); err != nil {
+	w.metrics.recordAttempt()
+	start := time.Now()
+	err := w.sendGuarded(ctx, row)
+	w.metrics.observeDuration(time.Since(start))
+	if err != nil {
 		w.log.Warn("notification send failed",
 			zap.Uint("outbox_id", row.ID), zap.Uint("incident_id", row.IncidentID),
 			zap.String("recipient", row.Recipient), zap.Int("attempts", row.Attempts),
 			zap.Error(err))
+		w.metrics.recordFailed(row.Kind)
 		if merr := w.db.MarkFailed(ctx, nil, row.ID, err.Error(), w.maxAttempts, w.backoff); merr != nil {
 			w.log.Error("mark failed", zap.Uint("outbox_id", row.ID), zap.Error(merr))
 		}
 		return
 	}
 
-	if err := w.db.MarkSent(ctx, nil, row.ID); err != nil {
+	w.metrics.recordSent(row.Kind)
+	if err = w.db.MarkSent(ctx, nil, row.ID); err != nil {
 		w.log.Error("mark sent", zap.Uint("outbox_id", row.ID), zap.Error(err))
 	}
 }
