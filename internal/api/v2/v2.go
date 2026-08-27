@@ -423,7 +423,7 @@ func routeIncidentCreation(
 }
 
 func handleSystemIncidentCreation(
-	dbInst *db.DB, log *zap.Logger, incData IncidentData, pub *notification.Publisher,
+	dbInst *db.DB, log *zap.Logger, incData IncidentData, _ *notification.Publisher,
 ) ([]*ProcessComponentResp, error) {
 	if incData.Type != event.TypeIncident {
 		log.Info("system incident must be of type 'incident'")
@@ -1060,6 +1060,38 @@ func strDeref(s *string) string {
 	return *s
 }
 
+// persistIncidentPatch writes the modification and its notification in one
+// transaction, mapping failures to HTTP responses. It returns false when the
+// caller should stop (an error response was already written).
+func persistIncidentPatch(
+	c *gin.Context, dbInst *db.DB, logger *zap.Logger, publisher *notification.Publisher,
+	storedIncident *db.Incident, oldStatus event.Status, userID *string,
+) bool {
+	err := dbInst.WithTx(c.Request.Context(), func(tx *gorm.DB) error {
+		if e := dbInst.ModifyIncidentTx(tx, storedIncident); e != nil {
+			return e
+		}
+		return publishMaintenanceChange(c.Request.Context(), tx, publisher, storedIncident, oldStatus, userID)
+	})
+	if err != nil {
+		if errors.Is(err, db.ErrVersionConflict) {
+			logger.Warn("incident patch failed: version conflict",
+				zap.Uint("event_id", storedIncident.ID))
+			apiErrors.RaiseConflictErr(c, apiErrors.ErrVersionConflict)
+			return false
+		}
+		logger.Error("incident patch failed: database error",
+			zap.Uint("event_id", storedIncident.ID), zap.Error(err))
+		apiErrors.RaiseInternalErr(c, err)
+		return false
+	}
+
+	if storedIncident.Type == event.TypeMaintenance {
+		publisher.Notify() // wake the worker after the commit
+	}
+	return true
+}
+
 type PatchIncidentData struct {
 	Title       *string      `json:"title,omitempty"`
 	Description *string      `json:"description,omitempty"`
@@ -1125,27 +1157,8 @@ func PatchIncidentHandler(dbInst *db.DB, logger *zap.Logger, pub ...*notificatio
 			storedIncident.Version = incData.Version
 		}
 
-		err := dbInst.WithTx(c.Request.Context(), func(tx *gorm.DB) error {
-			if e := dbInst.ModifyIncidentTx(tx, storedIncident); e != nil {
-				return e
-			}
-			return publishMaintenanceChange(c.Request.Context(), tx, publisher, storedIncident, oldStatus, userID)
-		})
-		if err != nil {
-			if errors.Is(err, db.ErrVersionConflict) {
-				logger.Warn("incident patch failed: version conflict",
-					zap.Uint("event_id", storedIncident.ID))
-				apiErrors.RaiseConflictErr(c, apiErrors.ErrVersionConflict)
-				return
-			}
-			logger.Error("incident patch failed: database error",
-				zap.Uint("event_id", storedIncident.ID), zap.Error(err))
-			apiErrors.RaiseInternalErr(c, err)
+		if !persistIncidentPatch(c, dbInst, logger, publisher, storedIncident, oldStatus, userID) {
 			return
-		}
-
-		if storedIncident.Type == event.TypeMaintenance {
-			publisher.Notify() // wake the worker after the commit
 		}
 
 		logger.Info("maintenance status transition",
@@ -1155,7 +1168,7 @@ func PatchIncidentHandler(dbInst *db.DB, logger *zap.Logger, pub ...*notificatio
 			zap.Time("timestamp", incData.UpdateDate),
 		)
 
-		if err = reopenIncident(c, dbInst, logger, storedIncident, incData.Status); err != nil {
+		if err := reopenIncident(c, dbInst, logger, storedIncident, incData.Status); err != nil {
 			return
 		}
 

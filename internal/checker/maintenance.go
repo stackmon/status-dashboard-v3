@@ -123,7 +123,7 @@ func (ch *Checker) processMaintenance(mn *db.Incident, activeMaintenances *[]uin
 		mn.Status = actualStatus
 		// The modify + enqueue share one transaction: on a version conflict the
 		// whole thing rolls back and no notification is published.
-		err := ch.db.WithTx(context.Background(), func(tx *gorm.DB) error {
+		txErr := ch.db.WithTx(context.Background(), func(tx *gorm.DB) error {
 			if modErr := ch.db.ModifyIncidentTx(tx, mn); modErr != nil {
 				return modErr
 			}
@@ -136,8 +136,8 @@ func (ch *Checker) processMaintenance(mn *db.Incident, activeMaintenances *[]uin
 				Actor:        notification.ActorChecker,
 			})
 		})
-		if err != nil {
-			return fmt.Errorf("update maintenance %d: %w", mn.ID, err)
+		if txErr != nil {
+			return fmt.Errorf("update maintenance %d: %w", mn.ID, txErr)
 		}
 		ch.notifier.Notify() // wake the worker after the commit
 	}

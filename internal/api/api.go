@@ -63,7 +63,7 @@ func New(cfg *conf.Config, log *zap.Logger, database *db.DB) (*API, error) {
 		rbac:        rbacService,
 		notifier:    notification.NewPublisher(ncfg, database),
 	}
-	if err := a.InitRoutes(cfg.OpenAPISpecPath); err != nil {
+	if err = a.InitRoutes(cfg.OpenAPISpecPath); err != nil {
 		return nil, fmt.Errorf("init routes: %w", err)
 	}
 	return a, nil

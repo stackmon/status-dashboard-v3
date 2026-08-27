@@ -51,7 +51,7 @@ func TestWithTx_RollsBackBothOnError(t *testing.T) {
 		incID = id
 		row := newOutboxRow(id, "creator@com.com")
 		dedup = row.DedupKey
-		if e := d.Enqueue(ctx, tx, row); e != nil {
+		if e = d.Enqueue(ctx, tx, row); e != nil {
 			return e
 		}
 		return sentinel // force rollback after both writes
