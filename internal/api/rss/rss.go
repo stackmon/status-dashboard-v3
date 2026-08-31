@@ -12,6 +12,7 @@ import (
 
 	apiErrors "github.com/stackmon/otc-status-dashboard/internal/api/errors"
 	"github.com/stackmon/otc-status-dashboard/internal/db"
+	"github.com/stackmon/otc-status-dashboard/internal/event"
 )
 
 const generalTitle = "Incidents | Status Dashboard"
@@ -136,7 +137,7 @@ func getIncidents(dbInstance *db.DB, log *zap.Logger, params feedParams, maxInci
 			return nil, err
 		}
 	default:
-		incidents, err = dbInstance.GetEvents(incParams)
+		incidents, err = dbInstance.GetEvents(db.PublicAccess, incParams)
 		if err != nil {
 			return nil, err
 		}
@@ -151,6 +152,10 @@ func createFeedContent(incident *db.Incident) string {
 	if len(incident.Statuses) > 0 {
 		for i := len(incident.Statuses) - 1; i >= 0; i-- {
 			status := incident.Statuses[i]
+			if incident.Type == event.TypeMaintenance &&
+				(status.Status == event.MaintenancePendingReview || status.Status == event.MaintenanceReviewed) {
+				continue
+			}
 			content += fmt.Sprintf(
 				"<small>%s</small><br><strong>%s - </strong>%s<br><br><br>",
 				status.Timestamp.Format("2006-01-02 15:04 MST"),

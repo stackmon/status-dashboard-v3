@@ -21,6 +21,10 @@ const (
 	DefaultHostname        = "localhost"
 	DefaultPort            = "8000"
 	DefaultOpenAPISpecPath = "openapi.yaml"
+
+	// MinSecretKeyLength is the minimum required length for the HMAC secret key.
+	// HMAC-SHA256 requires at least 32 bytes for cryptographic strength.
+	MinSecretKeyLength = 32
 )
 
 type Config struct {
@@ -42,17 +46,24 @@ type Config struct {
 	// Web URL for the app
 	// Example: https://web.example.com
 	WebURL string `envconfig:"WEB_URL"`
-	// Disable authentication for any reasons it doesn't work with hostname like "*prod*"
-	AuthenticationDisabled bool `envconfig:"AUTHENTICATION_DISABLED"`
-	// Secret key for V1 authentication (deprecated)
+	// Secret key for local HMAC authentication (dev, tests, service-to-service)
 	SecretKeyV1 string `envconfig:"SECRET_KEY"`
-	// Auth group name that users must belong to for authorization (optional)
-	AuthGroup string `envconfig:"AUTH_GROUP"`
 	// OpenAPISpecPath is the filesystem path to the OpenAPI spec served at
 	// /openapi.json. Defaults to "openapi.yaml" (resolved relative to the
 	// process working directory, matching the container's WORKDIR layout).
 	// Override via SD_OPENAPI_SPEC_PATH for tests or non-standard deployments.
 	OpenAPISpecPath string `envconfig:"OPENAPI_SPEC_PATH"`
+	// RBAC configuration
+	RBAC RBACConfig `envconfig:"RBAC"`
+}
+
+type RBACConfig struct {
+	// Creators group name
+	Creators string `envconfig:"GROUPS_CREATORS"`
+	// Operators group name
+	Operators string `envconfig:"GROUPS_OPERATORS"`
+	// Admins group name (mandatory)
+	Admins string `envconfig:"GROUPS_ADMINS"`
 }
 
 type Keycloak struct {
@@ -65,12 +76,45 @@ type Keycloak struct {
 func (c *Config) Validate() error {
 	p, err := strconv.Atoi(c.Port)
 	if err != nil {
-		return fmt.Errorf("wront SD_PORT format, should be a number in range 1025:50000")
+		return fmt.Errorf("wrong SD_PORT format, should be a number in range 1025:50000")
 	}
 	if p < 1024 || p > 50000 {
 		return fmt.Errorf("wrong port for http server")
 	}
 
+	if provErr := c.validateProviders(); provErr != nil {
+		return provErr
+	}
+
+	if rbacErr := c.RBAC.Validate(); rbacErr != nil {
+		return rbacErr
+	}
+
+	return nil
+}
+
+// validateProviders ensures at least one authentication provider is configured.
+func (c *Config) validateProviders() error {
+	hasKeycloak := c.Keycloak != nil && c.Keycloak.URL != "" && c.Keycloak.Realm != "" &&
+		c.Keycloak.ClientID != "" && c.Keycloak.ClientSecret != ""
+	hasLocal := c.SecretKeyV1 != ""
+
+	if !hasKeycloak && !hasLocal {
+		return fmt.Errorf("at least one authentication provider must be configured: " +
+			"set SD_KEYCLOAK_* for Keycloak or SD_SECRET_KEY for local HMAC")
+	}
+
+	if hasLocal && len(c.SecretKeyV1) < MinSecretKeyLength {
+		return fmt.Errorf("SD_SECRET_KEY must be at least %d characters for HMAC-SHA256 security", MinSecretKeyLength)
+	}
+
+	return nil
+}
+
+func (r *RBACConfig) Validate() error {
+	if r.Admins == "" {
+		return fmt.Errorf("SD_RBAC_GROUPS_ADMINS is required")
+	}
 	return nil
 }
 
@@ -150,10 +194,24 @@ func mergeConfigs(env map[string]string, obj any, prefix string) error { //nolin
 		field := t.Field(i)
 		value := v.Field(i)
 
+		// Handle pointer to struct (e.g., *Keycloak)
 		if value.Kind() == reflect.Ptr && value.Elem().Kind() == reflect.Struct {
 			envValueTag := field.Tag.Get(envConfigTag)
 			confPrefix := fmt.Sprintf("%s_%s", prefix, envValueTag)
 			err := mergeConfigs(env, value.Interface(), confPrefix)
+			if err != nil {
+				return err
+			}
+
+			continue
+		}
+
+		// Handle embedded struct (e.g., RBACConfig)
+		// For struct values (not pointers), we need to pass a pointer
+		if value.Kind() == reflect.Struct {
+			envValueTag := field.Tag.Get(envConfigTag)
+			confPrefix := fmt.Sprintf("%s_%s", prefix, envValueTag)
+			err := mergeConfigs(env, value.Addr().Interface(), confPrefix)
 			if err != nil {
 				return err
 			}
@@ -213,8 +271,11 @@ func (c *Config) Log(logger *zap.Logger) {
 	)
 
 	logger.Info("Authentication configuration",
-		zap.Bool("authentication_disabled", c.AuthenticationDisabled),
-		zap.String("auth_group", c.AuthGroup),
+		zap.Bool("keycloak_configured", c.Keycloak != nil && c.Keycloak.URL != ""),
+		zap.Bool("local_hmac_configured", c.SecretKeyV1 != ""),
+		zap.String("creators_group", c.RBAC.Creators),
+		zap.String("operators_group", c.RBAC.Operators),
+		zap.String("admins_group", c.RBAC.Admins),
 		zap.String("secret_key_v1", maskSecret(c.SecretKeyV1)),
 	)
 

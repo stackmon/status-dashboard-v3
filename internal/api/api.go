@@ -8,6 +8,7 @@ import (
 
 	"github.com/stackmon/otc-status-dashboard/internal/api/auth"
 	"github.com/stackmon/otc-status-dashboard/internal/api/errors"
+	"github.com/stackmon/otc-status-dashboard/internal/api/rbac"
 	"github.com/stackmon/otc-status-dashboard/internal/conf"
 	"github.com/stackmon/otc-status-dashboard/internal/db"
 )
@@ -18,7 +19,7 @@ type API struct {
 	log         *zap.Logger
 	oa2Prov     *auth.Provider
 	secretKeyV1 string
-	authGroup   string
+	rbac        *rbac.Service
 }
 
 func New(cfg *conf.Config, log *zap.Logger, database *db.DB) (*API, error) {
@@ -26,9 +27,8 @@ func New(cfg *conf.Config, log *zap.Logger, database *db.DB) (*API, error) {
 		gin.SetMode(gin.ReleaseMode)
 	}
 
-	oa2Prov := &auth.Provider{Disabled: true}
-
-	if !cfg.AuthenticationDisabled {
+	var oa2Prov *auth.Provider
+	if cfg.Keycloak != nil && cfg.Keycloak.URL != "" {
 		var err error
 		if oa2Prov, err = auth.NewProvider(
 			cfg.Keycloak.URL, cfg.Keycloak.Realm, cfg.Keycloak.ClientID,
@@ -44,13 +44,15 @@ func New(cfg *conf.Config, log *zap.Logger, database *db.DB) (*API, error) {
 	r.Use(CORSMiddleware())
 	r.NoRoute(errors.Return404)
 
+	rbacService := rbac.New(cfg.RBAC.Creators, cfg.RBAC.Operators, cfg.RBAC.Admins)
+
 	a := &API{
 		r:           r,
 		db:          database,
 		log:         log,
 		oa2Prov:     oa2Prov,
 		secretKeyV1: cfg.SecretKeyV1,
-		authGroup:   cfg.AuthGroup,
+		rbac:        rbacService,
 	}
 	if err := a.InitRoutes(cfg.OpenAPISpecPath); err != nil {
 		return nil, fmt.Errorf("init routes: %w", err)

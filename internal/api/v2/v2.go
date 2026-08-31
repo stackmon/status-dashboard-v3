@@ -12,6 +12,7 @@ import (
 	"go.uber.org/zap"
 
 	apiErrors "github.com/stackmon/otc-status-dashboard/internal/api/errors"
+	"github.com/stackmon/otc-status-dashboard/internal/api/rbac"
 	"github.com/stackmon/otc-status-dashboard/internal/db"
 	"github.com/stackmon/otc-status-dashboard/internal/event"
 )
@@ -22,7 +23,17 @@ const (
 	maxDescriptionLength = 1500
 )
 
-// Event IDs and core data structures.
+const (
+	authorizedView = true
+	publicView     = false
+)
+
+const (
+	UsernameContextKey     = "userID"
+	UserIDGroupsContextKey = "userIDGroups"
+	RoleContextKey         = "role"
+)
+
 type IncidentID struct {
 	ID int `json:"id" uri:"eventID" binding:"required,gte=0"`
 }
@@ -40,16 +51,14 @@ type IncidentData struct {
 	Impact     *int  `json:"impact" binding:"required,gte=0,lte=3"`
 	Components []int `json:"components" binding:"required"`
 	// Datetime format is standard: "2006-01-01T12:00:00Z"
-	StartDate time.Time  `json:"start_date" binding:"required"`
-	EndDate   *time.Time `json:"end_date,omitempty"`
-	System    *bool      `json:"system,omitempty"`
-	//    Types of incidents:
-	//    1. maintenance
-	//    2. info
-	//    3. incident
-	// Type field is mandatory.
-	Type    string            `json:"type" binding:"required,oneof=maintenance info incident"`
-	Updates []EventUpdateData `json:"updates,omitempty"`
+	StartDate    time.Time         `json:"start_date" binding:"required"`
+	EndDate      *time.Time        `json:"end_date,omitempty"`
+	System       *bool             `json:"system,omitempty"`
+	Type         string            `json:"type" binding:"required,oneof=maintenance info incident"`
+	Updates      []EventUpdateData `json:"updates,omitempty"`
+	ContactEmail string            `json:"contact_email,omitempty"`
+	CreatedBy    string            `json:"creator,omitempty"`
+	Version      *int              `json:"version,omitempty"`
 	// Status does not take into account OutDatedSystem status.
 	Status event.Status `json:"status,omitempty"`
 }
@@ -152,7 +161,26 @@ func parsePaginationParams(c *gin.Context, params *db.IncidentsParams) error {
 	return nil
 }
 
-func GetIncidentsHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
+// hasExtendedView checks if user has a resolved role above NoRole (authenticated and authorized via RBAC).
+func hasExtendedView(c *gin.Context, svc *rbac.Service) bool {
+	if svc == nil {
+		return false
+	}
+
+	val, exists := c.Get(UserIDGroupsContextKey)
+	if !exists {
+		return false
+	}
+
+	groups, ok := val.([]string)
+	if !ok || len(groups) == 0 {
+		return false
+	}
+
+	return svc.HasAuthorizedGroup(groups)
+}
+
+func GetIncidentsHandler(dbInst *db.DB, logger *zap.Logger, svc *rbac.Service) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		logger.Debug("retrieve and parse incidents params from query")
 		params, err := parseFilterParams(c)
@@ -161,8 +189,10 @@ func GetIncidentsHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 			return
 		}
 
+		isAuth := hasExtendedView(c, svc)
+
 		logger.Debug("retrieve incidents with params", zap.Any("params", params))
-		r, err := dbInst.GetEvents(params)
+		r, err := dbInst.GetEvents(isAuth, params)
 		if err != nil {
 			logger.Error("failed to retrieve incidents", zap.Error(err))
 			apiErrors.RaiseInternalErr(c, err)
@@ -177,14 +207,14 @@ func GetIncidentsHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 
 		incidents := make([]*Incident, len(r))
 		for i, inc := range r {
-			incidents[i] = toAPIEvent(inc)
+			incidents[i] = toAPIEvent(inc, isAuth)
 		}
 
 		c.JSON(http.StatusOK, gin.H{"data": incidents})
 	}
 }
 
-func GetEventsHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
+func GetEventsHandler(dbInst *db.DB, logger *zap.Logger, svc *rbac.Service) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		logger.Debug("retrieve and parse events params from query")
 		params, err := parseFilterParams(c)
@@ -198,8 +228,10 @@ func GetEventsHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 			return
 		}
 
+		isAuth := hasExtendedView(c, svc)
+
 		logger.Debug("retrieve events with params", zap.Any("params", params))
-		r, total, err := dbInst.GetEventsWithCount(params)
+		r, total, err := dbInst.GetEventsWithCount(isAuth, params)
 		if err != nil {
 			logger.Error("failed to retrieve incidents", zap.Error(err))
 			apiErrors.RaiseInternalErr(c, err)
@@ -217,7 +249,7 @@ func GetEventsHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 
 		events := make([]*Incident, len(r))
 		for i, inc := range r {
-			events[i] = toAPIEvent(inc)
+			events[i] = toAPIEvent(inc, isAuth)
 		}
 
 		page := 1
@@ -251,7 +283,7 @@ func GetEventsHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 	}
 }
 
-func GetIncidentHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
+func GetIncidentHandler(dbInst *db.DB, logger *zap.Logger, svc *rbac.Service) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		logger.Debug("retrieve incident")
 		var incID IncidentID
@@ -270,17 +302,29 @@ func GetIncidentHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 			return
 		}
 
-		c.JSON(http.StatusOK, toAPIEvent(r))
+		isAuth := hasExtendedView(c, svc)
+		// Hide pending_review and reviewed maintenance from non-authenticated users
+		if !isAuth && r.Type == event.TypeMaintenance &&
+			(r.Status == event.MaintenancePendingReview || r.Status == event.MaintenanceReviewed) {
+			apiErrors.RaiseStatusNotFoundErr(c, apiErrors.ErrIncidentDSNotExist)
+			return
+		}
+
+		// Hide cancelled events that never reached a public active status
+		if !isAuth && isCancelledWithoutPublicStatus(r) {
+			apiErrors.RaiseStatusNotFoundErr(c, apiErrors.ErrIncidentDSNotExist)
+			return
+		}
+
+		c.JSON(http.StatusOK, toAPIEvent(r, isAuth))
 	}
 }
 
-func toAPIEvent(inc *db.Incident) *Incident {
+func toAPIEvent(inc *db.Incident, isAuth bool) *Incident {
 	components := make([]int, len(inc.Components))
 	for i, comp := range inc.Components {
 		components[i] = int(comp.ID)
 	}
-
-	updates := mapEventUpdates(inc.Statuses)
 
 	var description string
 	if inc.Description != nil {
@@ -295,30 +339,39 @@ func toAPIEvent(inc *db.Incident) *Incident {
 		StartDate:   *inc.StartDate,
 		EndDate:     inc.EndDate,
 		System:      &inc.System,
-		Updates:     updates,
+		Updates:     mapEventUpdates(inc.Statuses, isAuth),
 		Status:      inc.Status,
 		Type:        inc.Type,
+	}
+
+	if isAuth {
+		if inc.ContactEmail != nil {
+			incData.ContactEmail = *inc.ContactEmail
+		}
+		if inc.CreatedBy != nil {
+			incData.CreatedBy = *inc.CreatedBy
+		}
+		// Version field is part of the maintenance optimistic-locking contract;
+		// it is not meaningful (and should not be leaked) for other event types.
+		if inc.Type == event.TypeMaintenance {
+			incData.Version = inc.Version
+		}
 	}
 
 	return &Incident{IncidentID{ID: int(inc.ID)}, incData}
 }
 
-// PostIncidentHandler creates an incident.
 func PostIncidentHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var incData IncidentData
 		if err := c.ShouldBindBodyWithJSON(&incData); err != nil {
+			logger.Warn("incident creation failed: invalid request body", zap.Error(err))
 			apiErrors.RaiseBadRequestErr(c, err)
 			return
 		}
 
-		incData.StartDate = incData.StartDate.UTC()
-		if incData.EndDate != nil {
-			*incData.EndDate = incData.EndDate.UTC()
-		}
-
-		if err := validateEventCreation(incData); err != nil {
-			apiErrors.RaiseBadRequestErr(c, err)
+		if !prepareIncidentCreate(c, logger, &incData) {
+			logger.Warn("incident creation failed: validation or authorization error")
 			return
 		}
 
@@ -330,31 +383,41 @@ func PostIncidentHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 			incData.System = &system
 		}
 
-		var result []*ProcessComponentResp
-		var err error
-		// Route to appropriate handler based on system field
-		if *incData.System {
-			log.Info("system incident detected, using system incident creation logic")
-			result, err = handleSystemIncidentCreation(dbInst, log, incData)
-		} else {
-			log.Info("regular incident detected, using regular incident creation logic")
-			result, err = handleRegularIncidentCreation(dbInst, log, incData)
-		}
-
+		result, err := routeIncidentCreation(c, dbInst, log, incData)
 		if err != nil {
 			if errors.Is(err, apiErrors.ErrIncidentSystemCreationWrongType) {
+				logger.Warn("incident creation failed: invalid system incident type", zap.Error(err))
 				apiErrors.RaiseBadRequestErr(c, err)
 				return
 			}
+			logger.Error("incident creation failed: internal error", zap.Error(err))
 			apiErrors.RaiseInternalErr(c, err)
 			return
 		}
 
-		c.JSON(http.StatusOK, PostIncidentResp{Result: result})
+		status := http.StatusOK
+		for _, r := range result {
+			if r.Error == apiErrors.ErrIncidentCreationMaintenanceExists.Error() {
+				status = http.StatusConflict
+				break
+			}
+		}
+		c.JSON(status, PostIncidentResp{Result: result})
 	}
 }
 
-// handleSystemIncidentCreation handles creation of system incidents.
+func routeIncidentCreation(
+	c *gin.Context, dbInst *db.DB, log *zap.Logger, incData IncidentData,
+) ([]*ProcessComponentResp, error) {
+	if *incData.System {
+		log.Info("system incident detected, using system incident creation logic")
+		return handleSystemIncidentCreation(dbInst, log, incData)
+	}
+	log.Info("regular incident detected, using regular incident creation logic")
+	userID := getUserIDFromContext(c)
+	return handleRegularIncidentCreation(dbInst, log, incData, userID)
+}
+
 func handleSystemIncidentCreation(
 	dbInst *db.DB, log *zap.Logger, incData IncidentData,
 ) ([]*ProcessComponentResp, error) {
@@ -364,7 +427,6 @@ func handleSystemIncidentCreation(
 	}
 
 	if incData.Description == "" {
-		// incData.Title = "System Incident from monitoring system"
 		incData.Description = "System-wide incident affecting multiple components. Created automatically."
 	}
 
@@ -385,7 +447,6 @@ func handleSystemIncidentCreation(
 	return result, nil
 }
 
-// fetchComponents retrieves all components from the database based on the provided IDs.
 func fetchComponents(dbInst *db.DB, componentIDs []int) ([]db.Component, error) {
 	components := make([]db.Component, len(componentIDs))
 	for i, compID := range componentIDs {
@@ -398,7 +459,6 @@ func fetchComponents(dbInst *db.DB, componentIDs []int) ([]db.Component, error) 
 	return components, nil
 }
 
-// processSystemIncidentComponent processes a single component for system incident creation.
 func processSystemIncidentComponent(
 	dbInst *db.DB, log *zap.Logger, comp db.Component, incData IncidentData,
 ) (*ProcessComponentResp, error) {
@@ -418,7 +478,6 @@ func processSystemIncidentComponent(
 	return handleComponentWithExistingEvents(dbInst, log, &comp, incData, events)
 }
 
-// getActiveEventsForComponent retrieves active incidents and maintenances for a component.
 func getActiveEventsForComponent(dbInst *db.DB, componentID uint) ([]*db.Incident, error) {
 	active := true
 	params := &db.IncidentsParams{
@@ -428,7 +487,6 @@ func getActiveEventsForComponent(dbInst *db.DB, componentID uint) ([]*db.Inciden
 	return dbInst.GetEventsByComponentID(componentID, params)
 }
 
-// handleComponentWithNoEvents handles a component that has no existing events.
 func handleComponentWithNoEvents(
 	dbInst *db.DB, log *zap.Logger, comp *db.Component, incData IncidentData,
 ) (*ProcessComponentResp, error) {
@@ -447,7 +505,6 @@ func handleComponentWithNoEvents(
 	}, nil
 }
 
-// handleComponentWithExistingEvents processes a component that has existing events.
 func handleComponentWithExistingEvents(
 	dbInst *db.DB, log *zap.Logger, comp *db.Component, incData IncidentData, events []*db.Incident,
 ) (*ProcessComponentResp, error) {
@@ -496,7 +553,6 @@ func handleComponentWithExistingEvents(
 	return nil, fmt.Errorf("no matching event condition for component %d", comp.ID)
 }
 
-// handleSystemIncidentWithImpactComparison handles impact comparison for system incidents.
 func handleSystemIncidentWithImpactComparison(
 	dbInst *db.DB, log *zap.Logger, comp *db.Component, incData IncidentData, evnt *db.Incident,
 ) (*ProcessComponentResp, error) {
@@ -547,7 +603,7 @@ func addComponentToSystemIncident(
 		IsSystem: &system,
 		IsActive: &active,
 	}
-	sysIncidents, errEvents := dbInst.GetEvents(params)
+	sysIncidents, errEvents := dbInst.GetEventsInternal(params)
 	if errEvents != nil {
 		return nil, errEvents
 	}
@@ -561,14 +617,13 @@ func addComponentToSystemIncident(
 				zap.Uint("componentID", comp.ID), zap.Uint("incidentID", sysInc.ID),
 			)
 
-			sysInc.Components = append(sysInc.Components, *comp)
-			sysInc.Statuses = append(sysInc.Statuses, db.IncidentStatus{
+			status := db.IncidentStatus{
 				IncidentID: sysInc.ID,
 				Status:     sysInc.Status,
 				Text:       fmt.Sprintf("%s added to the incident by system.", comp.PrintAttrs()),
 				Timestamp:  time.Now().UTC(),
-			})
-			err := dbInst.ModifyIncident(sysInc)
+			}
+			err := dbInst.AddComponentToIncident(sysInc, comp, status)
 			if err != nil {
 				return nil, err
 			}
@@ -593,7 +648,7 @@ func addComponentToSystemIncident(
 		Components:  []db.Component{*comp},
 	}
 
-	if err := createEvent(dbInst, log, &incIn); err != nil {
+	if err := createEvent(dbInst, log, &incIn, nil); err != nil {
 		return nil, err
 	}
 
@@ -611,7 +666,7 @@ func moveComponentFromToSystemIncidents(
 		IsSystem: &system,
 		IsActive: &active,
 	}
-	sysIncidents, errEvents := dbInst.GetEvents(params)
+	sysIncidents, errEvents := dbInst.GetEventsInternal(params)
 	if errEvents != nil {
 		return nil, errEvents
 	}
@@ -681,36 +736,45 @@ func moveComponentFromToSystemIncidents(
 	return inc, nil
 }
 
-// handleRegularIncidentCreation handles creation of regular incidents with component movement logic.
 func handleRegularIncidentCreation(
-	dbInst *db.DB, log *zap.Logger, incData IncidentData,
+	dbInst *db.DB, log *zap.Logger, incData IncidentData, userID *string,
 ) ([]*ProcessComponentResp, error) {
 	components := make([]db.Component, len(incData.Components))
 	for i, comp := range incData.Components {
 		components[i] = db.Component{ID: uint(comp)}
 	}
 
+	var contactEmail *string
+	if incData.ContactEmail != "" {
+		contactEmail = &incData.ContactEmail
+	}
+
 	incIn := db.Incident{
-		Text:        &incData.Title,
-		Description: &incData.Description,
-		StartDate:   &incData.StartDate,
-		EndDate:     incData.EndDate,
-		Impact:      incData.Impact,
-		System:      *incData.System,
-		Type:        incData.Type,
-		Components:  components,
+		Text:         &incData.Title,
+		Description:  &incData.Description,
+		StartDate:    &incData.StartDate,
+		EndDate:      incData.EndDate,
+		Impact:       incData.Impact,
+		System:       *incData.System,
+		Type:         incData.Type,
+		Components:   components,
+		CreatedBy:    userID,
+		ContactEmail: contactEmail,
+	}
+	if incData.Status != "" {
+		incIn.Status = incData.Status
 	}
 
 	log.Info("get active events from the database")
 	isActive := true
-	openedIncidents, err := dbInst.GetEvents(&db.IncidentsParams{IsActive: &isActive})
+	openedIncidents, err := dbInst.GetEventsInternal(&db.IncidentsParams{IsActive: &isActive})
 	if err != nil {
 		return nil, err
 	}
 
 	log.Info("opened incidents and maintenances retrieved", zap.Any("openedIncidents", openedIncidents))
 
-	if err = createEvent(dbInst, log, &incIn); err != nil {
+	if err = createEvent(dbInst, log, &incIn, userID); err != nil {
 		return nil, err
 	}
 
@@ -723,12 +787,10 @@ func handleRegularIncidentCreation(
 	return processComponentMovement(dbInst, log, &incIn, openedIncidents)
 }
 
-// shouldSkipComponentMovement determines if component movement logic should be skipped.
 func shouldSkipComponentMovement(openedIncidents []*db.Incident, incData IncidentData) bool {
 	return len(openedIncidents) == 0 || *incData.Impact == 0 || incData.Type == event.TypeInformation
 }
 
-// createSimpleIncidentResult creates a result for incidents that don't require component movement.
 func createSimpleIncidentResult(log *zap.Logger, incIn *db.Incident, incData IncidentData) []*ProcessComponentResp {
 	if *incData.Impact == 0 {
 		log.Info("the event is maintenance or info, finish the incident creation")
@@ -746,7 +808,6 @@ func createSimpleIncidentResult(log *zap.Logger, incIn *db.Incident, incData Inc
 	return result
 }
 
-// processComponentMovement handles the complex logic of moving components between incidents.
 func processComponentMovement(
 	dbInst *db.DB, log *zap.Logger, incIn *db.Incident, openedIncidents []*db.Incident,
 ) ([]*ProcessComponentResp, error) {
@@ -896,7 +957,7 @@ func validateEventCreationTimes(incData IncidentData) error {
 	return nil
 }
 
-func createEvent(dbInst *db.DB, log *zap.Logger, inc *db.Incident) error {
+func createEvent(dbInst *db.DB, log *zap.Logger, inc *db.Incident, userID *string) error {
 	log.Info("start to save an event to the database")
 	id, err := dbInst.SaveIncident(inc)
 	if err != nil {
@@ -924,8 +985,13 @@ func createEvent(dbInst *db.DB, log *zap.Logger, inc *db.Incident) error {
 		statusText = event.InfoPlannedStatusText()
 		status = event.InfoPlanned
 	case event.TypeMaintenance:
-		statusText = event.MaintenancePlannedStatusText()
-		status = event.MaintenancePlanned
+		if inc.Status == event.MaintenancePendingReview {
+			statusText = event.MaintenancePendingReviewStatusText()
+			status = event.MaintenancePendingReview
+		} else {
+			statusText = event.MaintenancePlannedStatusText()
+			status = event.MaintenancePlanned
+		}
 	case event.TypeIncident:
 		statusText = event.IncidentDetectedStatusText()
 		status = event.IncidentDetected
@@ -936,6 +1002,7 @@ func createEvent(dbInst *db.DB, log *zap.Logger, inc *db.Incident) error {
 		Status:     status,
 		Text:       statusText,
 		Timestamp:  timestamp,
+		CreatedBy:  userID,
 	})
 	inc.Status = status
 
@@ -957,67 +1024,112 @@ type PatchIncidentData struct {
 	StartDate   *time.Time   `json:"start_date,omitempty"`
 	EndDate     *time.Time   `json:"end_date,omitempty"`
 	Type        string       `json:"type,omitempty" binding:"omitempty,oneof=maintenance info incident"`
+	Version     *int         `json:"version"`
 }
 
 func PatchIncidentHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		logger.Debug("update incident")
 
-		storedIncident := getEventFromContext(c, logger)
+		storedIncident, ok := getEventFromContext(c)
+		if !ok {
+			logger.Error("event not found or invalid type in context")
+			apiErrors.RaiseInternalErr(c, errors.New("internal context error"))
+			return
+		}
 
 		var incData PatchIncidentData
 		if err := c.ShouldBindBodyWithJSON(&incData); err != nil {
+			logger.Warn("incident patch failed: invalid request body", zap.Error(err))
 			apiErrors.RaiseBadRequestErr(c, err)
 			return
 		}
 
-		incData.UpdateDate = incData.UpdateDate.UTC()
-		if incData.StartDate != nil {
-			*incData.StartDate = incData.StartDate.UTC()
-		}
-		if incData.EndDate != nil {
-			*incData.EndDate = incData.EndDate.UTC()
+		if storedIncident.Type == event.TypeMaintenance && incData.Version == nil {
+			logger.Info("incident patch failed: version required for maintenance",
+				zap.Uint("event_id", storedIncident.ID))
+			apiErrors.RaiseBadRequestErr(c, errors.New("version is required for maintenance events"))
+			return
 		}
 
-		if err := checkPatchData(&incData, storedIncident); err != nil {
-			apiErrors.RaiseBadRequestErr(c, err)
+		if !prepareIncidentPatch(c, logger, storedIncident, &incData) {
+			logger.Warn("incident patch failed: validation or authorization error",
+				zap.Uint("event_id", storedIncident.ID))
 			return
 		}
 
 		updateFields(&incData, storedIncident)
+		userID := getUserIDFromContext(c)
 
 		status := db.IncidentStatus{
 			IncidentID: storedIncident.ID,
 			Status:     incData.Status,
 			Text:       incData.Message,
 			Timestamp:  incData.UpdateDate,
+			CreatedBy:  userID,
 		}
 
 		storedIncident.Statuses = append(storedIncident.Statuses, status)
 		storedIncident.Status = incData.Status
+		if incData.Version != nil {
+			storedIncident.Version = incData.Version
+		}
 
 		err := dbInst.ModifyIncident(storedIncident)
 		if err != nil {
+			if errors.Is(err, db.ErrVersionConflict) {
+				logger.Warn("incident patch failed: version conflict",
+					zap.Uint("event_id", storedIncident.ID))
+				apiErrors.RaiseConflictErr(c, apiErrors.ErrVersionConflict)
+				return
+			}
+			logger.Error("incident patch failed: database error",
+				zap.Uint("event_id", storedIncident.ID), zap.Error(err))
 			apiErrors.RaiseInternalErr(c, err)
 			return
 		}
 
-		if incData.Status == event.IncidentReopened {
-			err = dbInst.ReOpenIncident(storedIncident)
-			if err != nil {
-				apiErrors.RaiseInternalErr(c, err)
-				return
-			}
+		logger.Info("maintenance status transition",
+			zap.Uint("eventID", storedIncident.ID),
+			zap.String("to_status", string(incData.Status)),
+			zap.Stringp("userID", userID),
+			zap.Time("timestamp", incData.UpdateDate),
+		)
+
+		if err = reopenIncident(c, dbInst, logger, storedIncident, incData.Status); err != nil {
+			return
 		}
 
 		inc, errDB := dbInst.GetIncident(int(storedIncident.ID))
 		if errDB != nil {
+			logger.Error("incident patch: failed to retrieve updated event",
+				zap.Uint("event_id", storedIncident.ID), zap.Error(errDB))
 			apiErrors.RaiseInternalErr(c, errDB)
 			return
 		}
 
-		c.JSON(http.StatusOK, toAPIEvent(inc))
+		c.JSON(http.StatusOK, toAPIEvent(inc, authorizedView))
 	}
+}
+
+func reopenIncident(
+	c *gin.Context, dbInst *db.DB, logger *zap.Logger,
+	storedIncident *db.Incident, status event.Status,
+) error {
+	if status != event.IncidentReopened {
+		return nil
+	}
+	logger.Info("reopening incident",
+		zap.Uint("event_id", storedIncident.ID),
+	)
+	err := dbInst.ReOpenIncident(storedIncident)
+	if err != nil {
+		logger.Error("incident reopen failed: database error",
+			zap.Uint("event_id", storedIncident.ID), zap.Error(err))
+		apiErrors.RaiseInternalErr(c, err)
+		return err
+	}
+	return nil
 }
 
 func validateEffectiveTypeAndImpact(effectiveType string, effectiveImpact int) error {
@@ -1030,7 +1142,6 @@ func validateEffectiveTypeAndImpact(effectiveType string, effectiveImpact int) e
 	return nil
 }
 
-// validateEffectiveTypeAndImpact checks if the incoming type and status are related to each other.
 func validateStatusesPatch(incoming *PatchIncidentData, stored *db.Incident) error {
 	if stored.Type == event.TypeInformation && !event.IsInformationStatus(incoming.Status) {
 		return apiErrors.ErrIncidentPatchInfoStatus
@@ -1145,17 +1256,67 @@ func updateFields(income *PatchIncidentData, stored *db.Incident) {
 	}
 }
 
-type PostIncidentSeparateData struct {
-	Components []int `json:"components" binding:"required,min=1"`
+type PostIncidentExtractData struct {
+	Components []int `json:"components" binding:"required,min=1,unique"`
+}
+
+// getComponentsToExtract checks that all requested components belong to the incident
+// and that at least one component remains after extraction.
+func getComponentsToExtract(
+	requestedIDs []int, storedComponents []db.Component,
+) ([]db.Component, error) {
+	storedMap := make(map[int]db.Component, len(storedComponents))
+	for _, sc := range storedComponents {
+		storedMap[int(sc.ID)] = sc
+	}
+
+	moved := make([]db.Component, 0, len(requestedIDs))
+	for _, id := range requestedIDs {
+		sc, ok := storedMap[id]
+		if !ok {
+			return nil, fmt.Errorf("component %d is not in the incident", id)
+		}
+		moved = append(moved, sc)
+	}
+
+	if len(moved) == len(storedComponents) {
+		return nil, errors.New("can not move all components to the new incident, keep at least one")
+	}
+
+	return moved, nil
 }
 
 func PostIncidentExtractHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		logger.Debug("start to extract components to the new incident")
-		storedInc := getEventFromContext(c, logger)
+		storedInc, ok := getEventFromContext(c)
+		if !ok {
+			logger.Error("event not found or invalid type in context")
+			apiErrors.RaiseInternalErr(c, errors.New("internal context error"))
+			return
+		}
 
-		var incData PostIncidentSeparateData
+		// Extract is only available for operators and admins.
+		role, ok := getRoleFromContext(c, logger)
+		if !ok {
+			return
+		}
+		if !role.CanApprove() {
+			logger.Debug("extract denied: insufficient role", zap.Int("role", int(role)))
+			apiErrors.RaiseForbiddenErr(c, apiErrors.ErrExtractForbiddenRole)
+			return
+		}
+
+		// Extract is only available for incident type events.
+		if storedInc.Type != event.TypeIncident {
+			logger.Debug("extract denied: event type is not incident", zap.String("type", storedInc.Type))
+			apiErrors.RaiseForbiddenErr(c, apiErrors.ErrExtractForbiddenType)
+			return
+		}
+
+		var incData PostIncidentExtractData
 		if err := c.ShouldBindBodyWithJSON(&incData); err != nil {
+			logger.Warn("component extraction failed: invalid request body", zap.Error(err))
 			apiErrors.RaiseBadRequestErr(c, err)
 			return
 		}
@@ -1166,26 +1327,9 @@ func PostIncidentExtractHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFu
 			zap.Uint("incident_id", storedInc.ID),
 		)
 
-		var movedComponents []db.Component
-		var movedCounter int
-		for _, incCompID := range incData.Components {
-			present := false
-			for _, storedComp := range storedInc.Components {
-				if incCompID == int(storedComp.ID) {
-					present = true
-					movedComponents = append(movedComponents, storedComp)
-					movedCounter++
-					break
-				}
-			}
-			if !present {
-				apiErrors.RaiseBadRequestErr(c, fmt.Errorf("component %d is not in the incident", incCompID))
-				return
-			}
-		}
-
-		if movedCounter == len(storedInc.Components) {
-			apiErrors.RaiseBadRequestErr(c, fmt.Errorf("can not move all components to the new incident, keep at least one"))
+		movedComponents, err := getComponentsToExtract(incData.Components, storedInc.Components)
+		if err != nil {
+			apiErrors.RaiseBadRequestErr(c, err)
 			return
 		}
 
@@ -1200,7 +1344,7 @@ func PostIncidentExtractHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFu
 			return
 		}
 
-		c.JSON(http.StatusOK, toAPIEvent(inc))
+		c.JSON(http.StatusOK, toAPIEvent(inc, authorizedView))
 	}
 }
 
@@ -1287,7 +1431,6 @@ type PostComponentData struct {
 	Name       string               `json:"name" binding:"required"`
 }
 
-// PostComponentHandler creates a new component.
 func PostComponentHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		logger.Debug("create a component")
@@ -1320,6 +1463,7 @@ func PostComponentHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 		if err != nil {
 			if errors.Is(err, db.ErrDBComponentExists) {
 				apiErrors.RaiseBadRequestErr(c, apiErrors.ErrComponentExist)
+				return
 			}
 			apiErrors.RaiseInternalErr(c, err)
 			return
@@ -1613,6 +1757,7 @@ func PatchEventUpdateTextHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerF
 
 		targetUPD := updates[updID]
 		targetUPD.Text = text
+		targetUPD.ModifiedBy = getUserIDFromContext(c)
 
 		updated, err := dbInst.ModifyEventUpdate(targetUPD)
 
@@ -1630,33 +1775,210 @@ func PatchEventUpdateTextHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerF
 	}
 }
 
-func mapEventUpdates(statuses []db.IncidentStatus) []EventUpdateData {
-	updates := make([]EventUpdateData, len(statuses))
-	for i, s := range statuses {
-		updates[i] = EventUpdateData{
-			ID:        i,
+func mapEventUpdates(statuses []db.IncidentStatus, isAuth bool) []EventUpdateData {
+	updates := make([]EventUpdateData, 0, len(statuses))
+	idx := 0
+	for _, s := range statuses {
+		if !isAuth && isInternalStatus(s.Status) {
+			continue
+		}
+		updates = append(updates, EventUpdateData{
+			ID:        idx,
 			Status:    s.Status,
 			Text:      s.Text,
 			Timestamp: s.Timestamp,
-		}
+		})
+		idx++
 	}
 
 	return updates
 }
 
-func getEventFromContext(c *gin.Context, logger *zap.Logger) *db.Incident {
-	val, exists := c.Get("event")
+// isInternalStatus returns true for statuses that should not be exposed to public (non-authenticated) users.
+func isInternalStatus(status event.Status) bool {
+	switch status {
+	case event.MaintenancePendingReview, event.MaintenanceReviewed:
+		return true
+	default:
+		return false
+	}
+}
+
+// isCancelledWithoutPublicStatus returns true if a cancelled maintenance event never reached
+// a public active status and should be hidden from non-authenticated users.
+func isCancelledWithoutPublicStatus(inc *db.Incident) bool {
+	if inc.Type != event.TypeMaintenance || inc.Status != event.MaintenanceCancelled {
+		return false
+	}
+	for _, s := range inc.Statuses {
+		switch s.Status { //nolint:exhaustive
+		case event.MaintenancePlanned, event.MaintenanceInProgress,
+			event.MaintenanceModified, event.MaintenanceCompleted:
+			return false
+		}
+	}
+	return true
+}
+
+func getRoleFromContext(c *gin.Context, logger *zap.Logger) (rbac.Role, bool) {
+	roleVal, exists := c.Get(RoleContextKey)
 	if !exists {
-		logger.Error("event not found in context")
-		apiErrors.RaiseInternalErr(c, errors.New("event not found in context"))
-		return nil
+		apiErrors.RaiseForbiddenErr(c, apiErrors.ErrAuthForbidden)
+		return rbac.NoRole, false
 	}
 
-	evnt, ok := val.(*db.Incident)
+	role, ok := roleVal.(rbac.Role)
 	if !ok {
-		logger.Error("invalid type in context")
-		apiErrors.RaiseInternalErr(c, errors.New("invalid type in context"))
-		return nil
+		logger.Error("role in context is not of type rbac.Role")
+		apiErrors.RaiseForbiddenErr(c, apiErrors.ErrAuthForbidden)
+		return rbac.NoRole, false
 	}
-	return evnt
+
+	return role, true
+}
+
+func getUserIDFromContext(c *gin.Context) *string {
+	if userID, exists := c.Get(UsernameContextKey); exists {
+		if uid, ok := userID.(string); ok && uid != "" {
+			return &uid
+		}
+	}
+	return nil
+}
+
+func resolveMaintenanceCreateStatus(role rbac.Role) (event.Status, error) {
+	switch {
+	case role >= rbac.Operator:
+		return event.MaintenancePlanned, nil
+	case role >= rbac.Creator:
+		return event.MaintenancePendingReview, nil
+	default:
+		return "", apiErrors.ErrInsufficientRole
+	}
+}
+
+func allowMaintenancePatch(
+	c *gin.Context, logger *zap.Logger, role rbac.Role, stored *db.Incident, incoming *PatchIncidentData,
+) bool {
+	switch {
+	case role >= rbac.Operator:
+		// operator and admin are event admins: unrestricted PATCH on any maintenance event.
+		return true
+	case role >= rbac.Creator:
+		return allowMaintenancePatchAsCreator(c, logger, stored, incoming)
+	default:
+		logger.Warn("maintenance patch denied: insufficient role",
+			zap.Int("role", int(role)),
+			zap.String("stored_status", string(stored.Status)),
+			zap.String("incoming_status", string(incoming.Status)),
+		)
+		apiErrors.RaiseForbiddenErr(c, apiErrors.ErrAuthForbidden)
+		return false
+	}
+}
+
+func allowMaintenancePatchAsCreator(
+	c *gin.Context, logger *zap.Logger, stored *db.Incident, incoming *PatchIncidentData,
+) bool {
+	userID := getUserIDFromContext(c)
+	if userID == nil || stored.CreatedBy == nil || *userID != *stored.CreatedBy {
+		logger.Debug("maintenance patch denied: creator can only modify own events",
+			zap.Stringp("user_id", userID),
+			zap.Stringp("created_by", stored.CreatedBy),
+		)
+		apiErrors.RaiseForbiddenErr(c, apiErrors.ErrAuthForbidden)
+		return false
+	}
+
+	if stored.Status != event.MaintenancePendingReview {
+		logger.Debug("maintenance patch denied: creator can only modify events in 'pending_review' status",
+			zap.String("stored_status", string(stored.Status)),
+			zap.String("incoming_status", string(incoming.Status)),
+		)
+		apiErrors.RaiseConflictErr(c, apiErrors.ErrMaintenanceStatusTransitionConflict)
+		return false
+	}
+
+	if incoming.Status == event.MaintenancePendingReview ||
+		incoming.Status == event.MaintenanceCancelled {
+		return true
+	}
+
+	logger.Debug("maintenance patch denied: creator attempted invalid status transition",
+		zap.String("stored_status", string(stored.Status)),
+		zap.String("incoming_status", string(incoming.Status)),
+		zap.String("allowed_statuses", "pending_review, cancelled"),
+	)
+	apiErrors.RaiseConflictErr(c, apiErrors.ErrMaintenanceStatusTransitionConflict)
+	return false
+}
+
+func prepareIncidentCreate(c *gin.Context, logger *zap.Logger, incData *IncidentData) bool {
+	incData.StartDate = incData.StartDate.UTC()
+	if incData.EndDate != nil {
+		*incData.EndDate = incData.EndDate.UTC()
+	}
+
+	if err := validateEventCreation(*incData); err != nil {
+		apiErrors.RaiseBadRequestErr(c, err)
+		return false
+	}
+
+	if incData.Type == event.TypeMaintenance {
+		if err := validateMaintenanceCreation(*incData); err != nil {
+			apiErrors.RaiseBadRequestErr(c, err)
+			return false
+		}
+
+		role, ok := getRoleFromContext(c, logger)
+		if !ok {
+			return false
+		}
+		status, err := resolveMaintenanceCreateStatus(role)
+		if err != nil {
+			apiErrors.RaiseForbiddenErr(c, err)
+			return false
+		}
+		incData.Status = status
+	}
+
+	return true
+}
+
+func prepareIncidentPatch(
+	c *gin.Context, logger *zap.Logger, storedIncident *db.Incident, incData *PatchIncidentData,
+) bool {
+	incData.UpdateDate = incData.UpdateDate.UTC()
+	if incData.StartDate != nil {
+		*incData.StartDate = incData.StartDate.UTC()
+	}
+	if incData.EndDate != nil {
+		*incData.EndDate = incData.EndDate.UTC()
+	}
+
+	if err := checkPatchData(incData, storedIncident); err != nil {
+		apiErrors.RaiseBadRequestErr(c, err)
+		return false
+	}
+
+	if storedIncident.Type == event.TypeMaintenance {
+		role, ok := getRoleFromContext(c, logger)
+		if !ok {
+			return false
+		}
+		if !allowMaintenancePatch(c, logger, role, storedIncident, incData) {
+			return false
+		}
+	}
+
+	return true
+}
+
+func getEventFromContext(c *gin.Context) (*db.Incident, bool) {
+	val, exists := c.Get("event")
+	if !exists {
+		return nil, false
+	}
+	evnt, ok := val.(*db.Incident)
+	return evnt, ok
 }

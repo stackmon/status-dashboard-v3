@@ -78,10 +78,10 @@ func (s *SD2Time) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-func GetIncidentsHandler(db *db.DB, logger *zap.Logger) gin.HandlerFunc {
+func GetIncidentsHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		logger.Debug("retrieve incidents")
-		r, err := db.GetEvents()
+		r, err := dbInst.GetEvents(db.PublicAccess)
 		if err != nil {
 			apiErrors.RaiseInternalErr(c, err)
 			return
@@ -89,13 +89,16 @@ func GetIncidentsHandler(db *db.DB, logger *zap.Logger) gin.HandlerFunc {
 
 		incidents := make([]*Incident, len(r))
 		for i, inc := range r {
-			updates := make([]*IncidentStatus, len(inc.Statuses))
-			for index, status := range inc.Statuses {
-				updates[index] = &IncidentStatus{
+			updates := make([]*IncidentStatus, 0, len(inc.Statuses))
+			for _, status := range inc.Statuses {
+				if inc.Type == event.TypeMaintenance && isInternalStatus(status.Status) {
+					continue
+				}
+				updates = append(updates, &IncidentStatus{
 					Status:    status.Status,
 					Text:      status.Text,
 					Timestamp: SD2Time(status.Timestamp),
-				}
+				})
 			}
 
 			var endDate *SD2Time
@@ -136,6 +139,77 @@ type ComponentAttribute struct {
 	Value string `json:"value"`
 }
 
+func isInternalStatus(status event.Status) bool {
+	return status == event.MaintenancePendingReview || status == event.MaintenanceReviewed
+}
+
+func isCancelledWithoutPublicStatus(inc *db.Incident) bool {
+	if inc.Type == event.TypeMaintenance && inc.Status == event.MaintenanceCancelled {
+		for _, s := range inc.Statuses {
+			switch s.Status { //nolint:exhaustive
+			case event.MaintenancePlanned, event.MaintenanceInProgress,
+				event.MaintenanceModified, event.MaintenanceCompleted:
+				return false
+			}
+		}
+		return true
+	}
+	return false
+}
+
+// isPubliclyVisible returns true if the incident should be visible on public
+// (unauthenticated) V1 endpoints. Maintenance events in pending_review or
+// reviewed status require authorization (see docs/auth/permissions.md).
+func isPubliclyVisible(inc *db.Incident) bool {
+	if inc.Type == event.TypeMaintenance &&
+		(inc.Status == event.MaintenancePendingReview || inc.Status == event.MaintenanceReviewed) {
+		return false
+	}
+	if isCancelledWithoutPublicStatus(inc) {
+		return false
+	}
+	return true
+}
+
+func toPublicIncidents(dbIncidents []*db.Incident) []*Incident {
+	incidents := make([]*Incident, 0, len(dbIncidents))
+	for _, inc := range dbIncidents {
+		if !isPubliclyVisible(inc) {
+			continue
+		}
+
+		var endDate *SD2Time
+		if inc.EndDate != nil {
+			sd2T := SD2Time(*inc.EndDate)
+			endDate = &sd2T
+		}
+
+		updates := make([]*IncidentStatus, 0, len(inc.Statuses))
+		for _, status := range inc.Statuses {
+			if inc.Type == event.TypeMaintenance && isInternalStatus(status.Status) {
+				continue
+			}
+			updates = append(updates, &IncidentStatus{
+				Status:    status.Status,
+				Text:      status.Text,
+				Timestamp: SD2Time(status.Timestamp),
+			})
+		}
+
+		incidents = append(incidents, &Incident{
+			IncidentID: IncidentID{int(inc.ID)},
+			IncidentData: IncidentData{
+				Text:      *inc.Text,
+				Impact:    inc.Impact,
+				StartDate: SD2Time(*inc.StartDate),
+				EndDate:   endDate,
+				Updates:   updates,
+			},
+		})
+	}
+	return incidents
+}
+
 func GetComponentsStatusHandler(db *db.DB, logger *zap.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		logger.Debug("retrieve components with incidents")
@@ -157,44 +231,11 @@ func GetComponentsStatusHandler(db *db.DB, logger *zap.Logger) gin.HandlerFunc {
 				}
 			}
 
-			incidents := make([]*Incident, len(component.Incidents))
-			for i, inc := range component.Incidents {
-				var endDate *SD2Time
-				if inc.EndDate != nil {
-					sd2T := SD2Time(*inc.EndDate)
-					endDate = &sd2T
-				}
-
-				newInc := &Incident{
-					IncidentID: IncidentID{int(inc.ID)},
-					IncidentData: IncidentData{
-						Text:      *inc.Text,
-						Impact:    inc.Impact,
-						StartDate: SD2Time(*inc.StartDate),
-						EndDate:   endDate,
-						Updates:   nil,
-					},
-				}
-
-				updates := make([]*IncidentStatus, len(inc.Statuses))
-				for ind, status := range inc.Statuses {
-					updates[ind] = &IncidentStatus{
-						Status:    status.Status,
-						Text:      status.Text,
-						Timestamp: SD2Time(status.Timestamp),
-					}
-				}
-
-				newInc.Updates = updates
-
-				incidents[i] = newInc
-			}
-
 			components[index] = &Component{
 				ComponentID: ComponentID{int(component.ID)},
 				Attrs:       attrs,
 				Name:        component.Name,
-				Incidents:   incidents,
+				Incidents:   toPublicIncidents(component.Incidents),
 			}
 		}
 
@@ -259,7 +300,7 @@ func PostComponentStatusHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFu
 
 		log.Info("get opened incidents")
 		isActiveTrue := true
-		openedIncidents, err := dbInst.GetEvents(&db.IncidentsParams{IsActive: &isActiveTrue})
+		openedIncidents, err := dbInst.GetEventsInternal(&db.IncidentsParams{IsActive: &isActiveTrue})
 		if err != nil {
 			apiErrors.RaiseInternalErr(c, err)
 			return
