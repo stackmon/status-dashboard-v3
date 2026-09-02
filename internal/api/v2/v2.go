@@ -1,6 +1,7 @@
 package v2
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -10,11 +11,13 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
+	"gorm.io/gorm"
 
 	apiErrors "github.com/stackmon/otc-status-dashboard/internal/api/errors"
 	"github.com/stackmon/otc-status-dashboard/internal/api/rbac"
 	"github.com/stackmon/otc-status-dashboard/internal/db"
 	"github.com/stackmon/otc-status-dashboard/internal/event"
+	"github.com/stackmon/otc-status-dashboard/internal/notification"
 )
 
 const (
@@ -361,7 +364,8 @@ func toAPIEvent(inc *db.Incident, isAuth bool) *Incident {
 	return &Incident{IncidentID{ID: int(inc.ID)}, incData}
 }
 
-func PostIncidentHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
+func PostIncidentHandler(dbInst *db.DB, logger *zap.Logger, pub ...*notification.Publisher) gin.HandlerFunc {
+	publisher := optionalPublisher(pub)
 	return func(c *gin.Context) {
 		var incData IncidentData
 		if err := c.ShouldBindBodyWithJSON(&incData); err != nil {
@@ -383,7 +387,7 @@ func PostIncidentHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 			incData.System = &system
 		}
 
-		result, err := routeIncidentCreation(c, dbInst, log, incData)
+		result, err := routeIncidentCreation(c, dbInst, log, incData, publisher)
 		if err != nil {
 			if errors.Is(err, apiErrors.ErrIncidentSystemCreationWrongType) {
 				logger.Warn("incident creation failed: invalid system incident type", zap.Error(err))
@@ -407,19 +411,19 @@ func PostIncidentHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 }
 
 func routeIncidentCreation(
-	c *gin.Context, dbInst *db.DB, log *zap.Logger, incData IncidentData,
+	c *gin.Context, dbInst *db.DB, log *zap.Logger, incData IncidentData, pub *notification.Publisher,
 ) ([]*ProcessComponentResp, error) {
 	if *incData.System {
 		log.Info("system incident detected, using system incident creation logic")
-		return handleSystemIncidentCreation(dbInst, log, incData)
+		return handleSystemIncidentCreation(dbInst, log, incData, pub)
 	}
 	log.Info("regular incident detected, using regular incident creation logic")
 	userID := getUserIDFromContext(c)
-	return handleRegularIncidentCreation(dbInst, log, incData, userID)
+	return handleRegularIncidentCreation(dbInst, log, incData, userID, pub)
 }
 
 func handleSystemIncidentCreation(
-	dbInst *db.DB, log *zap.Logger, incData IncidentData,
+	dbInst *db.DB, log *zap.Logger, incData IncidentData, _ *notification.Publisher,
 ) ([]*ProcessComponentResp, error) {
 	if incData.Type != event.TypeIncident {
 		log.Info("system incident must be of type 'incident'")
@@ -648,7 +652,7 @@ func addComponentToSystemIncident(
 		Components:  []db.Component{*comp},
 	}
 
-	if err := createEvent(dbInst, log, &incIn, nil); err != nil {
+	if err := createEvent(dbInst, log, &incIn, nil, nil); err != nil {
 		return nil, err
 	}
 
@@ -737,7 +741,7 @@ func moveComponentFromToSystemIncidents(
 }
 
 func handleRegularIncidentCreation(
-	dbInst *db.DB, log *zap.Logger, incData IncidentData, userID *string,
+	dbInst *db.DB, log *zap.Logger, incData IncidentData, userID *string, pub *notification.Publisher,
 ) ([]*ProcessComponentResp, error) {
 	components := make([]db.Component, len(incData.Components))
 	for i, comp := range incData.Components {
@@ -774,7 +778,7 @@ func handleRegularIncidentCreation(
 
 	log.Info("opened incidents and maintenances retrieved", zap.Any("openedIncidents", openedIncidents))
 
-	if err = createEvent(dbInst, log, &incIn, userID); err != nil {
+	if err = createEvent(dbInst, log, &incIn, userID, pub); err != nil {
 		return nil, err
 	}
 
@@ -957,61 +961,135 @@ func validateEventCreationTimes(incData IncidentData) error {
 	return nil
 }
 
-func createEvent(dbInst *db.DB, log *zap.Logger, inc *db.Incident, userID *string) error {
+func createEvent(dbInst *db.DB, log *zap.Logger, inc *db.Incident, userID *string, pub *notification.Publisher) error {
 	log.Info("start to save an event to the database")
-	id, err := dbInst.SaveIncident(inc)
-	if err != nil {
-		return err
-	}
 
-	inc.ID = id
-
-	log.Info("add initial status to the event", zap.Uint("eventID", inc.ID))
-	var statusText string
-	var status event.Status
-	timestamp := time.Now().UTC()
-	// Sometimes we have a gap between the start date and the current time.
-	// Example: the incident was created now, but we add an update with a detected status since 1-2 seconds.
-	// And on the FE it looks like the incident was created in the past.
-	// it doesn't affect planned events, like maintenance or info, because they have a start date in the future.
-	// However, if someone creates an incident with a start date in the past,
-	// we should set up the right timestamp for the status update.
-	if inc.StartDate.Before(timestamp) {
-		timestamp = *inc.StartDate
-	}
-
-	switch inc.Type {
-	case event.TypeInformation:
-		statusText = event.InfoPlannedStatusText()
-		status = event.InfoPlanned
-	case event.TypeMaintenance:
-		if inc.Status == event.MaintenancePendingReview {
-			statusText = event.MaintenancePendingReviewStatusText()
-			status = event.MaintenancePendingReview
-		} else {
-			statusText = event.MaintenancePlannedStatusText()
-			status = event.MaintenancePlanned
+	err := dbInst.WithTx(context.Background(), func(tx *gorm.DB) error {
+		id, err := dbInst.SaveIncidentTx(tx, inc)
+		if err != nil {
+			return err
 		}
-	case event.TypeIncident:
-		statusText = event.IncidentDetectedStatusText()
-		status = event.IncidentDetected
-	}
 
-	inc.Statuses = append(inc.Statuses, db.IncidentStatus{
-		IncidentID: inc.ID,
-		Status:     status,
-		Text:       statusText,
-		Timestamp:  timestamp,
-		CreatedBy:  userID,
+		inc.ID = id
+
+		log.Info("add initial status to the event", zap.Uint("eventID", inc.ID))
+		var statusText string
+		var status event.Status
+		timestamp := time.Now().UTC()
+		// Sometimes we have a gap between the start date and the current time.
+		// Example: the incident was created now, but we add an update with a detected status since 1-2 seconds.
+		// And on the FE it looks like the incident was created in the past.
+		// it doesn't affect planned events, like maintenance or info, because they have a start date in the future.
+		// However, if someone creates an incident with a start date in the past,
+		// we should set up the right timestamp for the status update.
+		if inc.StartDate.Before(timestamp) {
+			timestamp = *inc.StartDate
+		}
+
+		switch inc.Type {
+		case event.TypeInformation:
+			statusText = event.InfoPlannedStatusText()
+			status = event.InfoPlanned
+		case event.TypeMaintenance:
+			if inc.Status == event.MaintenancePendingReview {
+				statusText = event.MaintenancePendingReviewStatusText()
+				status = event.MaintenancePendingReview
+			} else {
+				statusText = event.MaintenancePlannedStatusText()
+				status = event.MaintenancePlanned
+			}
+		case event.TypeIncident:
+			statusText = event.IncidentDetectedStatusText()
+			status = event.IncidentDetected
+		}
+
+		inc.Statuses = append(inc.Statuses, db.IncidentStatus{
+			IncidentID: inc.ID,
+			Status:     status,
+			Text:       statusText,
+			Timestamp:  timestamp,
+			CreatedBy:  userID,
+		})
+		inc.Status = status
+
+		if err = dbInst.ModifyIncidentTx(tx, inc); err != nil {
+			return err
+		}
+
+		// A newly created maintenance has no previous status.
+		return publishMaintenanceChange(context.Background(), tx, pub, inc, "", userID)
 	})
-	inc.Status = status
+	if err == nil && inc.Type == event.TypeMaintenance {
+		pub.Notify() // wake the worker after the commit
+	}
+	return err
+}
 
-	err = dbInst.ModifyIncident(inc)
+// optionalPublisher extracts the single optional publisher from a variadic arg.
+func optionalPublisher(pub []*notification.Publisher) *notification.Publisher {
+	if len(pub) > 0 {
+		return pub[0]
+	}
+	return nil
+}
+
+// publishMaintenanceChange enqueues notification rows for a committed maintenance
+// change inside tx. It is a no-op for non-maintenance events or a disabled publisher.
+func publishMaintenanceChange(
+	ctx context.Context, tx *gorm.DB, pub *notification.Publisher,
+	inc *db.Incident, oldStatus event.Status, userID *string,
+) error {
+	if !pub.Enabled() || inc.Type != event.TypeMaintenance {
+		return nil
+	}
+	return pub.PublishTx(ctx, tx, notification.Change{
+		IncidentID:   inc.ID,
+		Title:        strDeref(inc.Text),
+		OldStatus:    oldStatus,
+		NewStatus:    inc.Status,
+		ContactEmail: strDeref(inc.ContactEmail),
+		Actor:        strDeref(userID),
+	})
+}
+
+// strDeref returns the pointed-to string, or "" for a nil pointer.
+func strDeref(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
+}
+
+// persistIncidentPatch writes the modification and its notification in one
+// transaction, mapping failures to HTTP responses. It returns false when the
+// caller should stop (an error response was already written).
+func persistIncidentPatch(
+	c *gin.Context, dbInst *db.DB, logger *zap.Logger, publisher *notification.Publisher,
+	storedIncident *db.Incident, oldStatus event.Status, userID *string,
+) bool {
+	err := dbInst.WithTx(c.Request.Context(), func(tx *gorm.DB) error {
+		if e := dbInst.ModifyIncidentTx(tx, storedIncident); e != nil {
+			return e
+		}
+		return publishMaintenanceChange(c.Request.Context(), tx, publisher, storedIncident, oldStatus, userID)
+	})
 	if err != nil {
-		return err
+		if errors.Is(err, db.ErrVersionConflict) {
+			logger.Warn("incident patch failed: version conflict",
+				zap.Uint("event_id", storedIncident.ID))
+			apiErrors.RaiseConflictErr(c, apiErrors.ErrVersionConflict)
+			return false
+		}
+		logger.Error("incident patch failed: database error",
+			zap.Uint("event_id", storedIncident.ID), zap.Error(err))
+		apiErrors.RaiseInternalErr(c, err)
+		return false
 	}
 
-	return nil
+	if storedIncident.Type == event.TypeMaintenance {
+		publisher.Notify() // wake the worker after the commit
+	}
+	return true
 }
 
 type PatchIncidentData struct {
@@ -1027,7 +1105,8 @@ type PatchIncidentData struct {
 	Version     *int         `json:"version"`
 }
 
-func PatchIncidentHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
+func PatchIncidentHandler(dbInst *db.DB, logger *zap.Logger, pub ...*notification.Publisher) gin.HandlerFunc {
+	publisher := optionalPublisher(pub)
 	return func(c *gin.Context) {
 		logger.Debug("update incident")
 
@@ -1037,6 +1116,9 @@ func PatchIncidentHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 			apiErrors.RaiseInternalErr(c, errors.New("internal context error"))
 			return
 		}
+
+		// Capture the pre-change status before any mutation for the notification summary.
+		oldStatus := storedIncident.Status
 
 		var incData PatchIncidentData
 		if err := c.ShouldBindBodyWithJSON(&incData); err != nil {
@@ -1075,17 +1157,7 @@ func PatchIncidentHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 			storedIncident.Version = incData.Version
 		}
 
-		err := dbInst.ModifyIncident(storedIncident)
-		if err != nil {
-			if errors.Is(err, db.ErrVersionConflict) {
-				logger.Warn("incident patch failed: version conflict",
-					zap.Uint("event_id", storedIncident.ID))
-				apiErrors.RaiseConflictErr(c, apiErrors.ErrVersionConflict)
-				return
-			}
-			logger.Error("incident patch failed: database error",
-				zap.Uint("event_id", storedIncident.ID), zap.Error(err))
-			apiErrors.RaiseInternalErr(c, err)
+		if !persistIncidentPatch(c, dbInst, logger, publisher, storedIncident, oldStatus, userID) {
 			return
 		}
 
@@ -1096,7 +1168,7 @@ func PatchIncidentHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 			zap.Time("timestamp", incData.UpdateDate),
 		)
 
-		if err = reopenIncident(c, dbInst, logger, storedIncident, incData.Status); err != nil {
+		if err := reopenIncident(c, dbInst, logger, storedIncident, incData.Status); err != nil {
 			return
 		}
 

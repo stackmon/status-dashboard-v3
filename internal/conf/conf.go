@@ -3,10 +3,12 @@ package conf
 import (
 	"errors"
 	"fmt"
+	"net/mail"
 	"net/url"
 	"reflect"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/joho/godotenv"
 	"github.com/kelseyhightower/envconfig"
@@ -25,6 +27,17 @@ const (
 	// MinSecretKeyLength is the minimum required length for the HMAC secret key.
 	// HMAC-SHA256 requires at least 32 bytes for cryptographic strength.
 	MinSecretKeyLength = 32
+
+	// MaxPortNumber is the highest valid TCP port.
+	MaxPortNumber = 65535
+)
+
+// Notification delivery defaults, applied when notifications are enabled.
+const (
+	DefaultSMTPTimeout     = "30s"
+	DefaultLeaseTimeout    = "60s"
+	DefaultMaxAttempts     = "5"
+	DefaultBackoffInterval = "5m"
 )
 
 type Config struct {
@@ -55,6 +68,43 @@ type Config struct {
 	OpenAPISpecPath string `envconfig:"OPENAPI_SPEC_PATH"`
 	// RBAC configuration
 	RBAC RBACConfig `envconfig:"RBAC"`
+	// SMTP transport settings for outgoing mail
+	SMTP SMTPConfig `envconfig:"SMTP"`
+	// Notifications feature settings
+	Notifications NotificationsConfig `envconfig:"NOTIFICATIONS"`
+}
+
+// SMTPConfig holds the direct OTC SMTP transport settings.
+//
+// No envconfig tags: a tag like "USER" makes envconfig fall back to the shell's $USER
+// when SD_SMTP_USER is unset. Field names yield the same keys without that fallback.
+type SMTPConfig struct {
+	Host     string
+	Port     string
+	From     string
+	User     string
+	Password string
+	TLS      bool
+	// Timeout is a Go duration string (e.g. "30s") for the SMTP connect/send.
+	Timeout string
+}
+
+// NotificationsConfig holds the maintenance email notification settings.
+type NotificationsConfig struct {
+	// Enabled is the master on/off switch. Untagged for the same reason as SMTPConfig.
+	Enabled bool
+	// LeaseTimeout is a Go duration string; must exceed the SMTP timeout.
+	LeaseTimeout string `envconfig:"LEASE_TIMEOUT"`
+	// MaxAttempts is the finite retry limit before a row is marked failed.
+	MaxAttempts string `envconfig:"MAX_ATTEMPTS"`
+	// BackoffInterval is the base delay (Go duration string) for retry backoff.
+	BackoffInterval string `envconfig:"BACKOFF_INTERVAL"`
+	// SmodEmail is the fixed SMOD team review recipient.
+	SmodEmail string `envconfig:"SMOD_EMAIL"`
+	// EmailsOperators is the review recipient list for the Operator role.
+	EmailsOperators string `envconfig:"EMAILS_OPERATORS"`
+	// EmailsAdmins is the review recipient list for the Admin role.
+	EmailsAdmins string `envconfig:"EMAILS_ADMINS"`
 }
 
 type RBACConfig struct {
@@ -88,6 +138,113 @@ func (c *Config) Validate() error {
 
 	if rbacErr := c.RBAC.Validate(); rbacErr != nil {
 		return rbacErr
+	}
+
+	if notifErr := c.validateNotifications(); notifErr != nil {
+		return notifErr
+	}
+
+	return nil
+}
+
+// validateNotifications enforces SMTP and review-audience requirements when
+// notifications are enabled. When disabled, the feature stays inert and no
+// notification settings are required.
+func (c *Config) validateNotifications() error {
+	if !c.Notifications.Enabled {
+		return nil
+	}
+
+	if err := c.validateSMTP(); err != nil {
+		return err
+	}
+
+	if err := c.validateReviewAudience(); err != nil {
+		return err
+	}
+
+	smtpTimeout, err := time.ParseDuration(c.SMTP.Timeout)
+	if err != nil {
+		return fmt.Errorf("invalid SD_SMTP_TIMEOUT: %w", err)
+	}
+
+	leaseTimeout, err := time.ParseDuration(c.Notifications.LeaseTimeout)
+	if err != nil {
+		return fmt.Errorf("invalid SD_NOTIFICATIONS_LEASE_TIMEOUT: %w", err)
+	}
+
+	if leaseTimeout <= smtpTimeout {
+		return fmt.Errorf("SD_NOTIFICATIONS_LEASE_TIMEOUT (%s) must be greater than SD_SMTP_TIMEOUT (%s)",
+			leaseTimeout, smtpTimeout)
+	}
+
+	attempts, err := strconv.Atoi(c.Notifications.MaxAttempts)
+	if err != nil || attempts < 1 {
+		return fmt.Errorf("SD_NOTIFICATIONS_MAX_ATTEMPTS must be a positive integer")
+	}
+
+	if _, parseErr := time.ParseDuration(c.Notifications.BackoffInterval); parseErr != nil {
+		return fmt.Errorf("invalid SD_NOTIFICATIONS_BACKOFF_INTERVAL: %w", parseErr)
+	}
+
+	return nil
+}
+
+// validateSMTP checks the transport settings. The sender address is parsed here
+// because a malformed From is rejected by the relay on every single message.
+func (c *Config) validateSMTP() error {
+	if c.SMTP.Host == "" || c.SMTP.Port == "" || c.SMTP.From == "" {
+		return fmt.Errorf("notifications enabled: SD_SMTP_HOST, SD_SMTP_PORT and SD_SMTP_FROM are required")
+	}
+
+	port, err := strconv.Atoi(c.SMTP.Port)
+	if err != nil || port < 1 || port > MaxPortNumber {
+		return fmt.Errorf("SD_SMTP_PORT must be a number in range 1:%d", MaxPortNumber)
+	}
+
+	if _, err = mail.ParseAddress(c.SMTP.From); err != nil {
+		return fmt.Errorf("invalid SD_SMTP_FROM %q: %w", c.SMTP.From, err)
+	}
+
+	return nil
+}
+
+// validateReviewAudience requires at least one review address and rejects malformed
+// ones: unlike contact_email these come from the operator, so a typo would silently
+// break every review notification.
+func (c *Config) validateReviewAudience() error {
+	if c.Notifications.SmodEmail == "" &&
+		c.Notifications.EmailsOperators == "" &&
+		c.Notifications.EmailsAdmins == "" {
+		return fmt.Errorf("notifications enabled: at least one review address must be set " +
+			"(SD_NOTIFICATIONS_SMOD_EMAIL, SD_NOTIFICATIONS_EMAILS_OPERATORS or SD_NOTIFICATIONS_EMAILS_ADMINS)")
+	}
+
+	lists := map[string]string{
+		"SD_NOTIFICATIONS_SMOD_EMAIL":       c.Notifications.SmodEmail,
+		"SD_NOTIFICATIONS_EMAILS_OPERATORS": c.Notifications.EmailsOperators,
+		"SD_NOTIFICATIONS_EMAILS_ADMINS":    c.Notifications.EmailsAdmins,
+	}
+	for envName, raw := range lists {
+		if err := validateEmailList(envName, raw); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// validateEmailList parses a comma-separated recipient list, mirroring how
+// notification.splitEmails will later read it.
+func validateEmailList(envName, raw string) error {
+	for _, part := range strings.Split(raw, ",") {
+		addr := strings.TrimSpace(part)
+		if addr == "" {
+			continue
+		}
+		if _, err := mail.ParseAddress(addr); err != nil {
+			return fmt.Errorf("%s contains an invalid address %q: %w", envName, addr, err)
+		}
 	}
 
 	return nil
@@ -138,6 +295,21 @@ func (c *Config) FillDefaults() {
 	if c.OpenAPISpecPath == "" {
 		c.OpenAPISpecPath = DefaultOpenAPISpecPath
 	}
+
+	if c.Notifications.Enabled {
+		if c.SMTP.Timeout == "" {
+			c.SMTP.Timeout = DefaultSMTPTimeout
+		}
+		if c.Notifications.LeaseTimeout == "" {
+			c.Notifications.LeaseTimeout = DefaultLeaseTimeout
+		}
+		if c.Notifications.MaxAttempts == "" {
+			c.Notifications.MaxAttempts = DefaultMaxAttempts
+		}
+		if c.Notifications.BackoffInterval == "" {
+			c.Notifications.BackoffInterval = DefaultBackoffInterval
+		}
+	}
 }
 
 // LoadConf loads configuration from .env file and environment.
@@ -169,6 +341,16 @@ var ErrInvalidDataMerge = errors.New("could not merge config, the obj must be a 
 
 const envConfigTag = "envconfig"
 
+// envKeyPart mirrors envconfig's key derivation: the tag when present, the field
+// name otherwise. Untagged fields are how we avoid envconfig's bare-name fallback.
+func envKeyPart(field reflect.StructField) string {
+	if tag := field.Tag.Get(envConfigTag); tag != "" {
+		return tag
+	}
+
+	return field.Name
+}
+
 // mergeConfigs allow to merge config params from env variables and .env file.
 // It checks the Config struct and if the value is missing, it set up the value from .env file.
 func mergeConfigs(env map[string]string, obj any, prefix string) error { //nolint:gocognit
@@ -196,8 +378,7 @@ func mergeConfigs(env map[string]string, obj any, prefix string) error { //nolin
 
 		// Handle pointer to struct (e.g., *Keycloak)
 		if value.Kind() == reflect.Ptr && value.Elem().Kind() == reflect.Struct {
-			envValueTag := field.Tag.Get(envConfigTag)
-			confPrefix := fmt.Sprintf("%s_%s", prefix, envValueTag)
+			confPrefix := fmt.Sprintf("%s_%s", prefix, envKeyPart(field))
 			err := mergeConfigs(env, value.Interface(), confPrefix)
 			if err != nil {
 				return err
@@ -209,8 +390,7 @@ func mergeConfigs(env map[string]string, obj any, prefix string) error { //nolin
 		// Handle embedded struct (e.g., RBACConfig)
 		// For struct values (not pointers), we need to pass a pointer
 		if value.Kind() == reflect.Struct {
-			envValueTag := field.Tag.Get(envConfigTag)
-			confPrefix := fmt.Sprintf("%s_%s", prefix, envValueTag)
+			confPrefix := fmt.Sprintf("%s_%s", prefix, envKeyPart(field))
 			err := mergeConfigs(env, value.Addr().Interface(), confPrefix)
 			if err != nil {
 				return err
@@ -220,8 +400,7 @@ func mergeConfigs(env map[string]string, obj any, prefix string) error { //nolin
 		}
 
 		if value.IsZero() && value.IsValid() && value.CanSet() {
-			envValueTag := field.Tag.Get(envConfigTag)
-			mapKey := strings.ToUpper(fmt.Sprintf("%s_%s", prefix, envValueTag))
+			mapKey := strings.ToUpper(fmt.Sprintf("%s_%s", prefix, envKeyPart(field)))
 
 			switch value.Kind() {
 			case reflect.String:
@@ -294,4 +473,14 @@ func (c *Config) Log(logger *zap.Logger) {
 			zap.String("client_secret", maskSecret(c.Keycloak.ClientSecret)),
 		)
 	}
+
+	logger.Info("Notifications configuration",
+		zap.Bool("enabled", c.Notifications.Enabled),
+		zap.String("smtp_host", c.SMTP.Host),
+		zap.String("smtp_port", c.SMTP.Port),
+		zap.String("smtp_from", c.SMTP.From),
+		zap.String("smtp_user", c.SMTP.User),
+		zap.String("smtp_password", maskSecret(c.SMTP.Password)),
+		zap.Bool("smtp_tls", c.SMTP.TLS),
+	)
 }
