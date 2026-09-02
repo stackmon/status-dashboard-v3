@@ -71,21 +71,24 @@ type Config struct {
 }
 
 // SMTPConfig holds the direct OTC SMTP transport settings.
+//
+// No envconfig tags: a tag like "USER" makes envconfig fall back to the shell's $USER
+// when SD_SMTP_USER is unset. Field names yield the same keys without that fallback.
 type SMTPConfig struct {
-	Host     string `envconfig:"HOST"`
-	Port     string `envconfig:"PORT"`
-	From     string `envconfig:"FROM"`
-	User     string `envconfig:"USER"`
-	Password string `envconfig:"PASSWORD"`
-	TLS      bool   `envconfig:"TLS"`
+	Host     string
+	Port     string
+	From     string
+	User     string
+	Password string
+	TLS      bool
 	// Timeout is a Go duration string (e.g. "30s") for the SMTP connect/send.
-	Timeout string `envconfig:"TIMEOUT"`
+	Timeout string
 }
 
 // NotificationsConfig holds the maintenance email notification settings.
 type NotificationsConfig struct {
-	// Enabled is the master on/off switch.
-	Enabled bool `envconfig:"ENABLED"`
+	// Enabled is the master on/off switch. Untagged for the same reason as SMTPConfig.
+	Enabled bool
 	// LeaseTimeout is a Go duration string; must exceed the SMTP timeout.
 	LeaseTimeout string `envconfig:"LEASE_TIMEOUT"`
 	// MaxAttempts is the finite retry limit before a row is marked failed.
@@ -277,6 +280,16 @@ var ErrInvalidDataMerge = errors.New("could not merge config, the obj must be a 
 
 const envConfigTag = "envconfig"
 
+// envKeyPart mirrors envconfig's key derivation: the tag when present, the field
+// name otherwise. Untagged fields are how we avoid envconfig's bare-name fallback.
+func envKeyPart(field reflect.StructField) string {
+	if tag := field.Tag.Get(envConfigTag); tag != "" {
+		return tag
+	}
+
+	return field.Name
+}
+
 // mergeConfigs allow to merge config params from env variables and .env file.
 // It checks the Config struct and if the value is missing, it set up the value from .env file.
 func mergeConfigs(env map[string]string, obj any, prefix string) error { //nolint:gocognit
@@ -304,8 +317,7 @@ func mergeConfigs(env map[string]string, obj any, prefix string) error { //nolin
 
 		// Handle pointer to struct (e.g., *Keycloak)
 		if value.Kind() == reflect.Ptr && value.Elem().Kind() == reflect.Struct {
-			envValueTag := field.Tag.Get(envConfigTag)
-			confPrefix := fmt.Sprintf("%s_%s", prefix, envValueTag)
+			confPrefix := fmt.Sprintf("%s_%s", prefix, envKeyPart(field))
 			err := mergeConfigs(env, value.Interface(), confPrefix)
 			if err != nil {
 				return err
@@ -317,8 +329,7 @@ func mergeConfigs(env map[string]string, obj any, prefix string) error { //nolin
 		// Handle embedded struct (e.g., RBACConfig)
 		// For struct values (not pointers), we need to pass a pointer
 		if value.Kind() == reflect.Struct {
-			envValueTag := field.Tag.Get(envConfigTag)
-			confPrefix := fmt.Sprintf("%s_%s", prefix, envValueTag)
+			confPrefix := fmt.Sprintf("%s_%s", prefix, envKeyPart(field))
 			err := mergeConfigs(env, value.Addr().Interface(), confPrefix)
 			if err != nil {
 				return err
@@ -328,8 +339,7 @@ func mergeConfigs(env map[string]string, obj any, prefix string) error { //nolin
 		}
 
 		if value.IsZero() && value.IsValid() && value.CanSet() {
-			envValueTag := field.Tag.Get(envConfigTag)
-			mapKey := strings.ToUpper(fmt.Sprintf("%s_%s", prefix, envValueTag))
+			mapKey := strings.ToUpper(fmt.Sprintf("%s_%s", prefix, envKeyPart(field)))
 
 			switch value.Kind() {
 			case reflect.String:

@@ -337,6 +337,38 @@ func TestMergeConfigs(t *testing.T) {
 		assert.Equal(t, "http://kc.local", c.Keycloak.URL)
 		assert.Equal(t, "test", c.Keycloak.Realm)
 	})
+
+	t.Run("merges untagged SMTP fields by field name", func(t *testing.T) {
+		c := &Config{Keycloak: &Keycloak{}}
+		env := map[string]string{
+			"SD_SMTP_HOST":    "smtp.local",
+			"SD_SMTP_USER":    "mailer",
+			"SD_SMTP_TIMEOUT": "15s",
+		}
+		err := mergeConfigs(env, c, "SD")
+		require.NoError(t, err)
+		assert.Equal(t, "smtp.local", c.SMTP.Host)
+		assert.Equal(t, "mailer", c.SMTP.User)
+		assert.Equal(t, "15s", c.SMTP.Timeout)
+	})
+}
+
+// TestLoadConf_IgnoresBareEnvNames guards against envconfig's fallback to the bare tag
+// name: a tag of "USER" would otherwise inherit the shell's $USER and enable SMTP AUTH
+// against a server that offers none.
+func TestLoadConf_IgnoresBareEnvNames(t *testing.T) {
+	t.Setenv("USER", "shell-user")
+	t.Setenv("PASSWORD", "shell-password")
+	t.Setenv("SD_SECRET_KEY", "my-secret-key-that-is-32-chars!!")
+	t.Setenv("SD_RBAC_GROUPS_ADMINS", "sd_admins")
+	t.Setenv("SD_SMTP_HOST", "127.0.0.1")
+
+	c, err := LoadConf()
+	require.NoError(t, err)
+
+	assert.Empty(t, c.SMTP.User)
+	assert.Empty(t, c.SMTP.Password)
+	assert.Equal(t, "127.0.0.1", c.SMTP.Host)
 }
 
 func baseNotifConfig() Config {
