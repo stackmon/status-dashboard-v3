@@ -3,6 +3,7 @@ package conf
 import (
 	"errors"
 	"fmt"
+	"net/mail"
 	"net/url"
 	"reflect"
 	"strconv"
@@ -26,6 +27,9 @@ const (
 	// MinSecretKeyLength is the minimum required length for the HMAC secret key.
 	// HMAC-SHA256 requires at least 32 bytes for cryptographic strength.
 	MinSecretKeyLength = 32
+
+	// MaxPortNumber is the highest valid TCP port.
+	MaxPortNumber = 65535
 )
 
 // Notification delivery defaults, applied when notifications are enabled.
@@ -151,15 +155,12 @@ func (c *Config) validateNotifications() error {
 		return nil
 	}
 
-	if c.SMTP.Host == "" || c.SMTP.Port == "" || c.SMTP.From == "" {
-		return fmt.Errorf("notifications enabled: SD_SMTP_HOST, SD_SMTP_PORT and SD_SMTP_FROM are required")
+	if err := c.validateSMTP(); err != nil {
+		return err
 	}
 
-	if c.Notifications.SmodEmail == "" &&
-		c.Notifications.EmailsOperators == "" &&
-		c.Notifications.EmailsAdmins == "" {
-		return fmt.Errorf("notifications enabled: at least one review address must be set " +
-			"(SD_NOTIFICATIONS_SMOD_EMAIL, SD_NOTIFICATIONS_EMAILS_OPERATORS or SD_NOTIFICATIONS_EMAILS_ADMINS)")
+	if err := c.validateReviewAudience(); err != nil {
+		return err
 	}
 
 	smtpTimeout, err := time.ParseDuration(c.SMTP.Timeout)
@@ -184,6 +185,66 @@ func (c *Config) validateNotifications() error {
 
 	if _, parseErr := time.ParseDuration(c.Notifications.BackoffInterval); parseErr != nil {
 		return fmt.Errorf("invalid SD_NOTIFICATIONS_BACKOFF_INTERVAL: %w", parseErr)
+	}
+
+	return nil
+}
+
+// validateSMTP checks the transport settings. The sender address is parsed here
+// because a malformed From is rejected by the relay on every single message.
+func (c *Config) validateSMTP() error {
+	if c.SMTP.Host == "" || c.SMTP.Port == "" || c.SMTP.From == "" {
+		return fmt.Errorf("notifications enabled: SD_SMTP_HOST, SD_SMTP_PORT and SD_SMTP_FROM are required")
+	}
+
+	port, err := strconv.Atoi(c.SMTP.Port)
+	if err != nil || port < 1 || port > MaxPortNumber {
+		return fmt.Errorf("SD_SMTP_PORT must be a number in range 1:%d", MaxPortNumber)
+	}
+
+	if _, err = mail.ParseAddress(c.SMTP.From); err != nil {
+		return fmt.Errorf("invalid SD_SMTP_FROM %q: %w", c.SMTP.From, err)
+	}
+
+	return nil
+}
+
+// validateReviewAudience requires at least one review address and rejects malformed
+// ones: unlike contact_email these come from the operator, so a typo would silently
+// break every review notification.
+func (c *Config) validateReviewAudience() error {
+	if c.Notifications.SmodEmail == "" &&
+		c.Notifications.EmailsOperators == "" &&
+		c.Notifications.EmailsAdmins == "" {
+		return fmt.Errorf("notifications enabled: at least one review address must be set " +
+			"(SD_NOTIFICATIONS_SMOD_EMAIL, SD_NOTIFICATIONS_EMAILS_OPERATORS or SD_NOTIFICATIONS_EMAILS_ADMINS)")
+	}
+
+	lists := map[string]string{
+		"SD_NOTIFICATIONS_SMOD_EMAIL":       c.Notifications.SmodEmail,
+		"SD_NOTIFICATIONS_EMAILS_OPERATORS": c.Notifications.EmailsOperators,
+		"SD_NOTIFICATIONS_EMAILS_ADMINS":    c.Notifications.EmailsAdmins,
+	}
+	for envName, raw := range lists {
+		if err := validateEmailList(envName, raw); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// validateEmailList parses a comma-separated recipient list, mirroring how
+// notification.splitEmails will later read it.
+func validateEmailList(envName, raw string) error {
+	for _, part := range strings.Split(raw, ",") {
+		addr := strings.TrimSpace(part)
+		if addr == "" {
+			continue
+		}
+		if _, err := mail.ParseAddress(addr); err != nil {
+			return fmt.Errorf("%s contains an invalid address %q: %w", envName, addr, err)
+		}
 	}
 
 	return nil

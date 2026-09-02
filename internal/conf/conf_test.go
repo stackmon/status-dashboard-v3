@@ -424,6 +424,53 @@ func TestValidateNotifications(t *testing.T) {
 			errSubstr: "at least one review address",
 		},
 		{
+			name: "malformed smtp from fails",
+			mutate: func(c *Config) {
+				c.Notifications = NotificationsConfig{
+					Enabled: true, LeaseTimeout: "60s", MaxAttempts: "5", BackoffInterval: "5m", SmodEmail: "support@com.com",
+				}
+				c.SMTP = SMTPConfig{Host: "smtp.otc", Port: "587", From: "not-an-address", Timeout: "30s"}
+			},
+			expectErr: true,
+			errSubstr: "SD_SMTP_FROM",
+		},
+		{
+			name: "smtp port out of range fails",
+			mutate: func(c *Config) {
+				c.Notifications = NotificationsConfig{
+					Enabled: true, LeaseTimeout: "60s", MaxAttempts: "5", BackoffInterval: "5m", SmodEmail: "support@com.com",
+				}
+				c.SMTP = SMTPConfig{Host: "smtp.otc", Port: "70000", From: "sd@com.com", Timeout: "30s"}
+			},
+			expectErr: true,
+			errSubstr: "SD_SMTP_PORT",
+		},
+		{
+			name: "malformed review address fails",
+			mutate: func(c *Config) {
+				c.Notifications = NotificationsConfig{
+					Enabled: true, LeaseTimeout: "60s", MaxAttempts: "5", BackoffInterval: "5m",
+					EmailsOperators: "ops@com.com, broken at com.com",
+				}
+				c.SMTP = SMTPConfig{Host: "smtp.otc", Port: "587", From: "sd@com.com", Timeout: "30s"}
+			},
+			expectErr: true,
+			errSubstr: "SD_NOTIFICATIONS_EMAILS_OPERATORS",
+		},
+		{
+			name: "multi-address review lists pass",
+			mutate: func(c *Config) {
+				c.Notifications = NotificationsConfig{
+					Enabled: true, LeaseTimeout: "60s", MaxAttempts: "5", BackoffInterval: "5m",
+					SmodEmail:       "support@com.com",
+					EmailsOperators: "ops1@com.com, ops2@com.com",
+					EmailsAdmins:    "admin@com.com",
+				}
+				c.SMTP = SMTPConfig{Host: "smtp.otc", Port: "587", From: "sd@com.com", Timeout: "30s"}
+			},
+			expectErr: false,
+		},
+		{
 			name: "lease timeout not greater than smtp timeout fails",
 			mutate: func(c *Config) {
 				c.Notifications = NotificationsConfig{
