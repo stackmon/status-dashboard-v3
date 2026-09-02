@@ -33,6 +33,9 @@ func NewSMTPSender(cfg Config) (Sender, error) {
 			mail.WithUsername(cfg.User),
 			mail.WithPassword(cfg.Password),
 		)
+	} else {
+		// Relay without credentials (e.g. a local catcher) must not negotiate AUTH.
+		opts = append(opts, mail.WithSMTPAuth(mail.SMTPAuthNoAuth))
 	}
 
 	client, err := mail.NewClient(cfg.Host, opts...)
