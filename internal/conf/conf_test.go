@@ -374,6 +374,7 @@ func TestLoadConf_IgnoresBareEnvNames(t *testing.T) {
 func baseNotifConfig() Config {
 	return Config{
 		Port:        "8000",
+		MetricsPort: DefaultMetricsPort,
 		SecretKeyV1: "my-secret-key-that-is-32-chars!!", // 32 chars
 		RBAC:        RBACConfig{Admins: "sd_admins"},
 	}

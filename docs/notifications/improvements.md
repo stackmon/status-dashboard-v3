@@ -4,7 +4,7 @@ Improvement proposals for the maintenance email notification feature. Nothing he
 implemented; this document records the reasoning so the decisions do not have to be
 rediscovered later.
 
-Related: [architecture.md](architecture.md), [final_scope_email.md](final_scope_email.md),
+Related: [architecture.md](architecture.md), [configuration.md](configuration.md),
 [plan.md](plan.md).
 
 ---
@@ -197,6 +197,29 @@ Add a regression test in the shape of `TestLoadConf_IgnoresBareEnvNames`, which 
 
 ---
 
+## 7. Delivery throughput
+
+**Priority: low**
+
+Two related inefficiencies, neither affecting correctness.
+
+**A new connection per message.** `DialAndSendWithContext` opens and closes an SMTP
+session for every recipient, so a queue of 50 messages performs 50 TCP and TLS
+handshakes. Corporate relays often rate-limit connections per source address and may
+temporarily block a sender that reconnects too eagerly. `go-mail` supports
+`DialWithContext` followed by several `Send` calls on one session.
+
+**Single-threaded sending.** The worker sends one message at a time, so throughput is
+capped at one email per round-trip. A small bounded pool (3–5 senders) would remove the
+ceiling. This became straightforward only after claiming moved to one row per lease —
+with batch claiming, concurrency would have widened the duplicate window described in
+[architecture.md](architecture.md) §5.
+
+Both are worth doing only if the queue is observed to lag: at the current volume
+(~41 maintenances in 2 months) neither is measurable.
+
+---
+
 ## Suggested order
 
 | # | Item | Type | Rationale |
@@ -207,3 +230,4 @@ Add a regression test in the shape of `TestLoadConf_IgnoresBareEnvNames`, which 
 | 4 | Distribution lists | Config | No code, immediate operational relief |
 | 5 | Ops API gaps | Code | Diagnosability |
 | 6 | Implicit TLS | Code | Only when a relay demands it |
+| 7 | Delivery throughput | Code | Only if the queue is seen to lag |

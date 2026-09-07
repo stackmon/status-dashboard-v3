@@ -11,6 +11,10 @@ import (
 
 const metricsNamespace = "notification"
 
+// collectTimeout bounds the scrape-time queue query: Prometheus keeps scraping on a
+// schedule, so an unbounded query against a stalled DB would pile up goroutines.
+const collectTimeout = 5 * time.Second
+
 // Metrics holds the worker-driven counters and histogram. Queue-depth gauges are
 // exposed separately by the DB-backed statsCollector (pulled on scrape).
 //
@@ -102,6 +106,7 @@ type statsCollector struct {
 	staleProcessing *prometheus.Desc
 	retryBacklog    *prometheus.Desc
 	oldestAge       *prometheus.Desc
+	errors          prometheus.Counter
 }
 
 // NewStatsCollector builds the DB-backed queue-depth collector.
@@ -118,6 +123,10 @@ func NewStatsCollector(database *db.DB, staleThreshold time.Duration) prometheus
 		staleProcessing: desc("outbox_stale_processing", "Processing rows whose lease has expired."),
 		retryBacklog:    desc("outbox_retry_backlog", "Pending rows waiting for a future retry."),
 		oldestAge:       desc("outbox_oldest_pending_age_seconds", "Age of the oldest undelivered row."),
+		errors: prometheus.NewCounter(prometheus.CounterOpts{
+			Namespace: metricsNamespace, Name: "collector_errors_total",
+			Help: "Total failures to read outbox queue depth at scrape time.",
+		}),
 	}
 }
 
@@ -128,12 +137,19 @@ func (c *statsCollector) Describe(ch chan<- *prometheus.Desc) {
 	ch <- c.staleProcessing
 	ch <- c.retryBacklog
 	ch <- c.oldestAge
+	ch <- c.errors.Desc()
 }
 
 func (c *statsCollector) Collect(ch chan<- prometheus.Metric) {
-	stats, err := c.db.GetNotificationStats(context.Background(), c.staleThreshold)
+	ctx, cancel := context.WithTimeout(context.Background(), collectTimeout)
+	defer cancel()
+
+	stats, err := c.db.GetNotificationStats(ctx, c.staleThreshold)
 	if err != nil {
-		return // a scrape-time DB error just omits the gauges this round
+		// Gauges are omitted this round; the counter keeps the failure visible.
+		c.errors.Inc()
+		ch <- c.errors
+		return
 	}
 	g := func(d *prometheus.Desc, v float64) {
 		ch <- prometheus.MustNewConstMetric(d, prometheus.GaugeValue, v)
@@ -144,4 +160,5 @@ func (c *statsCollector) Collect(ch chan<- prometheus.Metric) {
 	g(c.staleProcessing, float64(stats.StaleProcessing))
 	g(c.retryBacklog, float64(stats.RetryBacklog))
 	g(c.oldestAge, stats.OldestPendingAgeSeconds)
+	ch <- c.errors
 }

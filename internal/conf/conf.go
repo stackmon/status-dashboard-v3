@@ -22,6 +22,7 @@ const (
 	DefaultWebURL          = "http://localhost:9000"
 	DefaultHostname        = "localhost"
 	DefaultPort            = "8000"
+	DefaultMetricsPort     = "9090"
 	DefaultOpenAPISpecPath = "openapi.yaml"
 
 	// MinSecretKeyLength is the minimum required length for the HMAC secret key.
@@ -53,6 +54,9 @@ type Config struct {
 	LogLevel string `envconfig:"LOG_LEVEL"`
 	// App port
 	Port string `envconfig:"PORT"`
+	// MetricsPort serves /metrics on its own listener so the queue telemetry is not
+	// reachable from the public API port.
+	MetricsPort string `envconfig:"METRICS_PORT"`
 	// Hostname for the app, used to generate a callback URL for keycloak
 	// Example: https://api.example.com
 	Hostname string `envconfig:"HOSTNAME"`
@@ -132,6 +136,10 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("wrong port for http server")
 	}
 
+	if err = c.validateMetricsPort(p); err != nil {
+		return err
+	}
+
 	if provErr := c.validateProviders(); provErr != nil {
 		return provErr
 	}
@@ -142,6 +150,25 @@ func (c *Config) Validate() error {
 
 	if notifErr := c.validateNotifications(); notifErr != nil {
 		return notifErr
+	}
+
+	return nil
+}
+
+// validateMetricsPort keeps the metrics listener on its own port; sharing apiPort
+// would put the queue telemetry back on the public API. An empty value is left to
+// FillDefaults, which LoadConf runs before validating.
+func (c *Config) validateMetricsPort(apiPort int) error {
+	if c.MetricsPort == "" {
+		return nil
+	}
+
+	p, err := strconv.Atoi(c.MetricsPort)
+	if err != nil || p < 1024 || p > MaxPortNumber {
+		return fmt.Errorf("wrong SD_METRICS_PORT format, should be a number in range 1024:%d", MaxPortNumber)
+	}
+	if p == apiPort {
+		return fmt.Errorf("SD_METRICS_PORT must differ from SD_PORT")
 	}
 
 	return nil
@@ -282,6 +309,10 @@ func (c *Config) FillDefaults() {
 
 	if c.Port == "" {
 		c.Port = DefaultPort
+	}
+
+	if c.MetricsPort == "" {
+		c.MetricsPort = DefaultMetricsPort
 	}
 
 	if c.Hostname == "" {

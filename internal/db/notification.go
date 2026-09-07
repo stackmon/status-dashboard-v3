@@ -164,6 +164,28 @@ func (db *DB) MarkFailed(
 	})
 }
 
+// MarkFailedTerminal fails a row outright, ignoring the remaining attempts. Used for
+// rejections the server will repeat on every retry, such as an unknown recipient.
+func (db *DB) MarkFailedTerminal(ctx context.Context, tx *gorm.DB, id uint, errText string) error {
+	return db.execWithTx(ctx, tx, func(gtx *gorm.DB) error {
+		res := gtx.Model(&NotificationOutbox{}).
+			Where("id = ?", id).Updates(map[string]any{
+			"status":          NotificationStatusFailed,
+			"last_error":      errText,
+			"next_attempt_at": nil,
+			"locked_by":       nil,
+			"locked_at":       nil,
+		})
+		if res.Error != nil {
+			return res.Error
+		}
+		if res.RowsAffected == 0 {
+			return ErrNotificationNotFound
+		}
+		return nil
+	})
+}
+
 // RecoverStaleProcessing returns stale processing rows back to pending,
 // or marks them failed if they exhausted all attempts.
 func (db *DB) RecoverStaleProcessing(

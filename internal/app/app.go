@@ -2,13 +2,13 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
 
 	"go.uber.org/zap"
 
-	"github.com/gin-gonic/gin"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/stackmon/otc-status-dashboard/internal/api"
@@ -34,6 +34,8 @@ type App struct {
 	DB *db.DB
 	// http server
 	srv *http.Server
+	// metrics server, listening on its own port (nil when notifications are disabled)
+	metricsSrv *http.Server
 	// notification delivery worker (nil when notifications are disabled)
 	worker       *notification.Worker
 	workerCancel context.CancelFunc
@@ -52,7 +54,7 @@ func New(c *conf.Config, log *zap.Logger) (*App, error) {
 
 	// Build the delivery worker on the app's shared pool — it must NOT open its own.
 	// Budget PostgreSQL connections as max_open_conns_per_pod * number_of_pods.
-	worker, err := buildWorker(c, log, dbNew, apiNew)
+	worker, metricsHandler, err := buildWorker(c, log, dbNew, apiNew)
 	if err != nil {
 		return nil, err
 	}
@@ -65,24 +67,34 @@ func New(c *conf.Config, log *zap.Logger) (*App, error) {
 
 	a := &App{api: apiNew, Log: log, conf: c, DB: dbNew, srv: s, worker: worker}
 
+	if metricsHandler != nil {
+		a.metricsSrv = &http.Server{
+			Addr:              fmt.Sprintf(":%s", c.MetricsPort),
+			Handler:           metricsHandler,
+			ReadHeaderTimeout: readHeaderTimeout,
+		}
+	}
+
 	return a, nil
 }
 
-// buildWorker constructs the delivery worker, registers Prometheus metrics on a
-// /metrics endpoint, and wires the API publisher's hot-path signal to it. It returns
-// nil (no worker) when notifications are disabled.
-func buildWorker(c *conf.Config, log *zap.Logger, dbNew *db.DB, apiNew *api.API) (*notification.Worker, error) {
+// buildWorker constructs the delivery worker and the handler for the private metrics
+// listener, and wires the API publisher's hot-path signal to the worker. Both results
+// are nil when notifications are disabled.
+func buildWorker(
+	c *conf.Config, log *zap.Logger, dbNew *db.DB, apiNew *api.API,
+) (*notification.Worker, http.Handler, error) {
 	ncfg, err := notification.ConfigFromConf(c)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if !ncfg.Enabled {
-		return nil, nil //nolint:nilnil // no worker when the feature is off
+		return nil, nil, nil
 	}
 
 	sender, err := notification.NewSMTPSender(ncfg)
 	if err != nil {
-		return nil, fmt.Errorf("build smtp sender: %w", err)
+		return nil, nil, fmt.Errorf("build smtp sender: %w", err)
 	}
 
 	// Dedicated registry so /metrics exposes just the notification signals.
@@ -90,15 +102,17 @@ func buildWorker(c *conf.Config, log *zap.Logger, dbNew *db.DB, apiNew *api.API)
 	metrics := notification.NewMetrics()
 	metrics.MustRegister(reg)
 	reg.MustRegister(notification.NewStatsCollector(dbNew, notificationStaleThreshold))
-	apiNew.Router().GET("/metrics", gin.WrapH(promhttp.HandlerFor(reg, promhttp.HandlerOpts{})))
+
+	mux := http.NewServeMux()
+	mux.Handle("/metrics", promhttp.HandlerFor(reg, promhttp.HandlerOpts{}))
 
 	worker, err := notification.NewWorker(ncfg, dbNew, sender, log, metrics)
 	if err != nil {
-		return nil, fmt.Errorf("build notification worker: %w", err)
+		return nil, nil, fmt.Errorf("build notification worker: %w", err)
 	}
 
 	apiNew.Publisher().SetNotify(worker.Notify)
-	return worker, nil
+	return worker, mux, nil
 }
 
 // NotifyFunc returns the worker's wake-up callback, or nil when notifications are
@@ -116,12 +130,25 @@ func (a *App) Run() error {
 		ctx, a.workerCancel = context.WithCancel(context.Background())
 		go a.worker.Run(ctx)
 	}
+	if a.metricsSrv != nil {
+		go func() {
+			a.Log.Info("metrics server started", zap.String("addr", a.metricsSrv.Addr))
+			if err := a.metricsSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				a.Log.Error("metrics server failed", zap.Error(err))
+			}
+		}()
+	}
 	return a.srv.ListenAndServe()
 }
 
 func (a *App) Shutdown(ctx context.Context) error {
 	if a.workerCancel != nil {
 		a.workerCancel()
+	}
+	if a.metricsSrv != nil {
+		if err := a.metricsSrv.Shutdown(ctx); err != nil {
+			a.Log.Error("metrics server shutdown", zap.Error(err))
+		}
 	}
 	// TODO: add a proper shutdown for a database
 	return a.srv.Shutdown(ctx)

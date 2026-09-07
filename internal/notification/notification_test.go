@@ -31,14 +31,34 @@ func TestBackoff_ProgressionAndCap(t *testing.T) {
 	base := 5 * time.Minute
 	fn := Backoff(base)
 
-	before := time.Now().UTC()
-	// attempt 1 -> ~5m, attempt 2 -> ~10m, attempt 3 -> ~20m.
-	assert.WithinDuration(t, before.Add(5*time.Minute), fn(1), time.Second)
-	assert.WithinDuration(t, before.Add(10*time.Minute), fn(2), time.Second)
-	assert.WithinDuration(t, before.Add(20*time.Minute), fn(3), time.Second)
+	// Delays are jittered by ±backoffJitter, so assert the window, not an exact point.
+	assertWithinJitter := func(attempts int, want time.Duration) {
+		t.Helper()
+		before := time.Now().UTC()
+		got := fn(attempts).Sub(before)
+		tolerance := time.Duration(float64(want)*backoffJitter) + time.Second
+		assert.InDeltaf(t, float64(want), float64(got), float64(tolerance),
+			"attempt %d: got %s, want %s ±%s", attempts, got, want, tolerance)
+	}
+
+	assertWithinJitter(1, 5*time.Minute)
+	assertWithinJitter(2, 10*time.Minute)
+	assertWithinJitter(3, 20*time.Minute)
 
 	// Large attempt count is capped at maxBackoff (2h).
-	assert.WithinDuration(t, before.Add(maxBackoff), fn(20), time.Second)
+	assertWithinJitter(20, maxBackoff)
+}
+
+func TestBackoff_JitterSpreadsRetries(t *testing.T) {
+	fn := Backoff(5 * time.Minute)
+
+	seen := make(map[time.Time]struct{})
+	for range 20 {
+		seen[fn(1)] = struct{}{}
+	}
+
+	// Without jitter every caller would queue the retry at the same instant.
+	assert.Greater(t, len(seen), 1, "jitter must spread simultaneous failures")
 }
 
 func TestConfigFromConf_Disabled(t *testing.T) {

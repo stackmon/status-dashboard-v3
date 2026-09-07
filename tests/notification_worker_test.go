@@ -3,6 +3,7 @@ package tests
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -18,10 +19,11 @@ import (
 
 // fakeSender records deliveries and can fail or panic for chosen recipients.
 type fakeSender struct {
-	mu       sync.Mutex
-	sent     []string
-	failFor  map[string]bool
-	panicFor map[string]bool
+	mu           sync.Mutex
+	sent         []string
+	failFor      map[string]bool
+	permanentFor map[string]bool
+	panicFor     map[string]bool
 }
 
 func (f *fakeSender) Send(_ context.Context, recipient string, _ notification.Email) error {
@@ -29,6 +31,9 @@ func (f *fakeSender) Send(_ context.Context, recipient string, _ notification.Em
 	defer f.mu.Unlock()
 	if f.panicFor[recipient] {
 		panic("smtp exploded for " + recipient)
+	}
+	if f.permanentFor[recipient] {
+		return fmt.Errorf("smtp rejected %s: %w", recipient, notification.ErrPermanentDelivery)
 	}
 	if f.failFor[recipient] {
 		return errors.New("smtp failed for " + recipient)
@@ -130,6 +135,25 @@ func TestWorker_FailedSendMarksFailedAtMaxAttempts(t *testing.T) {
 	assert.Equal(t, db.NotificationStatusFailed, badRow.Status)
 	assert.Nil(t, badRow.NextAttemptAt)
 	require.NotNil(t, badRow.LastError)
+}
+
+func TestWorker_PermanentFailureSkipsRetries(t *testing.T) {
+	truncateIncidents(t)
+	ctx := context.Background()
+	d, g := newNotifDB(t)
+	incID := seedIncident(t, d)
+
+	rejected := newOutboxRow(incID, "unknown@com.com")
+	require.NoError(t, d.Enqueue(ctx, nil, rejected))
+
+	fake := &fakeSender{permanentFor: map[string]bool{"unknown@com.com": true}}
+	// maxAttempts is 5, so a retryable error would leave the row pending.
+	require.NoError(t, testWorker(t, d, fake, 5).Drain(ctx))
+
+	row := fetchByDedup(t, g, rejected.DedupKey)
+	assert.Equal(t, db.NotificationStatusFailed, row.Status, "5xx rejection is terminal")
+	assert.Nil(t, row.NextAttemptAt, "no retry scheduled")
+	require.NotNil(t, row.LastError)
 }
 
 func TestWorker_PanicIsolatedPerRow(t *testing.T) {

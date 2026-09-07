@@ -9,6 +9,7 @@ package notification
 
 import (
 	"fmt"
+	"math/rand/v2"
 	"strconv"
 	"strings"
 	"time"
@@ -23,6 +24,10 @@ const ActorChecker = "checker"
 
 // maxBackoff caps the exponential retry delay (architecture §5).
 const maxBackoff = 2 * time.Hour
+
+// backoffJitter spreads retries by up to ±20%. Rows usually fail together (one relay
+// outage), so without it every retry would hit the recovering server at once.
+const backoffJitter = 0.2
 
 // Config is the parsed, ready-to-use notification configuration.
 // It is derived from conf.Config once at startup so the hot path never re-parses
@@ -94,7 +99,7 @@ func ConfigFromConf(c *conf.Config) (Config, error) {
 }
 
 // KindForStatus maps a resulting maintenance status to a notification kind
-// (architecture §1, final_scope_email.md event matrix).
+// (architecture §1 recipient table).
 func KindForStatus(status event.Status) string {
 	switch status {
 	case event.MaintenancePendingReview:
@@ -113,7 +118,8 @@ func isReviewStatus(status event.Status) bool {
 }
 
 // Backoff returns a retry-time function for db.MarkFailed: attempt n becomes
-// eligible again after base*2^(n-1), capped at maxBackoff (architecture §5).
+// eligible again after base*2^(n-1), capped at maxBackoff and spread by jitter
+// (architecture §5).
 func Backoff(base time.Duration) func(attempts int) time.Time {
 	return func(attempts int) time.Time {
 		delay := base
@@ -127,8 +133,16 @@ func Backoff(base time.Duration) func(attempts int) time.Time {
 		if delay > maxBackoff {
 			delay = maxBackoff
 		}
-		return time.Now().UTC().Add(delay)
+
+		return time.Now().UTC().Add(withJitter(delay))
 	}
+}
+
+// withJitter shifts d by a random factor within ±backoffJitter.
+func withJitter(d time.Duration) time.Duration {
+	spread := (rand.Float64()*2 - 1) * backoffJitter //nolint:gosec // scheduling spread, not security
+
+	return time.Duration(float64(d) * (1 + spread))
 }
 
 // splitEmails parses a comma-separated recipient list into normalized addresses.

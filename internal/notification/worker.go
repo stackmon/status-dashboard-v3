@@ -2,6 +2,7 @@ package notification
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"time"
@@ -12,7 +13,10 @@ import (
 )
 
 const (
-	defaultBatchSize  = 50
+	// claimBatchSize is deliberately 1: the lease starts at claim time but sends are
+	// sequential, so a larger batch would let later rows outlive their lease and be
+	// re-delivered by the stale-recovery path.
+	claimBatchSize    = 1
 	defaultSweepEvery = 5 * time.Minute
 
 	// retentionAge keeps delivered rows for audit/re-drive, then prunes them so the
@@ -61,7 +65,7 @@ func NewWorker(cfg Config, database *db.DB, sender Sender, log *zap.Logger, metr
 		maxAttempts:  cfg.MaxAttempts,
 		smtpTimeout:  cfg.Timeout,
 		backoff:      Backoff(cfg.BackoffBase),
-		batchSize:    defaultBatchSize,
+		batchSize:    claimBatchSize,
 		sweepEvery:   defaultSweepEvery,
 		metrics:      metrics,
 		signal:       make(chan struct{}, 1),
@@ -159,17 +163,30 @@ func (w *Worker) deliver(ctx context.Context, row db.NotificationOutbox) {
 		w.log.Warn("notification send failed",
 			zap.Uint("outbox_id", row.ID), zap.Uint("incident_id", row.IncidentID),
 			zap.String("recipient", row.Recipient), zap.Int("attempts", row.Attempts),
+			zap.Bool("permanent", errors.Is(err, ErrPermanentDelivery)),
 			zap.Error(err))
 		w.metrics.recordFailed(row.Kind)
-		if merr := w.db.MarkFailed(ctx, nil, row.ID, err.Error(), w.maxAttempts, w.backoff); merr != nil {
-			w.log.Error("mark failed", zap.Uint("outbox_id", row.ID), zap.Error(merr))
-		}
+		w.markFailure(ctx, row.ID, err)
 		return
 	}
 
 	w.metrics.recordSent(row.Kind)
 	if err = w.db.MarkSent(ctx, nil, row.ID); err != nil {
 		w.log.Error("mark sent", zap.Uint("outbox_id", row.ID), zap.Error(err))
+	}
+}
+
+// markFailure records the outcome, skipping the retry schedule for rejections that
+// every further attempt would reproduce.
+func (w *Worker) markFailure(ctx context.Context, id uint, sendErr error) {
+	var err error
+	if errors.Is(sendErr, ErrPermanentDelivery) {
+		err = w.db.MarkFailedTerminal(ctx, nil, id, sendErr.Error())
+	} else {
+		err = w.db.MarkFailed(ctx, nil, id, sendErr.Error(), w.maxAttempts, w.backoff)
+	}
+	if err != nil {
+		w.log.Error("mark failed", zap.Uint("outbox_id", id), zap.Error(err))
 	}
 }
 

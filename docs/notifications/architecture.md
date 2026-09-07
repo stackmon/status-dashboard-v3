@@ -1,7 +1,8 @@
 # Architecture: Maintenance Email Notifications
 
-This document describes how maintenance email notifications work.
-It is the implementation counterpart to [final_scope_email.md](final_scope_email.md).
+This document describes how maintenance email notifications work — the design and the reasoning
+behind it. For deployment settings see [configuration.md](configuration.md); for planned work see
+[improvements.md](improvements.md).
 
 The goal is simple: **when a maintenance event is created or its status changes, send an email to
 the right people.** Everything below explains how that happens without slowing down the API.
@@ -212,14 +213,15 @@ per recipient in the same transaction as the maintenance creation:
 | 3 | `pending_review` | 42 | admin@com.com | `a1b2…` | `pending` |
 | 4 | `pending_review` | 42 | creator@com.com | `a1b2…` | `pending` |
 
-The worker then:
+The worker then processes them one at a time:
 
-1. Claims the rows → `status = processing`, `locked_by = pod-1`, `locked_at = now`, `attempts++`.
-2. Commits that claim, then sends the emails.
-3. On success → `status = sent`. On failure → back to `pending` with a later `next_attempt_at`
-   (backoff), or `failed` with `last_error` after the maximum attempts.
+1. Claims a row → `status = processing`, `locked_by = pod-1`, `locked_at = now`, `attempts++`.
+2. Commits that claim, then sends the email.
+3. On success → `status = sent`. On a temporary failure → back to `pending` with a later
+   `next_attempt_at`, or `failed` once attempts run out. On a permanent rejection (`5xx`) → `failed`
+   straight away.
 
-Three separate rows give **independent retries**: if the email to the admin list fails, only that
+Four separate rows give **independent retries**: if the email to the admin list fails, only that
 row is retried — the SMOD team, operator, and creator emails are not sent again.
 
 ### Do we need a separate `notification_log` table?
@@ -271,18 +273,52 @@ The loop, in plain steps:
 1. **Recover stuck rows.** If a pod claimed a row and then crashed, the row stays in `processing`.
    After a lease timeout it is returned to `pending` (or set to `failed` if it already used all
    attempts).
-2. **Claim a batch.** Select `pending` rows with `FOR UPDATE SKIP LOCKED`, mark them `processing`,
-   set `locked_by`/`locked_at`, and increment `attempts`. `SKIP LOCKED` guarantees two pods never
-   grab the same row.
-3. **Commit, then send.** The database transaction ends *before* any email is sent — a DB lock is
+2. **Claim one row.** Select the next due `pending` row with `FOR UPDATE SKIP LOCKED`, mark it
+   `processing`, set `locked_by`/`locked_at`, and increment `attempts`. `SKIP LOCKED` guarantees two
+   pods never grab the same row.
+3. **Commit, then send.** The database transaction ends *before* the email is sent — a DB lock is
    never held while waiting on the network.
-4. **Record the result.** On success mark `sent`; on failure keep it `pending` with a longer
-   `next_attempt_at` (exponential backoff), or mark `failed` after the maximum attempts.
+4. **Record the result.** On success mark `sent`. On failure either keep it `pending` with a longer
+   `next_attempt_at`, or mark it `failed` — see §5.1.
 5. **Stay safe.** Each send runs inside a `recover()` guard so one bad email cannot crash the
    worker.
+6. **Repeat** until no due rows remain.
+
+**Why one row at a time.** The lease starts when a row is claimed, but sends are sequential. Had the
+worker claimed a batch of N rows, the last one would begin sending up to `N × smtp_timeout` after
+its lease started — long past expiry. The stale-recovery path would then hand that row to another
+pod (or to the next pass of the same one) while the first send was still in flight, producing
+duplicate emails. Claiming one row keeps `claim → send → record` inside a single lease, so
+correctness no longer depends on tuning `lease_timeout` against the batch size. The extra queries
+cost nothing next to the network round-trip they accompany.
 
 **Timing rule:** the lease timeout must be longer than the SMTP timeout so a slow-but-alive send is
-never reclaimed by another pod.
+never reclaimed by another pod. This is enforced at startup.
+
+### 5.1 Permanent versus temporary failures
+
+Not every rejection is worth retrying. The sender inspects the SMTP reply:
+
+| Reply | Meaning | Action |
+|-------|---------|--------|
+| `5xx` | The server refuses this message — unknown recipient, blocked sender | `failed` immediately |
+| `4xx` | Temporary — greylisting, mailbox full, rate limit | retry with backoff |
+| No reply (transport error) | Unknown — DNS, connection refused, timeout | retry with backoff |
+
+A permanent rejection is terminal on the first attempt: repeating it cannot change the outcome, and
+failing fast surfaces a typo in a recipient address within seconds instead of hiding it behind hours
+of backoff. Anything without a definite `5xx` is treated as temporary, so an ambiguous error never
+causes a lost notification.
+
+### 5.2 Retry backoff
+
+A temporary failure schedules `next_attempt_at` at `base × 2^(attempts-1)`, capped at 2 hours, with
+a random spread of ±20%.
+
+The spread matters because failures correlate: when a relay goes down, every queued row fails within
+the same second. Without jitter all of them would retry at the same instant, hitting the recovering
+server with a synchronised burst — and repeating that burst on every subsequent attempt. Jitter
+spreads the load and prevents this thundering herd.
 
 ### Design note: why retries live in the database, not in memory
 
@@ -309,35 +345,29 @@ mechanism.
 
 ## 6. Configuration
 
-Extends `conf.Config` in [internal/conf/conf.go](../../internal/conf/conf.go), using the existing
-`envconfig` + `.env` mechanism.
+Settings extend `conf.Config` in [internal/conf/conf.go](../../internal/conf/conf.go), using the
+existing `envconfig` + `.env` mechanism. **The full reference lives in
+[configuration.md](configuration.md);** this section only records the design decisions behind it.
 
-| Variable | Purpose |
-|----------|---------|
-| `SD_NOTIFICATIONS_ENABLED` | master on/off switch |
-| `SD_SMTP_HOST` / `SD_SMTP_PORT` | mail server address |
-| `SD_SMTP_FROM` | sender address |
-| `SD_SMTP_USER` / `SD_SMTP_PASSWORD` | mail server credentials |
-| `SD_SMTP_TLS` | use TLS |
-| `SD_SMTP_TIMEOUT` | SMTP connect/send timeout (Go duration, e.g. `30s`) |
-| `SD_NOTIFICATIONS_LEASE_TIMEOUT` | processing lease; must exceed the SMTP timeout |
-| `SD_NOTIFICATIONS_MAX_ATTEMPTS` | retry limit before a row is marked `failed` |
-| `SD_NOTIFICATIONS_BACKOFF_INTERVAL` | base retry delay (exponential, capped at 2h) |
-| `SD_NOTIFICATIONS_SMOD_EMAIL` | fixed SMOD team review recipient |
-| `SD_NOTIFICATIONS_EMAILS_OPERATORS` | review recipients with the Operator role |
-| `SD_NOTIFICATIONS_EMAILS_ADMINS` | review recipients with the Admin role |
+**Everything is off by default.** `SD_NOTIFICATIONS_ENABLED` defaults to `false`, and when the
+feature is off no SMTP setting is required, no worker starts, and no metrics listener opens. The
+feature can be absent from an installation entirely.
 
-The creator recipient is **not** configured — it is the maintenance `contact_email` stored in the
-database. The SMOD team address plus the operator and admin lists together form the review audience.
+**Invalid configuration fails at startup, not at send time.** When the feature is enabled the
+validator parses the sender address, every review address, the SMTP port range and all durations. A
+typo in an operator address would otherwise stay invisible until the first maintenance, then produce
+failures on every message. Review addresses come from the operator, so they are validated as
+strictly as the user-supplied `contact_email`.
 
-Validation: when notifications are enabled, SMTP host/port/from must be set, and at least one
-review-audience address (SMOD team, operator, or admin) must be configured.
-SMTP secrets are masked in logs (reuse the existing `maskSecret`).
+**The lease must outlast the SMTP timeout,** or a slow-but-alive send would be reclaimed by another
+pod. This relationship is checked at startup because it cannot be detected safely at runtime.
 
-**Transport:** the target is the OTC (Open Telekom Cloud) SMTP endpoint, reached by a direct SMTP
-connection. No external mail gateway or HTTP mail API is used. `SD_SMTP_HOST`/`SD_SMTP_PORT` point at
-the OTC endpoint, `SD_SMTP_USER`/`SD_SMTP_PASSWORD` hold the SMTP credentials, and `SD_SMTP_FROM` is
-the sender address for alerts.
+**The creator recipient is not configured.** It is the maintenance `contact_email` stored in the
+database. The SMOD address plus the operator and admin lists form the review audience, and none of
+them come from the requester's token.
+
+**Transport:** a direct SMTP connection to the OTC (Open Telekom Cloud) endpoint. No external mail
+gateway or HTTP mail API is involved. SMTP secrets are masked in logs.
 
 ---
 
@@ -347,10 +377,12 @@ the sender address for alerts.
    committed change always has its email task.
 2. **The API never blocks.** Sending happens in the background.
 3. **Failures are isolated.** A mail server problem is recorded on the outbox row and never turns
-   into an API error.
+   into an API error. A permanent rejection stops after one attempt; anything ambiguous is retried.
 4. **At-least-once delivery.** In a rare case (the mail server accepts the email but the pod dies
    before writing `sent`), the email may be sent twice after recovery. This is accepted: a rare
    duplicate is better than a lost notification, and plain SMTP offers no safe way to avoid it.
+   Note this is the *only* remaining duplicate window — claiming one row per lease removed the
+   batch-expiry case.
 5. **Cheap when idle.** Dispatch is event-driven; the only recurring background activity is a rare
    safety sweep that returns nothing on an idle system. Retry state lives in the outbox row
    (`next_attempt_at`), not in memory, so retries survive pod restarts and are coordinated across
@@ -362,15 +394,19 @@ the sender address for alerts.
 
 ```mermaid
 flowchart TB
-    M[cmd/main.go] --> APP[app: API + publisher]
-    M --> CHK[checker + publisher]
-    M --> WRK[notification worker]
-    M --> SD[graceful shutdown of all three]
+    M[cmd/main.go] --> APP["app: API + publisher"]
+    M --> CHK["checker + publisher"]
+    M --> WRK["notification worker"]
+    M --> MET["metrics listener<br/>(own port)"]
+    M --> SD["graceful shutdown of all"]
 ```
 
 The worker reuses the application's existing database connection pool — it must **not** open its
 own. With multiple pods, extra pools would multiply PostgreSQL connections. Budget connections as
 `connections_per_pod * number_of_pods`.
+
+The metrics listener is a second `http.Server` bound to `SD_METRICS_PORT`. It starts only when
+notifications are enabled and is shut down together with the API server.
 
 On shutdown the worker stops claiming new rows and finishes in-flight sends; anything unfinished is
 recovered by the lease mechanism on the next run.
@@ -384,8 +420,13 @@ from it — there is no separate metrics store. Two interfaces expose the same d
 
 ### Prometheus `/metrics`
 
-Registered only when notifications are enabled (on a dedicated registry, scoped to notification
-series). Two kinds of series:
+Served on a **separate listener** (`SD_METRICS_PORT`, default `9090`), not on the public API port,
+and only when notifications are enabled. Queue depth and failure counts are operational detail that
+should not be readable by anyone who can reach the dashboard, so the port is meant to stay internal
+to the cluster — scraped by Prometheus, never published through an Ingress. The registry is
+dedicated, so the endpoint exposes notification series only.
+
+Two kinds of series:
 
 - **Worker counters/histogram** (updated as rows are delivered): `notification_sent_total{kind}`,
   `notification_failed_total{kind}`, `notification_attempts_total`,
@@ -393,6 +434,11 @@ series). Two kinds of series:
 - **Queue-depth gauges** (pulled on each scrape by a DB-backed collector, so they always reflect
   current state): `notification_outbox_pending`, `_processing`, `_failed`, `_stale_processing`,
   `_retry_backlog`, `_oldest_pending_age_seconds`.
+
+The scrape query is bounded by a timeout: Prometheus scrapes on a schedule regardless of how the
+previous attempt went, so an unbounded query against a stalled database would accumulate goroutines
+and connections. A failed collection increments `notification_collector_errors_total` rather than
+silently omitting the gauges, which would look identical to a healthy empty queue.
 
 ### Admin ops API (`/v2/notifications/…`)
 

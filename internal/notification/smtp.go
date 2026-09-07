@@ -2,9 +2,16 @@ package notification
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	mail "github.com/wneessen/go-mail"
+)
+
+// SMTP reply codes in [500,600) are permanent rejections per RFC 5321 §4.2.1.
+const (
+	smtpPermanentFrom = 500
+	smtpPermanentTo   = 600
 )
 
 // Sender delivers one rendered email to one recipient. It is an interface so the
@@ -60,9 +67,29 @@ func (s *smtpSender) Send(ctx context.Context, recipient string, email Email) er
 	msg.SetBodyString(mail.TypeTextPlain, email.Body)
 
 	if err := s.client.DialAndSendWithContext(ctx, msg); err != nil {
+		if isPermanent(err) {
+			return fmt.Errorf("send mail: %w: %w", ErrPermanentDelivery, err)
+		}
 		return fmt.Errorf("send mail: %w", err)
 	}
 	return nil
+}
+
+// ErrPermanentDelivery marks a rejection the server will repeat for every retry,
+// such as an unknown recipient. The worker fails these rows immediately.
+var ErrPermanentDelivery = errors.New("permanent delivery failure")
+
+// isPermanent reports whether the relay rejected the message for good. Only a 5xx
+// reply qualifies: transport errors carry no code and may succeed later.
+func isPermanent(err error) bool {
+	var sendErr *mail.SendError
+	if !errors.As(err, &sendErr) || sendErr.IsTemp() {
+		return false
+	}
+
+	code := sendErr.ErrorCode()
+
+	return code >= smtpPermanentFrom && code < smtpPermanentTo
 }
 
 // tlsPolicy selects mandatory TLS when configured, otherwise opportunistic.
