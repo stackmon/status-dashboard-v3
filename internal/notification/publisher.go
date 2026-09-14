@@ -2,6 +2,8 @@ package notification
 
 import (
 	"context"
+	"slices"
+	"strings"
 
 	"gorm.io/gorm"
 
@@ -12,9 +14,10 @@ import (
 // rows and enqueues them within the caller's transaction, so the email tasks commit
 // together with the business change (architecture §3).
 type Publisher struct {
-	enabled  bool
-	resolver *Resolver
-	db       *db.DB
+	enabled        bool
+	resolver       *Resolver
+	db             *db.DB
+	allowedDomains []string
 	// notify wakes the delivery worker after a change commits (hot path). Optional.
 	notify func()
 }
@@ -23,10 +26,37 @@ type Publisher struct {
 // the publisher is inert and PublishTx is a no-op.
 func NewPublisher(cfg Config, database *db.DB) *Publisher {
 	return &Publisher{
-		enabled:  cfg.Enabled,
-		resolver: NewResolver(cfg),
-		db:       database,
+		enabled:        cfg.Enabled,
+		resolver:       NewResolver(cfg),
+		db:             database,
+		allowedDomains: cfg.AllowedDomains,
 	}
+}
+
+// AllowsDomain reports whether a user-supplied address may receive notifications.
+// It permits everything when the feature is off or no allow-list is configured, so
+// existing installations keep working unchanged.
+func (p *Publisher) AllowsDomain(email string) bool {
+	if p == nil || !p.enabled || len(p.allowedDomains) == 0 {
+		return true
+	}
+
+	at := strings.LastIndex(email, "@")
+	if at < 0 {
+		return false
+	}
+	domain := normalizeEmail(email[at+1:])
+
+	return slices.Contains(p.allowedDomains, domain)
+}
+
+// AllowedDomains lists the configured domains, for error messages.
+func (p *Publisher) AllowedDomains() []string {
+	if p == nil {
+		return nil
+	}
+
+	return p.allowedDomains
 }
 
 // SetNotify wires the post-commit wake-up callback (typically Worker.Notify).

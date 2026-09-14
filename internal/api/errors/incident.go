@@ -1,6 +1,10 @@
 package errors
 
-import "errors"
+import (
+	"errors"
+	"fmt"
+	"strings"
+)
 
 var ErrIncidentDSNotExist = errors.New("event does not exist")
 var ErrIncidentEndDateShouldBeEmpty = errors.New("event end_date should be empty")
@@ -47,6 +51,12 @@ var ErrMaintenanceContactEmailRequired = errors.New("contact_email is required f
 var ErrMaintenanceContactEmailInvalid = errors.New("contact_email has invalid format")
 var ErrMaintenanceEndDateBeforeStart = errors.New("end_date must be after start_date")
 var ErrMaintenanceDescriptionRequired = errors.New("description is required for maintenance")
+
+// NewErrMaintenanceContactEmailDomain names the permitted domains so the caller can
+// fix the request without reading the deployment configuration.
+func NewErrMaintenanceContactEmailDomain(allowed []string) error {
+	return fmt.Errorf("contact_email domain is not allowed, permitted domains: %s", strings.Join(allowed, ", "))
+}
 
 // Errors for extract restrictions
 

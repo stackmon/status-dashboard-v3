@@ -28,11 +28,11 @@ const (
 
 const (
 	authorizedView = true
-	publicView     = false
 )
 
 const (
 	UsernameContextKey     = "userID"
+	UserEmailContextKey    = "userEmail"
 	UserIDGroupsContextKey = "userIDGroups"
 	RoleContextKey         = "role"
 )
@@ -374,7 +374,7 @@ func PostIncidentHandler(dbInst *db.DB, logger *zap.Logger, pub ...*notification
 			return
 		}
 
-		if !prepareIncidentCreate(c, logger, &incData) {
+		if !prepareIncidentCreate(c, logger, &incData, publisher) {
 			logger.Warn("incident creation failed: validation or authorization error")
 			return
 		}
@@ -1918,6 +1918,17 @@ func getUserIDFromContext(c *gin.Context) *string {
 	return nil
 }
 
+// getUserEmailFromContext returns the verified address from the token, or nil when the
+// token carries no email claim (HMAC and service tokens).
+func getUserEmailFromContext(c *gin.Context) *string {
+	if email, exists := c.Get(UserEmailContextKey); exists {
+		if e, ok := email.(string); ok && e != "" {
+			return &e
+		}
+	}
+	return nil
+}
+
 func resolveMaintenanceCreateStatus(role rbac.Role) (event.Status, error) {
 	switch {
 	case role >= rbac.Operator:
@@ -1985,7 +1996,9 @@ func allowMaintenancePatchAsCreator(
 	return false
 }
 
-func prepareIncidentCreate(c *gin.Context, logger *zap.Logger, incData *IncidentData) bool {
+func prepareIncidentCreate(
+	c *gin.Context, logger *zap.Logger, incData *IncidentData, pub *notification.Publisher,
+) bool {
 	incData.StartDate = incData.StartDate.UTC()
 	if incData.EndDate != nil {
 		*incData.EndDate = incData.EndDate.UTC()
@@ -2002,6 +2015,10 @@ func prepareIncidentCreate(c *gin.Context, logger *zap.Logger, incData *Incident
 			return false
 		}
 
+		if !resolveContactEmail(c, incData, pub) {
+			return false
+		}
+
 		role, ok := getRoleFromContext(c, logger)
 		if !ok {
 			return false
@@ -2012,6 +2029,26 @@ func prepareIncidentCreate(c *gin.Context, logger *zap.Logger, incData *Incident
 			return false
 		}
 		incData.Status = status
+	}
+
+	return true
+}
+
+// resolveContactEmail settles the creator address: an explicitly supplied one wins and
+// is domain-checked, otherwise the verified address from the token is used. Tokens
+// without an email claim leave it empty, which only limits who gets notified.
+func resolveContactEmail(c *gin.Context, incData *IncidentData, pub *notification.Publisher) bool {
+	if incData.ContactEmail == "" {
+		if email := getUserEmailFromContext(c); email != nil {
+			incData.ContactEmail = *email
+		}
+
+		return true
+	}
+
+	if !pub.AllowsDomain(incData.ContactEmail) {
+		apiErrors.RaiseBadRequestErr(c, apiErrors.NewErrMaintenanceContactEmailDomain(pub.AllowedDomains()))
+		return false
 	}
 
 	return true

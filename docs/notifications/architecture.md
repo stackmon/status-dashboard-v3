@@ -19,8 +19,20 @@ There are two audiences:
      via per-role email lists in configuration; plus
    - a fixed **SMOD team** address (`SD_NOTIFICATIONS_SMOD_EMAIL`, for example `support@com.com`).
    None of these come from the request — they are all predefined in configuration.
-2. **Creator** — the maintenance contact address. It arrives in the create request
-   (field `contact_email`) and is stored in the `incident.contact_email` column.
+2. **Creator** — the maintenance contact address, stored in `incident.contact_email`. It is
+   resolved once at creation time from two sources, in this order:
+   1. the `contact_email` field of the create request, when supplied;
+   2. otherwise the verified `email` claim of the creator's token.
+
+   The explicit field wins because "notify the team mailbox, not me personally" is a legitimate
+   request. The token is the fallback so that omitting the field still reaches a real person, and
+   because a typo in a hand-typed address is unfixable later: `contact_email` cannot be changed
+   after creation. Tokens without an `email` claim (HMAC, service-to-service) simply leave the
+   address empty, which narrows the audience but never blocks the request.
+
+   The address is resolved at creation because notifications continue for the whole lifecycle,
+   long after the creator's token is gone: an operator approves with *their* token, and the checker
+   transitions with none at all.
 
 The recipients are decided by the **resulting maintenance status**:
 
@@ -136,6 +148,33 @@ authentication, and TLS settings.
 endpoint. It does **not** call any external mail gateway. The sender uses a maintained Go mail
 library (`github.com/wneessen/go-mail`) rather than bare `net/smtp`, for robust MIME, auth, and TLS
 handling.
+
+### Where the code lives
+
+`internal/notification/` holds the feature itself; storage and HTTP entry points stay in their
+existing packages.
+
+| File | Responsibility |
+|------|----------------|
+| `notification.go` | `Config` parsed from `conf.Config`, status-to-kind mapping, retry backoff |
+| `resolver.go` | `Change` input type, recipient rules, one outbox row per recipient, dedup keys |
+| `renderer.go` | Outbox row to subject and body; decides whether the wording is a creation or a change |
+| `templates/subject.tmpl`, `templates/body.tmpl` | Embedded message text |
+| `smtp.go` | `Sender` interface and its SMTP implementation, including permanent-failure detection |
+| `publisher.go` | Enqueues rows inside the caller's transaction; `contact_email` domain check |
+| `worker.go` | Claim, send, record; stale recovery and retention |
+| `metrics.go` | Delivery counters and the DB-backed queue-depth collector |
+
+| Outside the package | Responsibility |
+|---------------------|----------------|
+| [internal/db/notification.go](../../internal/db/notification.go) | Outbox CRUD: enqueue, claim, mark sent/failed, recover stale |
+| [internal/db/notification_ops.go](../../internal/db/notification_ops.go) | Queue statistics, failed listing, re-drive, retention pruning |
+| [internal/api/v2/notifications.go](../../internal/api/v2/notifications.go) | Admin ops endpoints |
+| [internal/conf/conf.go](../../internal/conf/conf.go) | Raw settings and startup validation |
+| [internal/app/app.go](../../internal/app/app.go) | Wiring: worker, metrics listener, publisher signal |
+
+Delivery timing lives in `worker.go` and the storage layer, never in the producers: handlers and the
+checker only record intent.
 
 ---
 
@@ -365,6 +404,13 @@ pod. This relationship is checked at startup because it cannot be detected safel
 **The creator recipient is not configured.** It is the maintenance `contact_email` stored in the
 database. The SMOD address plus the operator and admin lists form the review audience, and none of
 them come from the requester's token.
+
+**Two lists constrain recipients.** `SD_NOTIFICATIONS_ALLOWED_DOMAINS` restricts the domains a user
+may type into `contact_email`; without it any authenticated creator could make the service mail an
+arbitrary external address from a trusted corporate domain. It applies only to the explicit field,
+since the token address is already verified. `SD_NOTIFICATIONS_EXCLUDED_EMAILS` drops specific
+addresses from *every* recipient list, so an exclusion cannot be bypassed by passing the address as
+`contact_email`.
 
 **Transport:** a direct SMTP connection to the OTC (Open Telekom Cloud) endpoint. No external mail
 gateway or HTTP mail API is involved. SMTP secrets are masked in logs.

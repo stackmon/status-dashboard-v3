@@ -31,15 +31,22 @@ type Resolver struct {
 	smod      string
 	operators []string
 	admins    []string
+	excluded  map[string]struct{}
 	baseURL   string
 }
 
 // NewResolver builds a Resolver from the parsed notification config.
 func NewResolver(cfg Config) *Resolver {
+	excluded := make(map[string]struct{}, len(cfg.ExcludedEmails))
+	for _, e := range cfg.ExcludedEmails {
+		excluded[normalizeEmail(e)] = struct{}{}
+	}
+
 	return &Resolver{
 		smod:      cfg.ReviewSMOD,
 		operators: cfg.ReviewOperators,
 		admins:    cfg.ReviewAdmins,
+		excluded:  excluded,
 		baseURL:   cfg.BaseURL,
 	}
 }
@@ -54,6 +61,11 @@ func (r *Resolver) Recipients(status event.Status, contactEmail string) []string
 	add := func(raw string) {
 		e := normalizeEmail(raw)
 		if e == "" {
+			return
+		}
+		// Applied here rather than per source, so an exclusion cannot be bypassed
+		// by passing the address as contact_email.
+		if _, blocked := r.excluded[e]; blocked {
 			return
 		}
 		if _, ok := seen[e]; ok {

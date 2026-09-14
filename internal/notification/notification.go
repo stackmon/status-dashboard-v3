@@ -51,6 +51,11 @@ type Config struct {
 	ReviewOperators []string
 	ReviewAdmins    []string
 
+	// AllowedDomains limits the user-supplied contact_email. Empty allows any domain.
+	AllowedDomains []string
+	// ExcludedEmails are dropped from every recipient list.
+	ExcludedEmails []string
+
 	// BaseURL is the web origin used to build maintenance deep links.
 	BaseURL string
 }
@@ -69,6 +74,8 @@ func ConfigFromConf(c *conf.Config) (Config, error) {
 		ReviewSMOD:      strings.TrimSpace(c.Notifications.SmodEmail),
 		ReviewOperators: splitEmails(c.Notifications.EmailsOperators),
 		ReviewAdmins:    splitEmails(c.Notifications.EmailsAdmins),
+		AllowedDomains:  splitEmails(c.Notifications.AllowedDomains),
+		ExcludedEmails:  splitEmails(c.Notifications.ExcludedEmails),
 		BaseURL:         strings.TrimRight(c.WebURL, "/"),
 	}
 

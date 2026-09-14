@@ -30,6 +30,22 @@ func TestRecipients_ReviewStatusesIncludeAudienceAndCreator(t *testing.T) {
 	}
 }
 
+func TestRecipients_ExcludedAddressesAreDropped(t *testing.T) {
+	r := NewResolver(Config{
+		ReviewSMOD:      "support@com.com",
+		ReviewOperators: []string{"ops@com.com"},
+		ReviewAdmins:    []string{"admin@com.com"},
+		ExcludedEmails:  []string{"ops@com.com", "noreply@com.com"},
+	})
+
+	got := r.Recipients(event.MaintenancePendingReview, "creator@com.com")
+	assert.ElementsMatch(t, []string{"support@com.com", "admin@com.com", "creator@com.com"}, got)
+
+	// The exclusion must hold even when the address arrives as the creator contact.
+	got = r.Recipients(event.MaintenancePlanned, "NoReply@COM.com")
+	assert.Empty(t, got)
+}
+
 func TestRecipients_LifecycleStatusesCreatorOnly(t *testing.T) {
 	r := testResolver()
 

@@ -53,11 +53,22 @@ Required fields apply only when the feature is enabled.
 | `SD_NOTIFICATIONS_SMOD_EMAIL` | — | Fixed SMOD team review address. |
 | `SD_NOTIFICATIONS_EMAILS_OPERATORS` | — | Review addresses for the Operator role, comma-separated. |
 | `SD_NOTIFICATIONS_EMAILS_ADMINS` | — | Review addresses for the Admin role, comma-separated. |
+| `SD_NOTIFICATIONS_ALLOWED_DOMAINS` | — | Domains accepted in `contact_email`, comma-separated. Empty allows any. |
+| `SD_NOTIFICATIONS_EXCLUDED_EMAILS` | — | Addresses that never receive mail, comma-separated. |
 
-At least one of the three must be set. Addresses are trimmed, lowercased and deduplicated.
+At least one of the three review variables must be set. Addresses are trimmed, lowercased and
+deduplicated.
 
-The creator recipient is **not** configured here: it is the `contact_email` supplied when the
-maintenance is created.
+The creator recipient is **not** configured here. It is resolved at creation time from the
+`contact_email` field of the request, or from the `email` claim of the creator's token when the
+field is omitted.
+
+`SD_NOTIFICATIONS_ALLOWED_DOMAINS` applies only to the address a user types in; the token address is
+already verified. Matching is exact, so `example.com` does not cover `mail.example.com`.
+Rejected requests get `400` naming the permitted domains.
+
+`SD_NOTIFICATIONS_EXCLUDED_EMAILS` is applied to every recipient, including review addresses and the
+creator, so a blocked address cannot slip through via `contact_email`.
 
 ### Delivery tuning
 
@@ -76,6 +87,9 @@ maintenance is created.
 ---
 
 ## Deployment notes
+
+For the `sd3-test` Kubernetes environment, where settings are rendered from Vault rather than set
+in the manifest, see [stackmon-config-deployment.md](stackmon-config-deployment.md).
 
 ### Which SMTP account to use
 
@@ -134,6 +148,8 @@ When the feature is enabled the application refuses to start unless:
 - `SD_SMTP_PORT` is a number in `1`–`65535`;
 - `SD_SMTP_FROM` parses as an email address;
 - at least one review address is configured, and **every** configured review address parses;
+- every address in `SD_NOTIFICATIONS_EXCLUDED_EMAILS` parses;
+- every entry in `SD_NOTIFICATIONS_ALLOWED_DOMAINS` is a bare domain, not a full address;
 - `SD_SMTP_TIMEOUT`, `SD_NOTIFICATIONS_LEASE_TIMEOUT` and `SD_NOTIFICATIONS_BACKOFF_INTERVAL` parse
   as Go durations;
 - `SD_NOTIFICATIONS_LEASE_TIMEOUT` is greater than `SD_SMTP_TIMEOUT`;

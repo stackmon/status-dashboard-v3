@@ -1,107 +1,64 @@
 # Notifications — Development Roadmap
 
-Improvement proposals for the maintenance email notification feature. Nothing here is
-implemented; this document records the reasoning so the decisions do not have to be
-rediscovered later.
+Improvement proposals for the maintenance email notification feature. Items are recorded
+with their reasoning so the decisions do not have to be rediscovered later. Section 1 is
+done; everything after it is open.
 
-Related: [architecture.md](architecture.md), [configuration.md](configuration.md),
-[plan.md](plan.md).
-
----
-
-## 1. Recipient allow-list for `contact_email`
-
-**Priority: high (security)**
-
-### Problem
-
-`contact_email` comes straight from the create request and is only checked for syntax:
-
-```go
-if _, err := mail.ParseAddress(incData.ContactEmail); err != nil {
-    return apiErrors.ErrMaintenanceContactEmailInvalid
-}
-```
-
-Any user holding the `creator` role can therefore make the dashboard send mail to an
-arbitrary external address. Two consequences:
-
-- **Abuse.** Messages leave from a trusted corporate domain with corporate branding,
-  which is a ready-made phishing vector. The outbox even retries them for us.
-- **Typos.** `user@gmial.com` is syntactically valid, so the mail leaves the building
-  and lands with a stranger. Maintenance titles and schedules are not public data.
-
-### Proposal
-
-Add a domain allow-list applied at request validation time:
-
-```
-SD_NOTIFICATIONS_ALLOWED_DOMAINS=company.com,t-systems.com
-```
-
-- Empty value keeps current behaviour, so existing installations are unaffected.
-- Compare the domain part case-insensitively, after the existing `mail.ParseAddress`.
-- Reject with `400` and a message naming the allowed domains — the user must be able to
-  fix the input without reading the deployment manifest.
-
-Validate the variable itself at startup (each entry a plausible domain), consistent with
-how the review-audience lists are already checked in `validateReviewAudience`.
-
-### Trade-offs
-
-Installations that legitimately notify external partners must list those domains
-explicitly. That is the intended cost: the allow-list turns an implicit capability into
-an explicit, auditable decision.
+Related: [architecture.md](architecture.md), [configuration.md](configuration.md).
 
 ---
 
-## 2. Trusted `creator_email` from the JWT
+## 1. Recipient addressing — **implemented**
+
+Both the allow-list and the token-derived creator address are in place:
+
+- `SD_NOTIFICATIONS_ALLOWED_DOMAINS` restricts the domains accepted in `contact_email`,
+  rejecting others with `400` and naming the permitted ones. An empty value keeps the
+  previous behaviour.
+- `SD_NOTIFICATIONS_EXCLUDED_EMAILS` drops specific addresses from every recipient list,
+  so an exclusion cannot be bypassed via `contact_email`.
+- `contact_email` is now optional. When omitted, the verified `email` claim of the
+  creator's token is used instead.
+
+Deliberately **not** done: a separate `incident.creator_email` column. One column holds
+the resolved address, since the two sources are alternatives rather than two independent
+recipients. Tokens without an `email` claim (HMAC, service-to-service) simply leave the
+address empty, which narrows the audience but never blocks the request.
+
+Open follow-up: `contact_email` still cannot be changed after creation, so a wrong
+address stays wrong for the lifetime of the maintenance. Allowing it in
+`PatchIncidentData` would fix that.
+
+---
+
+## 2. Config hardening beyond SMTP
 
 **Priority: medium**
 
-### Problem
+`SMTPConfig` and `Notifications.Enabled` no longer carry `envconfig` tags, because
+envconfig falls back to the bare tag name when the prefixed variable is unset — a tag of
+`"USER"` silently inherited the shell's `$USER` and enabled SMTP AUTH against a server
+that offers none.
 
-The creator's address is whatever was typed into the form. Nothing ties a notification to
-the identity that actually created the maintenance:
+The same trap remains in `Config`:
 
-- The person who created the window may never be notified about it.
-- `created_by` (the Keycloak `preferred_username`) and `contact_email` can point at
-  unrelated people, and nothing detects the mismatch.
-- A typo silently redirects every notification for that maintenance.
-
-The OIDC scope already requests `email` ([../../internal/api/auth/auth.go](../../internal/api/auth/auth.go)),
-but the middleware only extracts `preferred_username` and `groups`, so the verified
-address is discarded.
-
-### Proposal
-
-Treat the token as the source of truth and the form field as an optional addition:
-
-| Field | Source | Role |
+| Field | Tag | Risk |
 |---|---|---|
-| `creator_email` | `email` claim | Trusted, verified by Keycloak, always notified |
-| `contact_email` | request body, optional | Additional address, subject to the allow-list |
+| `Hostname` | `HOSTNAME` | **Always set in containers** — without `SD_HOSTNAME` the app adopts the pod name |
+| `Port` | `PORT` | Set by several PaaS platforms (Cloud Run injects `PORT=8080`) |
+| `DB`, `Cache` | `DB`, `CACHE` | Plausible in some shells |
 
-Steps:
+**Proposal:** drop the tags on these single-word fields as well. `mergeConfigs` already
+falls back to the field name via `envKeyPart`, and the field names produce identical keys
+(`SD_HOSTNAME`, `SD_PORT`), so the change is behaviour-preserving except for removing the
+unintended fallback.
 
-1. Extract the `email` claim in `setUserIDFromClaims` alongside `preferred_username`.
-2. Add an `incident.creator_email` column; populate it on create.
-3. Pass both addresses into `notification.Change`.
-
-`Resolver.Recipients` already normalizes and deduplicates, so when the two fields match,
-only one message is produced. No resolver changes are required.
-
-### Trade-offs
-
-Local HMAC tokens (dev, service-to-service) carry no `email` claim, so `creator_email`
-must stay nullable and the feature must degrade to `contact_email` alone. Keep
-`contact_email` optional rather than removing it: "notify the team mailbox, not me" is a
-legitimate and common request.
+Extend the existing `TestLoadConf_IgnoresBareEnvNames` (it already covers `USER` and
+`PASSWORD`) with `HOSTNAME` and `PORT`, asserting the defaults are used.
 
 ---
 
 ## 3. Review audience via distribution lists
-
 **Priority: low (operational, no code change)**
 
 ### Problem
@@ -134,7 +91,6 @@ provides for free. Not recommended.
 ---
 
 ## 4. Operations API gaps
-
 **Priority: low**
 
 ### Queue is not fully visible
@@ -157,7 +113,6 @@ off".
 ---
 
 ## 5. SMTP transport: implicit TLS (port 465)
-
 **Priority: low, becomes blocking if a relay requires SMTPS**
 
 `SD_SMTP_TLS=true` maps to `mail.TLSMandatory`, which is *mandatory STARTTLS* on a plain
@@ -170,34 +125,7 @@ release to avoid breaking deployments.
 
 ---
 
-## 6. Config hardening beyond SMTP
-
-**Priority: medium**
-
-`SMTPConfig` and `Notifications.Enabled` no longer carry `envconfig` tags, because
-envconfig falls back to the bare tag name when the prefixed variable is unset — a tag of
-`"USER"` silently inherited the shell's `$USER` and enabled SMTP AUTH against a server
-that offers none.
-
-The same trap remains in `Config`:
-
-| Field | Tag | Risk |
-|---|---|---|
-| `Hostname` | `HOSTNAME` | **Always set in containers** — without `SD_HOSTNAME` the app adopts the pod name |
-| `Port` | `PORT` | Set by several PaaS platforms (Cloud Run injects `PORT=8080`) |
-| `DB`, `Cache` | `DB`, `CACHE` | Plausible in some shells |
-
-**Proposal:** drop the tags on these single-word fields as well. `mergeConfigs` already
-falls back to the field name via `envKeyPart`, and the field names produce identical keys
-(`SD_HOSTNAME`, `SD_PORT`), so the change is behaviour-preserving except for removing the
-unintended fallback.
-
-Add a regression test in the shape of `TestLoadConf_IgnoresBareEnvNames`, which sets
-`HOSTNAME`/`PORT` in the environment and asserts the defaults are used.
-
----
-
-## 7. Delivery throughput
+## 6. Delivery throughput
 
 **Priority: low**
 
@@ -222,12 +150,11 @@ Both are worth doing only if the queue is observed to lag: at the current volume
 
 ## Suggested order
 
-| # | Item | Type | Rationale |
+| Order | Section | Type | Rationale |
 |---|---|---|---|
-| 1 | Allow-list for `contact_email` | Code | Closes an abuse vector |
-| 2 | Config hardening (`Hostname`, `Port`) | Code | Latent production bug in any container |
-| 3 | `creator_email` from JWT | Code + migration | Correctness of addressing |
-| 4 | Distribution lists | Config | No code, immediate operational relief |
-| 5 | Ops API gaps | Code | Diagnosability |
-| 6 | Implicit TLS | Code | Only when a relay demands it |
-| 7 | Delivery throughput | Code | Only if the queue is seen to lag |
+| 1 | §2 Config hardening | Code | Latent production bug in any container |
+| 2 | §3 Distribution lists | Config | No code, immediate operational relief |
+| 3 | §4 Ops API gaps | Code | Diagnosability |
+| 4 | Editable `contact_email` (§1 follow-up) | Code | A wrong address is currently permanent |
+| 5 | §5 Implicit TLS | Code | Only when a relay demands it |
+| 6 | §6 Delivery throughput | Code | Only if the queue is seen to lag |

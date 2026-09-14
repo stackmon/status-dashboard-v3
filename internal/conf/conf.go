@@ -109,6 +109,12 @@ type NotificationsConfig struct {
 	EmailsOperators string `envconfig:"EMAILS_OPERATORS"`
 	// EmailsAdmins is the review recipient list for the Admin role.
 	EmailsAdmins string `envconfig:"EMAILS_ADMINS"`
+	// AllowedDomains restricts the user-supplied contact_email to these domains,
+	// comma-separated. Empty means any domain is accepted.
+	AllowedDomains string `envconfig:"ALLOWED_DOMAINS"`
+	// ExcludedEmails never receive notifications, comma-separated. Applied to every
+	// recipient so an exclusion cannot be bypassed via contact_email.
+	ExcludedEmails string `envconfig:"EXCLUDED_EMAILS"`
 }
 
 type RBACConfig struct {
@@ -251,10 +257,27 @@ func (c *Config) validateReviewAudience() error {
 		"SD_NOTIFICATIONS_SMOD_EMAIL":       c.Notifications.SmodEmail,
 		"SD_NOTIFICATIONS_EMAILS_OPERATORS": c.Notifications.EmailsOperators,
 		"SD_NOTIFICATIONS_EMAILS_ADMINS":    c.Notifications.EmailsAdmins,
+		"SD_NOTIFICATIONS_EXCLUDED_EMAILS":  c.Notifications.ExcludedEmails,
 	}
 	for envName, raw := range lists {
 		if err := validateEmailList(envName, raw); err != nil {
 			return err
+		}
+	}
+
+	return validateDomainList("SD_NOTIFICATIONS_ALLOWED_DOMAINS", c.Notifications.AllowedDomains)
+}
+
+// validateDomainList checks a comma-separated domain list. Entries are bare domains,
+// so a stray "@" usually means a full address was pasted in by mistake.
+func validateDomainList(envName, raw string) error {
+	for _, part := range strings.Split(raw, ",") {
+		domain := strings.TrimSpace(part)
+		if domain == "" {
+			continue
+		}
+		if strings.ContainsAny(domain, "@ ") || !strings.Contains(domain, ".") {
+			return fmt.Errorf("%s contains an invalid domain %q, expected e.g. \"example.com\"", envName, domain)
 		}
 	}
 
