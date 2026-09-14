@@ -157,7 +157,26 @@ Leave namespace, ingress host and TLS secret unchanged.
 - Vault key creation — performed by whoever holds Vault access, not through git.
 - `overlays/prod` — production stays on the current build until the test run succeeds.
 - Ingress changes.
-- Database migrations — applied by the application at startup.
+
+---
+
+## Database migration — required before rollout
+
+Migrations are **not** applied by the application, and the image contains neither the
+`db/migrations` directory nor the `migrate` CLI. Migration `000008` (which creates
+`notification_outbox`) must be applied to the `sd3-test` database out of band, by whoever
+normally runs migrations for this environment.
+
+The application refuses to start when notifications are enabled and the table is absent:
+
+```
+notification_outbox table is missing: apply the pending database migrations
+```
+
+This is deliberate. Without the check the pod would come up healthy and only fail on the
+first maintenance change, turning a deployment mistake into a user-visible error.
+
+Order therefore matters: **apply the migration first, then roll out the new image.**
 
 ---
 
@@ -192,9 +211,13 @@ curl -H "Authorization: Bearer $TOKEN" \
      https://api.test.status.otc-service.com/v2/notifications/stats
 ```
 
-A healthy idle queue reports `pending: 0` and `failed: 0`. Rows stuck in `pending` with rising
-`attempts` mean delivery is failing — `GET /v2/notifications/failed` and the pod logs carry the SMTP
-error.
+A healthy idle queue reports `pending: 0` and `failed: 0`. Rows stuck in `pending` with
+rising `attempts` mean delivery is failing; list them and read the SMTP error:
+
+```bash
+curl -H "Authorization: Bearer $TOKEN" \
+     "https://api.test.status.otc-service.com/v2/notifications/failed?status=pending"
+```
 
 ---
 

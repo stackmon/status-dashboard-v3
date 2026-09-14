@@ -42,24 +42,28 @@ const (
 )
 
 type Config struct {
+	// Single-word fields below carry no envconfig tag on purpose: envconfig falls back
+	// to the bare tag name when the prefixed variable is unset, so a tag of "HOSTNAME"
+	// would inherit the container's $HOSTNAME. Field names yield the same SD_* keys.
+
 	// DB connection uri
 	// format is `postgresql://user:pass@host:port/db_name`
-	DB string `envconfig:"DB"`
+	DB string
 	// Cache connection uri
 	// It can be redis format or internal
-	Cache string `envconfig:"CACHE"`
+	Cache string
 	// Keycloak settings
 	Keycloak *Keycloak `envconfig:"KEYCLOAK"`
 	// Log level for verbosity
 	LogLevel string `envconfig:"LOG_LEVEL"`
 	// App port
-	Port string `envconfig:"PORT"`
+	Port string
 	// MetricsPort serves /metrics on its own listener so the queue telemetry is not
 	// reachable from the public API port.
 	MetricsPort string `envconfig:"METRICS_PORT"`
 	// Hostname for the app, used to generate a callback URL for keycloak
 	// Example: https://api.example.com
-	Hostname string `envconfig:"HOSTNAME"`
+	Hostname string
 	// Web URL for the app
 	// Example: https://web.example.com
 	WebURL string `envconfig:"WEB_URL"`

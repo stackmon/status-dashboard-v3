@@ -67,7 +67,7 @@ func TestGetNotificationStats(t *testing.T) {
 	assert.GreaterOrEqual(t, stats.OldestPendingAgeSeconds, float64(0))
 }
 
-func TestListFailedNotifications(t *testing.T) {
+func TestListNotificationsByStatus(t *testing.T) {
 	truncateIncidents(t)
 	ctx := context.Background()
 	d, g := newNotifDB(t)
@@ -76,10 +76,25 @@ func TestListFailedNotifications(t *testing.T) {
 	enqueueWithState(t, d, g, incID, "ok@com.com", nil)
 	enqueueWithState(t, d, g, incID, "bad@com.com", map[string]any{"status": db.NotificationStatusFailed, "last_error": "x"})
 
-	rows, err := d.ListFailedNotifications(ctx, 100)
+	failed, err := d.ListNotificationsByStatus(ctx, db.NotificationStatusFailed, 100)
 	require.NoError(t, err)
-	require.Len(t, rows, 1)
-	assert.Equal(t, "bad@com.com", rows[0].Recipient)
+	require.Len(t, failed, 1)
+	assert.Equal(t, "bad@com.com", failed[0].Recipient)
+
+	// Pending rows are the usual symptom of a stuck relay, so they must be listable too.
+	pending, err := d.ListNotificationsByStatus(ctx, db.NotificationStatusPending, 100)
+	require.NoError(t, err)
+	require.Len(t, pending, 1)
+	assert.Equal(t, "ok@com.com", pending[0].Recipient)
+
+	limited, err := d.ListNotificationsByStatus(ctx, db.NotificationStatusPending, 0)
+	require.NoError(t, err)
+	assert.Empty(t, limited)
+}
+
+func TestEnsureNotificationSchema(t *testing.T) {
+	d, _ := newNotifDB(t)
+	require.NoError(t, d.EnsureNotificationSchema(), "migrations are applied in the test DB")
 }
 
 func TestRedriveFailed_AllAndByID(t *testing.T) {
@@ -169,8 +184,67 @@ func initNotifOpsRouter(t *testing.T) (*gin.Engine, *db.DB, *gorm.DB) {
 		api.AuthenticationMW(prov, logger, testHMACSecret),
 		api.RBACAuthorizationMW(rbacSvc, logger),
 		v2.RedriveNotificationsHandler(d, logger))
+	v2Api.GET("notifications/failed",
+		api.AuthenticationMW(prov, logger, testHMACSecret),
+		api.RBACAuthorizationMW(rbacSvc, logger),
+		v2.GetFailedNotificationsHandler(d, logger))
 
 	return r, d, g
+}
+
+func TestAPI_ListNotifications_StatusAndLimit(t *testing.T) {
+	truncateIncidents(t)
+	r, d, g := initNotifOpsRouter(t)
+	incID := seedIncident(t, d)
+	enqueueWithState(t, d, g, incID, "stuck@com.com", map[string]any{"attempts": 3})
+	enqueueWithState(t, d, g, incID, "dead@com.com",
+		map[string]any{"status": db.NotificationStatusFailed, "last_error": "x"})
+
+	list := func(query string) (int, []db.NotificationOutbox) {
+		t.Helper()
+		w := httptest.NewRecorder()
+		req, _ := http.NewRequest(http.MethodGet, "/v2/notifications/failed"+query, nil)
+		req.Header.Set("Authorization", "Bearer "+adminToken)
+		r.ServeHTTP(w, req)
+
+		var body struct {
+			Data []db.NotificationOutbox `json:"data"`
+		}
+		_ = json.Unmarshal(w.Body.Bytes(), &body)
+		return w.Code, body.Data
+	}
+
+	t.Run("defaults to failed", func(t *testing.T) {
+		code, rows := list("")
+		require.Equal(t, http.StatusOK, code)
+		require.Len(t, rows, 1)
+		assert.Equal(t, "dead@com.com", rows[0].Recipient)
+	})
+
+	t.Run("pending rows are reachable", func(t *testing.T) {
+		code, rows := list("?status=pending")
+		require.Equal(t, http.StatusOK, code)
+		require.Len(t, rows, 1)
+		assert.Equal(t, "stuck@com.com", rows[0].Recipient)
+	})
+
+	t.Run("limit caps the page", func(t *testing.T) {
+		code, rows := list("?status=pending&limit=1")
+		require.Equal(t, http.StatusOK, code)
+		assert.Len(t, rows, 1)
+	})
+
+	t.Run("unknown status is rejected", func(t *testing.T) {
+		code, _ := list("?status=bogus")
+		assert.Equal(t, http.StatusBadRequest, code)
+	})
+
+	t.Run("out-of-range limit is rejected", func(t *testing.T) {
+		code, _ := list("?limit=0")
+		assert.Equal(t, http.StatusBadRequest, code)
+		code, _ = list("?limit=100000")
+		assert.Equal(t, http.StatusBadRequest, code)
+	})
 }
 
 func TestAPI_NotificationStats_AdminOK(t *testing.T) {

@@ -40,11 +40,13 @@ FROM notification_outbox`
 	return &stats, nil
 }
 
-// ListFailedNotifications returns the most recently failed rows for inspection.
-func (db *DB) ListFailedNotifications(ctx context.Context, limit int) ([]NotificationOutbox, error) {
+// ListNotificationsByStatus returns the most recently updated rows in the given status.
+// Rows stuck in pending with a rising attempt count are the usual symptom of a
+// misconfigured relay, so every status must be reachable, not just failed.
+func (db *DB) ListNotificationsByStatus(ctx context.Context, status string, limit int) ([]NotificationOutbox, error) {
 	var rows []NotificationOutbox
 	err := db.g.WithContext(ctx).
-		Where("status = ?", NotificationStatusFailed).
+		Where("status = ?", status).
 		Order("updated_at DESC").
 		Limit(limit).
 		Find(&rows).Error
@@ -52,6 +54,17 @@ func (db *DB) ListFailedNotifications(ctx context.Context, limit int) ([]Notific
 		return nil, err
 	}
 	return rows, nil
+}
+
+// EnsureNotificationSchema reports whether the outbox table exists. Migrations are
+// applied out of band, so without this check a stale database would let the app start
+// and only fail on the first maintenance change.
+func (db *DB) EnsureNotificationSchema() error {
+	if !db.g.Migrator().HasTable(&NotificationOutbox{}) {
+		return ErrNotificationSchemaMissing
+	}
+
+	return nil
 }
 
 // RedriveFailed resets failed rows back to pending for another delivery cycle,

@@ -355,10 +355,14 @@ func TestMergeConfigs(t *testing.T) {
 
 // TestLoadConf_IgnoresBareEnvNames guards against envconfig's fallback to the bare tag
 // name: a tag of "USER" would otherwise inherit the shell's $USER and enable SMTP AUTH
-// against a server that offers none.
+// against a server that offers none, and "HOSTNAME" would adopt the container's name.
 func TestLoadConf_IgnoresBareEnvNames(t *testing.T) {
 	t.Setenv("USER", "shell-user")
 	t.Setenv("PASSWORD", "shell-password")
+	t.Setenv("HOSTNAME", "pod-7f9c8d4b6-xk2wl")
+	t.Setenv("PORT", "8080")
+	t.Setenv("DB", "postgresql://wrong/db")
+	t.Setenv("CACHE", "redis://wrong")
 	t.Setenv("SD_SECRET_KEY", "my-secret-key-that-is-32-chars!!")
 	t.Setenv("SD_RBAC_GROUPS_ADMINS", "sd_admins")
 	t.Setenv("SD_SMTP_HOST", "127.0.0.1")
@@ -369,6 +373,29 @@ func TestLoadConf_IgnoresBareEnvNames(t *testing.T) {
 	assert.Empty(t, c.SMTP.User)
 	assert.Empty(t, c.SMTP.Password)
 	assert.Equal(t, "127.0.0.1", c.SMTP.Host)
+
+	assert.Equal(t, DefaultHostname, c.Hostname, "must not adopt the container hostname")
+	assert.Equal(t, DefaultPort, c.Port, "must not adopt a platform-injected PORT")
+	assert.Empty(t, c.DB)
+	assert.Empty(t, c.Cache)
+}
+
+func TestLoadConf_PrefixedNamesStillApply(t *testing.T) {
+	t.Setenv("HOSTNAME", "pod-7f9c8d4b6-xk2wl")
+	t.Setenv("SD_HOSTNAME", "https://api.example.com")
+	t.Setenv("SD_PORT", "9000")
+	t.Setenv("SD_DB", "postgresql://localhost/sd")
+	t.Setenv("SD_CACHE", "internal")
+	t.Setenv("SD_SECRET_KEY", "my-secret-key-that-is-32-chars!!")
+	t.Setenv("SD_RBAC_GROUPS_ADMINS", "sd_admins")
+
+	c, err := LoadConf()
+	require.NoError(t, err)
+
+	assert.Equal(t, "https://api.example.com", c.Hostname)
+	assert.Equal(t, "9000", c.Port)
+	assert.Equal(t, "postgresql://localhost/sd", c.DB)
+	assert.Equal(t, "internal", c.Cache)
 }
 
 func baseNotifConfig() Config {

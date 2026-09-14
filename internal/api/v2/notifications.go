@@ -2,6 +2,8 @@ package v2
 
 import (
 	"net/http"
+	"slices"
+	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -19,6 +21,9 @@ const statsStaleThreshold = 2 * time.Minute
 
 // defaultFailedListLimit bounds the failed-rows listing.
 const defaultFailedListLimit = 100
+
+// maxFailedListLimit caps ?limit= so one request cannot dump the whole outbox.
+const maxFailedListLimit = 1000
 
 // requireAdmin ensures the caller resolved to the Admin role. It writes the error
 // response and returns false when not.
@@ -51,21 +56,62 @@ func GetNotificationStatsHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerF
 	}
 }
 
-// GetFailedNotificationsHandler lists the most recent failed rows (admin only).
+// GetFailedNotificationsHandler lists recent outbox rows (admin only). It defaults to
+// the failed ones, and accepts ?status= and ?limit= to inspect the rest of the queue.
 func GetFailedNotificationsHandler(dbInst *db.DB, logger *zap.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if !requireAdmin(c, logger) {
 			return
 		}
 
-		rows, err := dbInst.ListFailedNotifications(c.Request.Context(), defaultFailedListLimit)
+		status := c.DefaultQuery("status", db.NotificationStatusFailed)
+		if !isListableStatus(status) {
+			apiErrors.RaiseBadRequestErr(c, apiErrors.NewErrNotificationStatusInvalid(listableStatuses()))
+			return
+		}
+
+		limit, err := parseListLimit(c.Query("limit"))
 		if err != nil {
-			logger.Error("failed to list failed notifications", zap.Error(err))
+			apiErrors.RaiseBadRequestErr(c, err)
+			return
+		}
+
+		rows, err := dbInst.ListNotificationsByStatus(c.Request.Context(), status, limit)
+		if err != nil {
+			logger.Error("failed to list notifications", zap.String("status", status), zap.Error(err))
 			apiErrors.RaiseInternalErr(c, err)
 			return
 		}
-		c.JSON(http.StatusOK, gin.H{"data": rows})
+		c.JSON(http.StatusOK, gin.H{"data": rows, "status": status, "limit": limit})
 	}
+}
+
+// listableStatuses is the set accepted by ?status=, in queue order.
+func listableStatuses() []string {
+	return []string{
+		db.NotificationStatusPending,
+		db.NotificationStatusProcessing,
+		db.NotificationStatusSent,
+		db.NotificationStatusFailed,
+	}
+}
+
+func isListableStatus(status string) bool {
+	return slices.Contains(listableStatuses(), status)
+}
+
+// parseListLimit bounds the page so a large queue cannot be dumped in one response.
+func parseListLimit(raw string) (int, error) {
+	if raw == "" {
+		return defaultFailedListLimit, nil
+	}
+
+	limit, err := strconv.Atoi(raw)
+	if err != nil || limit < 1 || limit > maxFailedListLimit {
+		return 0, apiErrors.NewErrNotificationLimitInvalid(maxFailedListLimit)
+	}
+
+	return limit, nil
 }
 
 // RedriveNotificationsData is the optional re-drive request body.

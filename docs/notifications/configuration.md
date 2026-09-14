@@ -142,6 +142,13 @@ or a committed `.env` would expose it.
 
 ## Validation at startup
 
+Migrations are applied out of band, so the application also refuses to start when
+notifications are enabled and the `notification_outbox` table is missing:
+
+```
+notification_outbox table is missing: apply the pending database migrations
+```
+
 When the feature is enabled the application refuses to start unless:
 
 - `SD_SMTP_HOST`, `SD_SMTP_PORT` and `SD_SMTP_FROM` are set;
@@ -182,8 +189,17 @@ curl -H "Authorization: Bearer $TOKEN" https://<host>/v2/notifications/stats
 | Endpoint | Purpose |
 |----------|---------|
 | `GET /v2/notifications/stats` | Queue snapshot |
-| `GET /v2/notifications/failed` | Most recent terminally failed rows |
+| `GET /v2/notifications/failed` | Recent rows; `?status=` and `?limit=` select the rest of the queue |
 | `POST /v2/notifications/redrive` | Reset failed rows to `pending` and wake the worker |
+
+`?status=` accepts `pending`, `processing`, `sent` or `failed` and defaults to `failed`.
+`?limit=` accepts `1`–`1000` and defaults to `100`. Listing `pending` is the quickest way to
+see rows a broken relay is holding up:
+
+```bash
+curl -H "Authorization: Bearer $TOKEN" \
+     "https://<host>/v2/notifications/failed?status=pending&limit=20"
+```
 
 Re-drive everything, or selected rows:
 

@@ -1,65 +1,66 @@
 # Notifications — Development Roadmap
 
-Improvement proposals for the maintenance email notification feature. Items are recorded
-with their reasoning so the decisions do not have to be rediscovered later. Section 1 is
-done; everything after it is open.
+Open improvements for the maintenance email notification feature. Nothing listed here is
+implemented; sections are ordered by priority, and each records the reasoning so the
+decision does not have to be rediscovered later.
 
 Related: [architecture.md](architecture.md), [configuration.md](configuration.md).
 
 ---
 
-## 1. Recipient addressing — **implemented**
+## 1. Frontend: prefill `contact_email`
 
-Both the allow-list and the token-derived creator address are in place:
+**Priority: high (the backend fallback is unreachable without it)**
 
-- `SD_NOTIFICATIONS_ALLOWED_DOMAINS` restricts the domains accepted in `contact_email`,
-  rejecting others with `400` and naming the permitted ones. An empty value keeps the
-  previous behaviour.
-- `SD_NOTIFICATIONS_EXCLUDED_EMAILS` drops specific addresses from every recipient list,
-  so an exclusion cannot be bypassed via `contact_email`.
-- `contact_email` is now optional. When omitted, the verified `email` claim of the
-  creator's token is used instead.
+Lives in the separate [StatusDashboard-V3](https://github.com/stackmon/StatusDashboard-V3)
+repository.
 
-Deliberately **not** done: a separate `incident.creator_email` column. One column holds
-the resolved address, since the two sources are alternatives rather than two independent
-recipients. Tokens without an `email` claim (HMAC, service-to-service) simply leave the
-address empty, which narrows the audience but never blocks the request.
+### Problem
 
-Open follow-up: `contact_email` still cannot be changed after creation, so a wrong
-address stays wrong for the lifetime of the maintenance. Allowing it in
-`PatchIncidentData` would fix that.
+The backend accepts a maintenance without `contact_email` and falls back to the `email`
+claim of the creator's token. The create form still marks the field as required and blocks
+submission while it is empty:
+
+```ts
+if (type === EventType.Maintenance && !value) {
+  setValContactEmail("Contact Email is required for maintenance.");
+}
+```
+
+So the fallback can never trigger through the UI. Users keep typing an address by hand,
+with the same risk of a typo that cannot be corrected afterwards.
+
+### Recommendation
+
+Prefill the field from the signed-in user instead of relaxing the requirement.
+`NewForm.tsx` already calls `useAuth()`, and `profile.email` is present in the ID token,
+so no extra request is needed:
+
+```ts
+const userEmail = useAuth().user?.profile.email;
+useEffect(() => {
+  if (userEmail && !contactEmail) {
+    _setContactEmail(userEmail);
+  }
+}, [userEmail]);
+```
+
+Keep the field required and editable. Making it optional would match the backend fallback,
+but the user would no longer see where the notifications are going, and "send to the team
+mailbox instead of me" is a routine request that must stay one edit away.
+
+### Note
+
+The `email` claim reaches the **access token** only through a mapper on the client
+(`Add to access token`); the frontend reads it from the ID token, where it is present by
+default. The two paths are independent, so the frontend prefill works even where the
+backend fallback does not — and vice versa.
 
 ---
 
-## 2. Config hardening beyond SMTP
+## 2. Review audience via distribution lists
 
-**Priority: medium**
-
-`SMTPConfig` and `Notifications.Enabled` no longer carry `envconfig` tags, because
-envconfig falls back to the bare tag name when the prefixed variable is unset — a tag of
-`"USER"` silently inherited the shell's `$USER` and enabled SMTP AUTH against a server
-that offers none.
-
-The same trap remains in `Config`:
-
-| Field | Tag | Risk |
-|---|---|---|
-| `Hostname` | `HOSTNAME` | **Always set in containers** — without `SD_HOSTNAME` the app adopts the pod name |
-| `Port` | `PORT` | Set by several PaaS platforms (Cloud Run injects `PORT=8080`) |
-| `DB`, `Cache` | `DB`, `CACHE` | Plausible in some shells |
-
-**Proposal:** drop the tags on these single-word fields as well. `mergeConfigs` already
-falls back to the field name via `envKeyPart`, and the field names produce identical keys
-(`SD_HOSTNAME`, `SD_PORT`), so the change is behaviour-preserving except for removing the
-unintended fallback.
-
-Extend the existing `TestLoadConf_IgnoresBareEnvNames` (it already covers `USER` and
-`PASSWORD`) with `HOSTNAME` and `PORT`, asserting the defaults are used.
-
----
-
-## 3. Review audience via distribution lists
-**Priority: low (operational, no code change)**
+**Priority: medium (operational, no code change)**
 
 ### Problem
 
@@ -90,29 +91,49 @@ provides for free. Not recommended.
 
 ---
 
-## 4. Operations API gaps
+## 3. Editable `contact_email`
+
+**Priority: medium**
+
+### Problem
+
+`contact_email` is set once at creation and cannot be changed afterwards — the field does
+not exist in `PatchIncidentData`. Only the syntax is validated, so `user@gmial.com` is
+accepted and every notification for that maintenance is delivered to a stranger, or
+nowhere, for the entire lifecycle of the event. The only repair is a manual `UPDATE` in
+the database.
+
+### Proposal
+
+Add the field to `PatchIncidentData` and apply the same checks as on creation: address
+syntax plus the `SD_NOTIFICATIONS_ALLOWED_DOMAINS` allow-list.
+
+Restrict the change to the roles that may already patch the maintenance. Note that the
+creator's own permission is derived from `created_by`, so a creator editing their own
+event keeps working without extra rules.
+
+### Trade-off
+
+Changing the address mid-flight means rows already queued keep the old recipient, since
+the payload is a snapshot. That is acceptable: the alternative — rewriting pending rows —
+would blur the audit trail for no practical gain.
+
+---
+
+## 4. Ops API: `503` when the feature is disabled
+
 **Priority: low**
-
-### Queue is not fully visible
-
-`GET /v2/notifications/failed` only lists rows in the `failed` state. Rows stuck in
-`pending` with a growing `attempts` count — the common symptom of a misconfigured relay —
-are invisible over HTTP and require direct SQL access.
-
-**Proposal:** accept `?status=` and `?limit=` on the same endpoint, defaulting to `failed`
-to preserve current behaviour.
-
-### Disabled feature is indistinguishable from an empty queue
 
 With `SD_NOTIFICATIONS_ENABLED=false` the three admin endpoints still respond `200` with
 zeroed statistics, so an operator cannot tell "nothing to send" from "feature switched
-off".
+off". Both look like a perfectly healthy empty queue.
 
 **Proposal:** return `503` with an explicit body when the feature is disabled.
 
 ---
 
 ## 5. SMTP transport: implicit TLS (port 465)
+
 **Priority: low, becomes blocking if a relay requires SMTPS**
 
 `SD_SMTP_TLS=true` maps to `mail.TLSMandatory`, which is *mandatory STARTTLS* on a plain
@@ -132,29 +153,16 @@ release to avoid breaking deployments.
 Two related inefficiencies, neither affecting correctness.
 
 **A new connection per message.** `DialAndSendWithContext` opens and closes an SMTP
-session for every recipient, so a queue of 50 messages performs 50 TCP and TLS
-handshakes. Corporate relays often rate-limit connections per source address and may
-temporarily block a sender that reconnects too eagerly. `go-mail` supports
-`DialWithContext` followed by several `Send` calls on one session.
+session for every recipient, so a queue of 50 messages performs 50 TCP and TLS handshakes.
+Corporate relays often rate-limit connections per source address and may temporarily block
+a sender that reconnects too eagerly. `go-mail` supports `DialWithContext` followed by
+several `Send` calls on one session.
 
 **Single-threaded sending.** The worker sends one message at a time, so throughput is
 capped at one email per round-trip. A small bounded pool (3–5 senders) would remove the
-ceiling. This became straightforward only after claiming moved to one row per lease —
-with batch claiming, concurrency would have widened the duplicate window described in
+ceiling. This became straightforward only after claiming moved to one row per lease — with
+batch claiming, concurrency would have widened the duplicate window described in
 [architecture.md](architecture.md) §5.
 
 Both are worth doing only if the queue is observed to lag: at the current volume
 (~41 maintenances in 2 months) neither is measurable.
-
----
-
-## Suggested order
-
-| Order | Section | Type | Rationale |
-|---|---|---|---|
-| 1 | §2 Config hardening | Code | Latent production bug in any container |
-| 2 | §3 Distribution lists | Config | No code, immediate operational relief |
-| 3 | §4 Ops API gaps | Code | Diagnosability |
-| 4 | Editable `contact_email` (§1 follow-up) | Code | A wrong address is currently permanent |
-| 5 | §5 Implicit TLS | Code | Only when a relay demands it |
-| 6 | §6 Delivery throughput | Code | Only if the queue is seen to lag |

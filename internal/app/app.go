@@ -92,6 +92,10 @@ func buildWorker(
 		return nil, nil, nil
 	}
 
+	if err = dbNew.EnsureNotificationSchema(); err != nil {
+		return nil, nil, err
+	}
+
 	sender, err := notification.NewSMTPSender(ncfg)
 	if err != nil {
 		return nil, nil, fmt.Errorf("build smtp sender: %w", err)

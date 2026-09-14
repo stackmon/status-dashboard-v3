@@ -58,6 +58,16 @@ func NewErrMaintenanceContactEmailDomain(allowed []string) error {
 	return fmt.Errorf("contact_email domain is not allowed, permitted domains: %s", strings.Join(allowed, ", "))
 }
 
+// NewErrNotificationStatusInvalid names the statuses accepted by ?status=.
+func NewErrNotificationStatusInvalid(allowed []string) error {
+	return fmt.Errorf("invalid status, expected one of: %s", strings.Join(allowed, ", "))
+}
+
+// NewErrNotificationLimitInvalid states the accepted range for ?limit=.
+func NewErrNotificationLimitInvalid(maxLimit int) error {
+	return fmt.Errorf("invalid limit, expected a number in range 1:%d", maxLimit)
+}
+
 // Errors for extract restrictions
 
 var ErrExtractForbiddenRole = errors.New("extract is only available for operators and admins")
