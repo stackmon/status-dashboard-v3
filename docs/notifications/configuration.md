@@ -12,10 +12,12 @@ Notifications are **disabled by default**. A minimal working configuration:
 
 ```bash
 SD_NOTIFICATIONS_ENABLED=true
-SD_SMTP_HOST=smtp.example.com
-SD_SMTP_PORT=587
+SD_SMTP_HOST=otc-de-out.mms.t-systems-service.com
+SD_SMTP_PORT=25
 SD_SMTP_FROM=status-dashboard@example.com
 SD_SMTP_TLS=true
+SD_SMTP_USER=<from Cloud Handling Support>
+SD_SMTP_PASSWORD=<from Cloud Handling Support>
 SD_NOTIFICATIONS_SMOD_EMAIL=smod@example.com
 ```
 
@@ -37,7 +39,7 @@ or malformed, so a successful startup means the settings are valid.
 | Variable | Required | Default | Description |
 |----------|:--------:|---------|-------------|
 | `SD_SMTP_HOST` | **yes** | — | Mail server hostname. |
-| `SD_SMTP_PORT` | **yes** | — | Mail server port, `1`–`65535`. Typically `587` (STARTTLS) or `25`. |
+| `SD_SMTP_PORT` | **yes** | — | Mail server port, `1`–`65535`. `25` for the OTC Secure Mail Gateway. |
 | `SD_SMTP_FROM` | **yes** | — | Sender address. Must be a valid address **and** permitted for the account, or the relay rejects every message. |
 | `SD_SMTP_USER` | no | — | SMTP login. **Omit entirely** when the relay authorises by IP. |
 | `SD_SMTP_PASSWORD` | no | — | SMTP password. Store in a secret, never in a ConfigMap. |
@@ -45,6 +47,26 @@ or malformed, so a successful startup means the settings are valid.
 | `SD_SMTP_TIMEOUT` | no | `30s` | Connect + send timeout (Go duration). |
 
 Required fields apply only when the feature is enabled.
+
+### OTC Secure Mail Gateway
+
+The production relay is the OTC Secure Mail Gateway
+([docs](https://docs.otc.t-systems.com/secure-mail-gateway/umn/)):
+
+| Setting | Value |
+|---------|-------|
+| Smarthost | `otc-de-out.mms.t-systems-service.com` |
+| Port | `25` — the only port open for mail acceptance |
+| Authentication | Required; credentials are issued by Cloud Handling Support (`service@open-telekom-cloud.com`) |
+| TLS | `SD_SMTP_TLS=true`, so credentials are never sent before STARTTLS |
+
+The gateway is a paid service (~23 €/month, invoiced via OTC), so request access before
+planning a rollout.
+
+The authentication mechanism is negotiated: the sender advertises auto-discovery and picks
+whatever the gateway offers in its EHLO reply. Hard-coding `PLAIN` would break against a
+LOGIN-only server, and the gateway documentation does not state which mechanisms it
+supports.
 
 ### Recipients
 
@@ -93,13 +115,14 @@ in the manifest, see [stackmon-config-deployment.md](stackmon-config-deployment.
 
 ### Which SMTP account to use
 
-Use a **service account**, never a personal one. Three common cases:
+For the OTC Secure Mail Gateway the credentials come from Cloud Handling Support; there is
+no IP-based alternative. For any other relay:
 
 | Relay setup | What to configure |
 |-------------|-------------------|
-| Authorises by IP or subnet | Omit `SD_SMTP_USER` and `SD_SMTP_PASSWORD` entirely |
-| Requires authentication | Service account, e.g. `svc-status-dashboard`, password from a secret |
+| Requires authentication | Service account, never a personal one; password from a secret |
 | Functional mailbox | The mailbox login |
+| Authorises by IP or subnet | Omit `SD_SMTP_USER` and `SD_SMTP_PASSWORD` entirely |
 
 Do not set `SD_SMTP_USER=""` explicitly. An empty value behaves like an unset one, but the redundant
 key invites confusion later.

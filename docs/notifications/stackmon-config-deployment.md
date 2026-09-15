@@ -45,25 +45,28 @@ template. A key without a template line has no effect; a template line without a
 
 ## Prerequisites (must be supplied before starting)
 
-These values come from the mail team and are not in this repository. Do not invent them.
+The relay is the OTC Secure Mail Gateway
+([docs](https://docs.otc.t-systems.com/secure-mail-gateway/umn/)). Host and port are fixed;
+the credentials and the sender address are not in this repository and must not be invented.
 
-| Value | Vault key |
-|---|---|
-| Relay hostname | `smtphost` |
-| Relay port (`587` expected) | `smtpport` |
-| Allowed sender address | `smtpfrom` |
-| SMTP login, only if the relay requires AUTH | `smtpuser` |
-| SMTP password, only if the relay requires AUTH | `smtppassword` |
-| SMOD test recipient | `notificationssmodemail` |
-| Operator test recipients | `notificationsemailsoperators` |
-| Admin test recipients | `notificationsemailsadmins` |
+| Value | Vault key | Source |
+|---|---|---|
+| `otc-de-out.mms.t-systems-service.com` | `smtphost` | Gateway documentation |
+| `25` (the only port open for mail acceptance) | `smtpport` | Gateway documentation |
+| Allowed sender address | `smtpfrom` | Cloud Handling Support |
+| SMTP login | `smtpuser` | Cloud Handling Support |
+| SMTP password | `smtppassword` | Cloud Handling Support |
+| SMOD test recipient | `notificationssmodemail` | Team decision |
+| Operator test recipients | `notificationsemailsoperators` | Team decision |
+| Admin test recipients | `notificationsemailsadmins` | Team decision |
+
+Authentication is **mandatory** on this gateway — there is no IP-based alternative.
+Credentials are issued by Cloud Handling Support (`service@open-telekom-cloud.com`), and
+the service is billed at roughly 23 €/month, so request access early.
 
 Also required: the image tag of a Status Dashboard build that contains the notification feature
 (`quay.io/stackmon/status-dashboard-v3:sha-<commit>`). The tag currently referenced,
 `sha-17d25aa`, predates the feature.
-
-**Stop and ask** if the relay port is `465`: that is implicit TLS, which the application does not
-support yet. Deployment must wait for a code change.
 
 ---
 
@@ -78,6 +81,8 @@ export SD_SMTP_PORT={{ .Data.data.smtpport }}
 export SD_SMTP_FROM={{ .Data.data.smtpfrom }}
 export SD_SMTP_TLS=true
 export SD_SMTP_TIMEOUT=30s
+export SD_SMTP_USER="{{ .Data.data.smtpuser }}"
+export SD_SMTP_PASSWORD="{{ .Data.data.smtppassword }}"
 export SD_NOTIFICATIONS_LEASE_TIMEOUT=60s
 export SD_NOTIFICATIONS_MAX_ATTEMPTS=5
 export SD_NOTIFICATIONS_BACKOFF_INTERVAL=5m
@@ -87,16 +92,10 @@ export SD_NOTIFICATIONS_EMAILS_ADMINS="{{ .Data.data.notificationsemailsadmins }
 export SD_METRICS_PORT=9090
 ```
 
-Add the credential lines **only if** the relay requires authentication:
-
-```hcl
-export SD_SMTP_USER="{{ .Data.data.smtpuser }}"
-export SD_SMTP_PASSWORD="{{ .Data.data.smtppassword }}"
-```
-
-If the relay authorises by IP, omit both lines entirely. Do not add them with empty values: the
-application treats a non-empty user as "this server wants AUTH" and aborts the session against a
-relay that offers none.
+`SD_SMTP_TLS=true` makes STARTTLS mandatory, so the credentials are never sent over an
+unencrypted connection. The gateway requires authentication, so both credential lines are
+always present here; against a relay that authorises by IP they would be omitted entirely
+rather than set to empty strings, since a non-empty user makes the sender negotiate AUTH.
 
 ### Quoting rule — do not skip
 
@@ -199,7 +198,7 @@ SD_NOTIFICATIONS_LEASE_TIMEOUT (30s) must be greater than SD_SMTP_TIMEOUT (30s)
 Check relay connectivity and the queue:
 
 ```bash
-kubectl -n sd3-test exec deploy/sd3-api -- nc -zv <relay-host> 587
+kubectl -n sd3-test exec deploy/sd3-api -- nc -zv otc-de-out.mms.t-systems-service.com 25
 kubectl -n sd3-test port-forward deploy/sd3-api 9090:9090
 curl -s http://localhost:9090/metrics | grep notification_outbox
 ```

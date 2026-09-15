@@ -35,8 +35,10 @@ func NewSMTPSender(cfg Config) (Sender, error) {
 		mail.WithTLSPolicy(tlsPolicy(cfg.TLS)),
 	}
 	if cfg.User != "" {
+		// Auto-discover rather than a fixed mechanism: relays differ in what they
+		// offer, and picking PLAIN blindly fails against a LOGIN-only server.
 		opts = append(opts,
-			mail.WithSMTPAuth(mail.SMTPAuthPlain),
+			mail.WithSMTPAuth(mail.SMTPAuthAutoDiscover),
 			mail.WithUsername(cfg.User),
 			mail.WithPassword(cfg.Password),
 		)

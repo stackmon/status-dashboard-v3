@@ -144,10 +144,11 @@ maintenance.
 **What it does:** connects to the mail server and sends one email.
 **Why it exists:** it isolates the only part that talks to the outside world, with its own timeout,
 authentication, and TLS settings.
-**Implementation note:** the Gin backend connects **directly** to the OTC (Open Telekom Cloud) SMTP
-endpoint. It does **not** call any external mail gateway. The sender uses a maintained Go mail
-library (`github.com/wneessen/go-mail`) rather than bare `net/smtp`, for robust MIME, auth, and TLS
-handling.
+**Implementation note:** the Gin backend speaks SMTP **directly** to the OTC Secure Mail Gateway
+(`otc-de-out.mms.t-systems-service.com`, port 25, authenticated over STARTTLS). No HTTP mail API is
+involved. The sender uses a maintained Go mail library (`github.com/wneessen/go-mail`) rather than
+bare `net/smtp`, for robust MIME, auth, and TLS handling, and lets the library negotiate the auth
+mechanism instead of pinning one — relays differ in what they advertise.
 
 ### Where the code lives
 

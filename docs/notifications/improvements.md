@@ -134,11 +134,14 @@ off". Both look like a perfectly healthy empty queue.
 
 ## 5. SMTP transport: implicit TLS (port 465)
 
-**Priority: low, becomes blocking if a relay requires SMTPS**
+**Priority: very low — not needed for the current relay**
 
 `SD_SMTP_TLS=true` maps to `mail.TLSMandatory`, which is *mandatory STARTTLS* on a plain
-port (587 or 25). Relays that expect TLS negotiated at connection time (SMTPS, port 465)
-are not supported — the handshake never happens and the connection fails.
+port. Relays that expect TLS negotiated at connection time (SMTPS, port 465) are not
+supported — the handshake never happens and the connection fails.
+
+The OTC Secure Mail Gateway accepts mail on **port 25 only**, so this does not affect the
+planned deployment. Keep the item for a future relay that requires SMTPS.
 
 **Proposal:** add `SD_SMTP_TLS_MODE` with values `starttls` (default), `implicit`
 (`mail.WithSSL()`), and `none`, deprecating the boolean. Keep the boolean working for one
