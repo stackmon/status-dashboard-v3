@@ -25,6 +25,7 @@ const (
 
 const (
 	usernameClaim = "preferred_username"
+	emailClaim    = "email"
 	groupsClaim   = "groups"
 )
 
@@ -157,6 +158,8 @@ func validateAndSetClaims(
 		return apiErrors.ErrAuthTokenInvalid
 	}
 
+	setUserEmailFromClaims(claims, c)
+
 	username, _ := c.Get(v2.UsernameContextKey)
 	usernameStr, _ := username.(string)
 
@@ -228,6 +231,19 @@ func setUserIDFromClaims(claims jwt.MapClaims, c *gin.Context, logger *zap.Logge
 	logger.Info("extracted preferred_username from JWT", zap.String(usernameClaim, preferredUsernameStr))
 
 	return nil
+}
+
+// setUserEmailFromClaims stores the "email" claim when present. It is optional on
+// purpose: HMAC and service tokens carry no email, and that must not block the request.
+func setUserEmailFromClaims(claims jwt.MapClaims, c *gin.Context) {
+	email, exists := claims[emailClaim]
+	if !exists {
+		return
+	}
+
+	if emailStr, ok := email.(string); ok && emailStr != "" {
+		c.Set(v2.UserEmailContextKey, emailStr)
+	}
 }
 
 // setGroupsFromClaims extracts the "groups" claim from JWT as a string slice.
@@ -377,6 +393,14 @@ func Logger(log *zap.Logger) gin.HandlerFunc {
 		default:
 			log.Info(path, fields...)
 		}
+	}
+}
+
+func SecurityHeaders() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		c.Writer.Header().Set("X-Frame-Options", "DENY")
+		c.Writer.Header().Set("Content-Security-Policy", "frame-ancestors 'none'")
+		c.Next()
 	}
 }
 
