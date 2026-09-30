@@ -28,7 +28,9 @@ args: ['source /secrets/sd3-api-env && "/usr/src/app/app"']
 ```
 
 The file is produced by the template in `overlays/test/vault-agent.hcl` from the Vault secret
-`secret/data/statusdashboard/sd3-test`.
+`secret/data/statusdashboard/sd3-test`. The SMTP credentials live in a **separate** secret,
+`secret/statusdashboard/smg` (KV v2 API path `secret/data/statusdashboard/smg`), so the template
+gets a second `with secret` block.
 
 Consequence: adding a setting requires **two** steps — a key in Vault, and an `export` line in the
 template. A key without a template line has no effect; a template line without a key renders empty.
@@ -49,20 +51,30 @@ The relay is the OTC Secure Mail Gateway
 ([docs](https://docs.otc.t-systems.com/secure-mail-gateway/umn/)). Host and port are fixed;
 the credentials and the sender address are not in this repository and must not be invented.
 
-| Value | Vault key | Source |
+| Value | Where | Source |
 |---|---|---|
-| `otc-de-out.mms.t-systems-service.com` | `smtphost` | Gateway documentation |
-| `25` (the only port open for mail acceptance) | `smtpport` | Gateway documentation |
-| Allowed sender address | `smtpfrom` | Cloud Handling Support |
-| SMTP login | `smtpuser` | Cloud Handling Support |
-| SMTP password | `smtppassword` | Cloud Handling Support |
-| SMOD test recipient | `notificationssmodemail` | Team decision |
-| Operator test recipients | `notificationsemailsoperators` | Team decision |
-| Admin test recipients | `notificationsemailsadmins` | Team decision |
+| `otc-de-out.mms.t-systems-service.com` | template literal | Gateway documentation |
+| `25` (the only port open for mail acceptance) | template literal | Gateway documentation |
+| SMTP login | `secret/statusdashboard/smg`, key `smtpuser` | Cloud Handling Support (already issued) |
+| SMTP password | `secret/statusdashboard/smg`, key `smtppassword` | Cloud Handling Support (already issued) |
+| Sender address `SD_SMTP_FROM` | template literal (not a secret) | See below |
+| SMOD test recipient | `sd3-test`, key `notificationssmodemail` | Team decision |
+| Operator test recipients | `sd3-test`, key `notificationsemailsoperators` | Team decision |
+| Admin test recipients | `sd3-test`, key `notificationsemailsadmins` | Team decision |
+
+> The exact key names inside `smg` must be confirmed by whoever owns the secret; adjust the
+> template in Change 1 if they differ from `smtpuser` / `smtppassword`.
+
+**Sender address.** `SD_SMTP_FROM` is the `MAIL FROM` / `From:` address, not a credential. The
+gateway only accepts addresses permitted for the account (otherwise `550 sender address rejected`).
+Use the SMTP login if it is an email address; otherwise obtain the allowed sender from Cloud
+Handling Support. Do not invent one.
+
+**Vault policy.** The Vault role `sd3` (`auth/kubernetes_otcinfra2`) must be allowed to `read`
+`secret/data/statusdashboard/smg`. Without it the Vault agent init container fails with
+`permission denied` and the pod does not start. This is changed in Vault, not in git.
 
 Authentication is **mandatory** on this gateway — there is no IP-based alternative.
-Credentials are issued by Cloud Handling Support (`service@open-telekom-cloud.com`), and
-the service is billed at roughly 23 €/month, so request access early.
 
 Also required: the image tag of a Status Dashboard build that contains the notification feature
 (`quay.io/stackmon/status-dashboard-v3:sha-<commit>`). The tag currently referenced,
@@ -72,17 +84,16 @@ Also required: the image tag of a Status Dashboard build that contains the notif
 
 ## Change 1 — `overlays/test/vault-agent.hcl`
 
-Add to the `template` block, inside the existing `{{ with secret ... }}` section:
+Add to the `template` block. The non-secret SMTP settings and the notification recipients go inside
+the existing `{{ with secret "secret/data/statusdashboard/sd3-test" }}` section:
 
 ```hcl
 export SD_NOTIFICATIONS_ENABLED=true
-export SD_SMTP_HOST={{ .Data.data.smtphost }}
-export SD_SMTP_PORT={{ .Data.data.smtpport }}
-export SD_SMTP_FROM={{ .Data.data.smtpfrom }}
+export SD_SMTP_HOST=otc-de-out.mms.t-systems-service.com
+export SD_SMTP_PORT=25
+export SD_SMTP_FROM=<allowed-sender-address>
 export SD_SMTP_TLS=true
 export SD_SMTP_TIMEOUT=30s
-export SD_SMTP_USER="{{ .Data.data.smtpuser }}"
-export SD_SMTP_PASSWORD="{{ .Data.data.smtppassword }}"
 export SD_NOTIFICATIONS_LEASE_TIMEOUT=60s
 export SD_NOTIFICATIONS_MAX_ATTEMPTS=5
 export SD_NOTIFICATIONS_BACKOFF_INTERVAL=5m
@@ -90,6 +101,15 @@ export SD_NOTIFICATIONS_SMOD_EMAIL="{{ .Data.data.notificationssmodemail }}"
 export SD_NOTIFICATIONS_EMAILS_OPERATORS="{{ .Data.data.notificationsemailsoperators }}"
 export SD_NOTIFICATIONS_EMAILS_ADMINS="{{ .Data.data.notificationsemailsadmins }}"
 export SD_METRICS_PORT=9090
+```
+
+Then add a **second block** after the existing `{{- end }}`, for the credentials:
+
+```hcl
+{{ with secret "secret/data/statusdashboard/smg" -}}
+export SD_SMTP_USER="{{ .Data.data.smtpuser }}"
+export SD_SMTP_PASSWORD="{{ .Data.data.smtppassword }}"
+{{- end }}
 ```
 
 `SD_SMTP_TLS=true` makes STARTTLS mandatory, so the credentials are never sent over an
@@ -153,7 +173,8 @@ Leave namespace, ingress host and TLS secret unchanged.
 
 ## Out of scope
 
-- Vault key creation — performed by whoever holds Vault access, not through git.
+- Vault key and policy changes (including read access to `secret/statusdashboard/smg`) —
+  performed by whoever holds Vault access, not through git.
 - `overlays/prod` — production stays on the current build until the test run succeeds.
 - Ingress changes.
 
