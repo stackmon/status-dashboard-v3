@@ -46,7 +46,7 @@
 ### Valid Statuses
 - completed
 - modified
-- in progress
+- in_progress
 
 ### General Rules
 - start_date is mandatory
@@ -60,7 +60,7 @@
 - Updates status to completed
 - Sets end_date to current time
 
-#### "in progress":
+#### "in_progress":
 - update_date must be <= current time
 - Only one status update allowed
 - update_date must be < maintenance end_date

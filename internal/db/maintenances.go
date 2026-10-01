@@ -13,13 +13,13 @@ func (db *DB) GetMaintenances(after uint) ([]*Incident, error) {
 		Preload("Statuses").
 		Preload("Components", func(db *gorm.DB) *gorm.DB { return db.Select("ID") })
 
-	r.Where("incident.type = ?", event.TypeMaintenance)
+	r = r.Where("incident.type = ?", event.TypeMaintenance)
 
 	if after > 0 {
-		r.Where("incident.id >= ?", after)
+		r = r.Where("incident.id >= ?", after)
 	}
 
-	r = r.Order("incident.id DESC")
+	r = r.Order("incident.id ASC")
 
 	if err := r.Find(&incidents).Error; err != nil {
 		return nil, err

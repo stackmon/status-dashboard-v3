@@ -15,7 +15,7 @@ const defaultPeriod = time.Minute * 2
 type Checker struct {
 	db  *db.DB
 	log *zap.Logger
-	// lastIDs are the earliest planned or in progress maintenance/info events ID.
+	// lastIDs are the earliest planned or in_progress maintenance/info events ID.
 	lastMntID  uint
 	lastInfoID uint
 }

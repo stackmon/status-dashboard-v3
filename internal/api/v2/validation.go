@@ -1,6 +1,7 @@
 package v2
 
 import (
+	"net/mail"
 	"strconv"
 	"strings"
 
@@ -16,9 +17,15 @@ func IsValidIncidentFilterStatus(status event.Status) bool {
 	if event.IsMaintenanceStatus(status) {
 		return true
 	}
+
+	if event.IsInformationStatus(status) {
+		return true
+	}
+
 	if event.IsIncidentOpenStatus(status) {
 		return true
 	}
+
 	if event.IsIncidentClosedStatus(status) {
 		return true
 	}
@@ -94,6 +101,27 @@ func parseAndSetTypes(queryTypes *string, params *db.IncidentsParams) error {
 	}
 
 	params.Types = types
+
+	return nil
+}
+
+// validateMaintenanceCreation validates maintenance-specific fields at creation time.
+// Note: EndDate nil check is handled by validateEventCreation before this function is called.
+func validateMaintenanceCreation(incData IncidentData) error {
+	if incData.ContactEmail == "" {
+		return apiErrors.ErrMaintenanceContactEmailRequired
+	}
+	if _, err := mail.ParseAddress(incData.ContactEmail); err != nil {
+		return apiErrors.ErrMaintenanceContactEmailInvalid
+	}
+
+	if incData.EndDate != nil && !incData.EndDate.After(incData.StartDate) {
+		return apiErrors.ErrMaintenanceEndDateBeforeStart
+	}
+
+	if incData.Description == "" {
+		return apiErrors.ErrMaintenanceDescriptionRequired
+	}
 
 	return nil
 }

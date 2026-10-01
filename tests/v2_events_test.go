@@ -92,7 +92,10 @@ func TestV2PostEventsHandlerNegative(t *testing.T) {
   "title":"Maintenance with wrong impact",
   "impact":1,
   "components":[1],
-  "start_date":"2024-11-25T09:32:14.075Z",
+  "start_date":"2031-11-25T09:32:14.075Z",
+  "end_date":"2031-11-25T10:32:14.075Z",
+  "description":"maintenance description",
+  "contact_email":"test@example.com",
   "system":false,
   "type":"maintenance"
 }`
@@ -139,6 +142,7 @@ func TestV2PostEventsHandlerNegative(t *testing.T) {
 
 		w := httptest.NewRecorder()
 		req, _ := http.NewRequest(http.MethodPost, v2EventsEndpoint, strings.NewReader(c.JSON))
+		req.Header.Set("Authorization", "Bearer "+adminToken)
 		r.ServeHTTP(w, req)
 
 		assert.Equal(t, c.ExpectedCode, w.Code)
@@ -173,13 +177,14 @@ func TestV2PostEventsHandler(t *testing.T) {
 	incType := event.TypeIncident
 
 	incidentCreateData := v2.IncidentData{
-		Title:       title,
-		Description: description,
-		Impact:      &impact,
-		Components:  components,
-		StartDate:   startDate,
-		System:      &system,
-		Type:        incType,
+		Title:        title,
+		Description:  description,
+		ContactEmail: "test@example.com",
+		Impact:       &impact,
+		Components:   components,
+		StartDate:    startDate,
+		System:       &system,
+		Type:         incType,
 	}
 
 	result := v2CreateEvent(t, r, &incidentCreateData)
@@ -242,6 +247,9 @@ func TestV2PostEventsHandler(t *testing.T) {
 	title = "Test maintenance creation for api V2 for the components: 1-Cloud Container Engine (Container, EU-DE, cce), 2-Cloud Container Engine (Container, EU-NL, cce)"
 	incidentCreateData.Title = title
 	incidentCreateData.Description = "any description for maintenance incident"
+	incidentCreateData.ContactEmail = "test@example.com"
+	startDate = time.Now().Add(time.Hour * 1).UTC()
+	incidentCreateData.StartDate = startDate
 	endDate := time.Now().AddDate(0, 0, 1).UTC()
 	incidentCreateData.EndDate = &endDate
 	incidentCreateData.Type = event.TypeMaintenance
@@ -282,6 +290,7 @@ func TestV2PostEventsHandler(t *testing.T) {
 	t.Log("check response, if incident component is not present in the opened incidents, should create a new incident")
 	components = []int{3}
 	impact = 1
+	startDate = time.Now().AddDate(0, 0, -1).UTC()
 	incidentCreateData = v2.IncidentData{
 		Title:       "Test for another different component id: 3.",
 		Description: "Any description for incident with different component",
@@ -323,44 +332,51 @@ func TestV2PatchEventHandlerNegative(t *testing.T) {
 	require.NotNil(t, resp, "v2CreateEvent returned nil")
 	incID10 := resp.Result[0].IncidentID
 
+	// New events are created with version=1 by default
+	version := 1
+
 	type testCase struct {
 		ExpectedCode int
 		Expected     string
 		JSON         string
 	}
 
-	jsWrongOpenedStatus := `{
+	jsWrongOpenedStatus := fmt.Sprintf(`{
 "title": "OpenStack Upgrade in regions EU-DE/EU-NL",
  "impact": 1,
  "message": "Any message why the incident was updated.",
- "status": "in progress",
+ "status": "in_progres",
  "update_date": "2024-12-11T14:46:03.877Z",
  "start_date": "2024-12-11T14:46:03.877Z",
  "end_date": "2024-12-11T14:46:03.877Z",
-"type": "incident"
-}`
-	jsWrongOpenedStartDate := `{
+"type": "incident",
+"version": %d
+}`, version)
+	jsWrongOpenedStartDate := fmt.Sprintf(`{
  "impact": 1,
  "message": "Any message why the incident was updated.",
  "status": "analysing",
  "update_date": "2024-12-11T14:46:03.877Z",
  "start_date": "2024-12-11T14:46:03.877Z",
- "type": "incident"
-}`
-	jsWrongOpenedStatusForChangingImpact := `{
+ "type": "incident",
+ "version": %d
+}`, version)
+	jsWrongOpenedStatusForChangingImpact := fmt.Sprintf(`{
 "impact": 0,
 "message": "Any message why the event was updated.",
 "status": "analysing",
 "update_date": "2024-12-11T14:46:03.877Z",
-"type": "maintenance"
-}`
-	jsWrongOpenedMaintenanceImpact := `{
+"type": "maintenance",
+"version": %d
+}`, version)
+	jsWrongOpenedMaintenanceImpact := fmt.Sprintf(`{
  "impact": 0,
  "message": "Any message why the event was updated.",
  "status": "impact changed",
  "update_date": "2024-12-11T14:46:03.877Z",
- "type": "maintenance"
-}`
+ "type": "maintenance",
+ "version": %d
+}`, version)
 	testCases := map[string]*testCase{
 		"negative testcase, wrong status for opened incident": {
 			JSON:         jsWrongOpenedStatus,
@@ -391,6 +407,7 @@ func TestV2PatchEventHandlerNegative(t *testing.T) {
 
 		w := httptest.NewRecorder()
 		req, _ := http.NewRequest(http.MethodPatch, url, strings.NewReader(c.JSON))
+		req.Header.Set("Authorization", "Bearer "+adminToken)
 		r.ServeHTTP(w, req)
 
 		assert.Equal(t, c.ExpectedCode, w.Code)
@@ -416,6 +433,7 @@ func TestV2PatchEventHandler(t *testing.T) {
 		url := fmt.Sprintf("/v2/events/%d", id)
 		w := httptest.NewRecorder()
 		req, _ := http.NewRequest(http.MethodPatch, url, bytes.NewReader(d))
+		req.Header.Set("Authorization", "Bearer "+adminToken)
 
 		r.ServeHTTP(w, req)
 		assert.Equal(t, 200, w.Code)
@@ -427,13 +445,14 @@ func TestV2PatchEventHandler(t *testing.T) {
 	}
 
 	incidentCreateData := v2.IncidentData{
-		Title:       title,
-		Description: description,
-		Impact:      &impact,
-		Components:  components,
-		StartDate:   startDate,
-		System:      &system,
-		Type:        event.TypeIncident,
+		Title:        title,
+		Description:  description,
+		ContactEmail: "test@example.com",
+		Impact:       &impact,
+		Components:   components,
+		StartDate:    startDate,
+		System:       &system,
+		Type:         event.TypeIncident,
 	}
 
 	resp := v2CreateEvent(t, r, &incidentCreateData)
@@ -455,6 +474,7 @@ func TestV2PatchEventHandler(t *testing.T) {
 	inc := internalPatch(incID, &pData)
 	assert.Equal(t, newTitle, inc.Title)
 	assert.Equal(t, newDescription, inc.Description)
+	assert.Nil(t, inc.Version, "Version must not be exposed for non-maintenance events")
 
 	newImpact := 2
 	t.Logf("patching incident impact, from %d to %d", impact, newImpact)
@@ -464,6 +484,7 @@ func TestV2PatchEventHandler(t *testing.T) {
 
 	inc = internalPatch(incID, &pData)
 	assert.Equal(t, newImpact, *inc.Impact)
+	assert.Nil(t, inc.Version, "Version must not be exposed for non-maintenance events")
 
 	t.Logf("close incident")
 	pData.Status = event.IncidentResolved
@@ -473,6 +494,7 @@ func TestV2PatchEventHandler(t *testing.T) {
 	inc = internalPatch(incID, &pData)
 	require.NotNil(t, inc.EndDate)
 	assert.Equal(t, updateDate.Truncate(time.Microsecond), inc.EndDate.Truncate(time.Microsecond))
+	assert.Nil(t, inc.Version, "Version must not be exposed for non-maintenance events")
 
 	t.Logf("patching closed incident, change start date and end date")
 	startDate = time.Now().AddDate(0, 0, -1).UTC()
@@ -487,6 +509,7 @@ func TestV2PatchEventHandler(t *testing.T) {
 	assert.Equal(t, event.IncidentChanged, inc.Status)
 	require.NotNil(t, inc.EndDate)
 	assert.Equal(t, endDate.Truncate(time.Microsecond), inc.EndDate.Truncate(time.Microsecond))
+	assert.Nil(t, inc.Version, "Version must not be exposed for non-maintenance events")
 
 	t.Logf("reopen closed incident")
 
@@ -495,6 +518,7 @@ func TestV2PatchEventHandler(t *testing.T) {
 	pData.EndDate = nil
 	inc = internalPatch(incID, &pData)
 	assert.Nil(t, inc.EndDate)
+	assert.Nil(t, inc.Version, "Version must not be exposed for non-maintenance events")
 
 	t.Logf("final close the test incident")
 
@@ -530,13 +554,14 @@ func TestV2PostEventExtractHandler(t *testing.T) {
 	system := false
 
 	incidentCreateData := v2.IncidentData{
-		Title:       title,
-		Description: description,
-		Impact:      &impact,
-		Components:  components,
-		StartDate:   startDate,
-		System:      &system,
-		Type:        event.TypeIncident,
+		Title:        title,
+		Description:  description,
+		ContactEmail: "test@example.com",
+		Impact:       &impact,
+		Components:   components,
+		StartDate:    startDate,
+		System:       &system,
+		Type:         event.TypeIncident,
 	}
 
 	t.Log("create a initial incident", incidentCreateData)
@@ -553,6 +578,7 @@ func TestV2PostEventExtractHandler(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest(http.MethodPost, v2EventsEndpoint+fmt.Sprintf("/%d/extract", result.Result[0].IncidentID), bytes.NewReader(data))
+	req.Header.Set("Authorization", "Bearer "+adminToken)
 	r.ServeHTTP(w, req)
 	require.Equal(t, http.StatusOK, w.Code)
 
@@ -578,6 +604,7 @@ func TestV2PostEventExtractHandler(t *testing.T) {
 
 	w = httptest.NewRecorder()
 	req, _ = http.NewRequest(http.MethodPost, v2EventsEndpoint+fmt.Sprintf("/%d/extract", result.Result[0].IncidentID), bytes.NewReader(data))
+	req.Header.Set("Authorization", "Bearer "+adminToken)
 	r.ServeHTTP(w, req)
 	require.Equal(t, http.StatusBadRequest, w.Code)
 	assert.JSONEq(t, `{"errMsg":"can not move all components to the new incident, keep at least one"}`, w.Body.String())
@@ -591,9 +618,11 @@ func v2CreateEvent(t *testing.T, r *gin.Engine, inc *v2.IncidentData) *v2.PostIn
 
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest(http.MethodPost, v2EventsEndpoint, bytes.NewReader(data))
+	req.Header.Set("Authorization", "Bearer "+adminToken)
 	r.ServeHTTP(w, req)
 
 	if w.Code != http.StatusOK {
+		t.Logf("v2CreateEvent error: %s", w.Body.String())
 		return nil
 	}
 
@@ -611,6 +640,7 @@ func v2GetEvent(t *testing.T, r *gin.Engine, id int) *v2.Incident {
 	url := fmt.Sprintf("/v2/events/%d", id)
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest(http.MethodGet, url, nil)
+	req.Header.Set("Authorization", "Bearer "+adminToken)
 
 	r.ServeHTTP(w, req)
 
@@ -627,6 +657,7 @@ func v2GetEvents(t *testing.T, r *gin.Engine) []*v2.Incident {
 	url := "/v2/events?limit=50&page=1"
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest(http.MethodGet, url, nil)
+	req.Header.Set("Authorization", "Bearer "+adminToken)
 
 	r.ServeHTTP(w, req)
 
@@ -654,10 +685,16 @@ func v2PatchEvent(t *testing.T, r *gin.Engine, inc *v2.Incident, status ...event
 		st = status[0]
 	}
 
+	version := 1
+	if inc.Version != nil {
+		version = *inc.Version
+	}
+
 	patch := v2.PatchIncidentData{
 		Message:    "closed",
 		Status:     st,
 		UpdateDate: *inc.EndDate,
+		Version:    &version,
 	}
 
 	d, err := json.Marshal(patch)
@@ -666,10 +703,16 @@ func v2PatchEvent(t *testing.T, r *gin.Engine, inc *v2.Incident, status ...event
 	url := fmt.Sprintf("/v2/events/%d", inc.ID)
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest(http.MethodPatch, url, bytes.NewReader(d))
+	req.Header.Set("Authorization", "Bearer "+adminToken)
 
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, 200, w.Code)
+
+	updated := v2.Incident{}
+	err = json.Unmarshal(w.Body.Bytes(), &updated)
+	require.NoError(t, err)
+	*inc = updated
 }
 
 func TestV2GetEventsFilteredHandler(t *testing.T) {
@@ -770,6 +813,7 @@ func TestV2GetEventsFilteredHandler(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			w := httptest.NewRecorder()
 			req, _ := http.NewRequest(http.MethodGet, v2EventsEndpoint, nil)
+			req.Header.Set("Authorization", "Bearer "+adminToken)
 
 			q := req.URL.Query()
 			// Add pagination to get all results in one page
@@ -826,22 +870,11 @@ func TestV2GetEventsHandler(t *testing.T) {
 	allIncidents := v2GetEvents(t, r)
 	t.Logf("Initial incidents in DB: %+v", len(allIncidents))
 	totalIncidents := len(allIncidents)
-	expectedpages10 := totalIncidents / 10
-	if totalIncidents%10 != 0 {
-		expectedpages10++
-	}
-	expectedpages20 := totalIncidents / 20
-	if totalIncidents%20 != 0 {
-		expectedpages20++
-	}
 
 	testCases := []struct {
 		name               string
 		queryParams        string
 		expectedStatusCode int
-		expectedTotal      int
-		expectedPages      int
-		expectedItemsCount int
 		expectedLimit      int
 		expectedPage       int
 	}{
@@ -849,9 +882,6 @@ func TestV2GetEventsHandler(t *testing.T) {
 			name:               "Default pagination",
 			queryParams:        "",
 			expectedStatusCode: http.StatusOK,
-			expectedTotal:      totalIncidents,
-			expectedPages:      1,
-			expectedItemsCount: totalIncidents,
 			expectedLimit:      50, // default limit
 			expectedPage:       1,  // default page
 		},
@@ -859,9 +889,6 @@ func TestV2GetEventsHandler(t *testing.T) {
 			name:               "Pagination with limit 10, page 1",
 			queryParams:        "?limit=10&page=1",
 			expectedStatusCode: http.StatusOK,
-			expectedTotal:      totalIncidents,
-			expectedPages:      expectedpages10,
-			expectedItemsCount: min(10, totalIncidents),
 			expectedLimit:      10,
 			expectedPage:       1,
 		},
@@ -869,9 +896,6 @@ func TestV2GetEventsHandler(t *testing.T) {
 			name:               "Pagination with limit 10, page 2",
 			queryParams:        "?limit=10&page=2",
 			expectedStatusCode: http.StatusOK,
-			expectedTotal:      totalIncidents,
-			expectedPages:      expectedpages10,
-			expectedItemsCount: max(0, totalIncidents-10),
 			expectedLimit:      10,
 			expectedPage:       2,
 		},
@@ -879,9 +903,6 @@ func TestV2GetEventsHandler(t *testing.T) {
 			name:               "Pagination with limit 20, page 1",
 			queryParams:        "?limit=20&page=1",
 			expectedStatusCode: http.StatusOK,
-			expectedTotal:      totalIncidents,
-			expectedPages:      expectedpages20,
-			expectedItemsCount: min(20, totalIncidents),
 			expectedLimit:      20,
 			expectedPage:       1,
 		},
@@ -891,6 +912,7 @@ func TestV2GetEventsHandler(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			w := httptest.NewRecorder()
 			req, _ := http.NewRequest(http.MethodGet, v2EventsEndpoint+tc.queryParams, nil)
+			req.Header.Set("Authorization", "Bearer "+adminToken)
 			r.ServeHTTP(w, req)
 
 			assert.Equal(t, tc.expectedStatusCode, w.Code)
@@ -899,9 +921,24 @@ func TestV2GetEventsHandler(t *testing.T) {
 			err := json.Unmarshal(w.Body.Bytes(), &response)
 			require.NoError(t, err)
 
-			assert.Len(t, response.Data, tc.expectedItemsCount)
-			assert.Equal(t, tc.expectedTotal, response.Pagination.TotalRecords)
-			assert.Equal(t, tc.expectedPages, response.Pagination.TotalPages)
+			expectedItems := totalIncidents - (tc.expectedPage-1)*tc.expectedLimit
+			if expectedItems < 0 {
+				expectedItems = 0
+			}
+			if expectedItems > tc.expectedLimit {
+				expectedItems = tc.expectedLimit
+			}
+			expectedPages := totalIncidents / tc.expectedLimit
+			if totalIncidents%tc.expectedLimit != 0 {
+				expectedPages++
+			}
+			if expectedPages == 0 {
+				expectedPages = 1
+			}
+
+			assert.Len(t, response.Data, expectedItems)
+			assert.Equal(t, totalIncidents, response.Pagination.TotalRecords)
+			assert.Equal(t, expectedPages, response.Pagination.TotalPages)
 			assert.Equal(t, tc.expectedLimit, response.Pagination.RecordsPerPage)
 			assert.Equal(t, tc.expectedPage, response.Pagination.PageIndex)
 		})
@@ -923,14 +960,15 @@ func TestV2PostEventsMaintenanceHandler(t *testing.T) {
 	system := false
 
 	incidentCreateData := v2.IncidentData{
-		Title:       title,
-		Description: description,
-		Impact:      &impact,
-		Components:  components,
-		StartDate:   startDate,
-		EndDate:     &endDate,
-		System:      &system,
-		Type:        event.TypeMaintenance,
+		Title:        title,
+		Description:  description,
+		ContactEmail: "test@example.com",
+		Impact:       &impact,
+		Components:   components,
+		StartDate:    startDate,
+		EndDate:      &endDate,
+		System:       &system,
+		Type:         event.TypeMaintenance,
 	}
 
 	result := v2CreateEvent(t, r, &incidentCreateData)
@@ -998,14 +1036,15 @@ func TestV2PostEventsInfoWithExistingEventsHandler(t *testing.T) {
 	maintenanceSystem := false
 
 	maintenanceIncidentData := v2.IncidentData{
-		Title:       maintenanceTitle,
-		Description: maintenanceDescription,
-		Impact:      &maintenanceImpact,
-		Components:  []int{incidentComponentID},
-		StartDate:   maintenanceStartDate,
-		EndDate:     &maintenanceEndDate,
-		System:      &maintenanceSystem,
-		Type:        "maintenance",
+		Title:        maintenanceTitle,
+		Description:  maintenanceDescription,
+		ContactEmail: "test@example.com",
+		Impact:       &maintenanceImpact,
+		Components:   []int{incidentComponentID},
+		StartDate:    maintenanceStartDate,
+		EndDate:      &maintenanceEndDate,
+		System:       &maintenanceSystem,
+		Type:         "maintenance",
 	}
 
 	maintenanceIncidentResp := v2CreateEvent(t, r, &maintenanceIncidentData)
@@ -1184,6 +1223,7 @@ func TestV2PatchEventUpdateHandler(t *testing.T) {
 			url := fmt.Sprintf("/v2/events/%d/updates/%d", tc.incidentID, tc.updateIndex)
 			req, _ := http.NewRequest(http.MethodPatch, url, strings.NewReader(tc.body))
 			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("Authorization", "Bearer "+adminToken)
 
 			w := httptest.NewRecorder()
 			r.ServeHTTP(w, req)

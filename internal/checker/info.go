@@ -1,4 +1,3 @@
-//nolint:dupl
 package checker
 
 import (
@@ -19,7 +18,7 @@ type InfoStatusHistory struct {
 }
 
 func (st *InfoStatusHistory) hasStatus(status event.Status) bool {
-	switch status { //nolint:exhaustive
+	switch status {
 	case event.InfoPlanned:
 		return st.hasPlanned
 	case event.InfoActive:
@@ -28,12 +27,13 @@ func (st *InfoStatusHistory) hasStatus(status event.Status) bool {
 		return st.hasCompleted
 	case event.InfoCancelled:
 		return st.hasCancelled
+	default:
+		return false
 	}
-	return false
 }
 
 func (st *InfoStatusHistory) setStatus(status event.Status) {
-	switch status { //nolint:exhaustive
+	switch status {
 	case event.InfoPlanned:
 		st.hasPlanned = true
 	case event.InfoActive:
@@ -42,6 +42,7 @@ func (st *InfoStatusHistory) setStatus(status event.Status) {
 		st.hasCompleted = true
 	case event.InfoCancelled:
 		st.hasCancelled = true
+	default:
 	}
 }
 
@@ -61,7 +62,7 @@ func (ch *Checker) CheckInfoEvents() error {
 		sHistory := calculateInfoStatusHistory(info)
 		actualStatus := calculateCurrentInfoStatus(sHistory, info)
 
-		switch actualStatus { //nolint:exhaustive
+		switch actualStatus {
 		case event.InfoPlanned:
 			ch.fixInfoMissedStatuses(event.InfoPlanned, sHistory, info)
 			activeInfoEvents = append(activeInfoEvents, info.ID)
@@ -72,11 +73,16 @@ func (ch *Checker) CheckInfoEvents() error {
 			ch.fixInfoMissedStatuses(event.InfoCompleted, sHistory, info)
 		case event.InfoCancelled:
 			ch.fixInfoMissedStatuses(event.InfoCancelled, sHistory, info)
+		default:
 		}
 
-		err = ch.db.ModifyIncident(info)
-		if err != nil {
-			return err
+		// Only update the incident if the status has actually changed
+		if info.Status != actualStatus {
+			info.Status = actualStatus
+			err = ch.db.ModifyIncident(info)
+			if err != nil {
+				return err
+			}
 		}
 	}
 
@@ -93,7 +99,7 @@ func (ch *Checker) CheckInfoEvents() error {
 	} else {
 		ch.lastInfoID = slices.Min(activeInfoEvents)
 		ch.log.Debug(
-			"set the last ID to the earliest planned or in progress info event",
+			"set the last ID to the earliest planned or in_progress info event",
 			zap.Uint("lastInfoID", ch.lastInfoID),
 		)
 	}
@@ -151,7 +157,7 @@ func (ch *Checker) fixInfoMissedStatuses(status event.Status, sHistory *InfoStat
 	var statusText string
 	var statusTimestamp time.Time
 
-	switch status { //nolint:exhaustive
+	switch status {
 	case event.InfoPlanned:
 		ch.log.Info("fixing the planned status for the info event", zap.Uint("infoID", info.ID))
 		if sHistory.hasStatus(status) {
@@ -184,6 +190,8 @@ func (ch *Checker) fixInfoMissedStatuses(status event.Status, sHistory *InfoStat
 		ch.log.Info("fixing the cancelled status for the info event", zap.Uint("infoID", info.ID))
 		ch.fixInfoMissedStatuses(event.InfoPlanned, sHistory, info)
 		ch.log.Info("the info event is already has cancelled status", zap.Uint("infoID", info.ID))
+		return
+	default:
 		return
 	}
 

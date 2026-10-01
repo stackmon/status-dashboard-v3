@@ -20,6 +20,9 @@ func TestAuth(t *testing.T) {
 	t.Log("start to test for /auth/login")
 
 	r, _, oa2Prov := initTests(t)
+	if oa2Prov == nil {
+		t.Skip("skipping: Keycloak provider not configured")
+	}
 
 	codeVerifier := "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
 	callbackURL := fmt.Sprintf("%s/callback", oa2Prov.WebURL)
