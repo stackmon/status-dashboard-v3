@@ -198,9 +198,19 @@ first maintenance change, turning a deployment mistake into a user-visible error
 
 Order therefore matters: **apply the migration first, then roll out the new image.**
 
+The rollout starts when the change to `sd-test-branch` is merged and synced (GitOps / Argo CD or
+equivalent), not by running `kubectl apply`. Merge only after the migration is confirmed.
+
 ---
 
 ## Verification after rollout
+
+> Without cluster access, skip the `kubectl` commands below. Use the public checks first:
+> `GET https://api.test.status.otc-service.com/v2/notifications/stats` (admin token) returning `200`
+> proves the pod started with a valid notification configuration, because the application exits on
+> invalid settings or a missing `notification_outbox` table. Then create a test maintenance and
+> check the recipient mailbox. For pod logs or `nc`, ask a cluster operator or use the log UI
+> (Grafana/Loki) if one is available for `sd3-test`.
 
 ```bash
 kubectl -n sd3-test get pods
