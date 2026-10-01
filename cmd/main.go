@@ -33,6 +33,13 @@ func main() {
 	if err != nil {
 		logger.Error("fail to init checker", zap.Error(err))
 	}
+
+	// Wire the checker's publisher to the app's single delivery worker so
+	// checker-driven transitions wake it immediately (same shared queue).
+	if ch != nil {
+		ch.Publisher().SetNotify(s.NotifyFunc())
+	}
+
 	stopCh := make(chan struct{})
 
 	ctx, done := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)

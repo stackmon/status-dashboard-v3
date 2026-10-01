@@ -64,7 +64,7 @@ func (a *API) InitRoutes(openAPISpecPath string) error {
 			AuthenticationMW(a.oa2Prov, a.log, a.secretKeyV1),
 			RBACAuthorizationMW(a.rbac, a.log),
 			ValidateComponentsMW(a.db, a.log),
-			v2.PostIncidentHandler(a.db, a.log),
+			v2.PostIncidentHandler(a.db, a.log, a.notifier),
 		)
 		v2API.GET("incidents/:eventID",
 			SetJWTClaims(a.oa2Prov, a.log, a.secretKeyV1),
@@ -73,7 +73,7 @@ func (a *API) InitRoutes(openAPISpecPath string) error {
 			AuthenticationMW(a.oa2Prov, a.log, a.secretKeyV1),
 			RBACAuthorizationMW(a.rbac, a.log),
 			CheckEventExistenceMW(a.db, a.log),
-			v2.PatchIncidentHandler(a.db, a.log))
+			v2.PatchIncidentHandler(a.db, a.log, a.notifier))
 		v2API.POST("incidents/:eventID/extract",
 			AuthenticationMW(a.oa2Prov, a.log, a.secretKeyV1),
 			RBACAuthorizationMW(a.rbac, a.log),
@@ -95,7 +95,7 @@ func (a *API) InitRoutes(openAPISpecPath string) error {
 			AuthenticationMW(a.oa2Prov, a.log, a.secretKeyV1),
 			RBACAuthorizationMW(a.rbac, a.log),
 			ValidateComponentsMW(a.db, a.log),
-			v2.PostIncidentHandler(a.db, a.log))
+			v2.PostIncidentHandler(a.db, a.log, a.notifier))
 		v2API.GET("events/:eventID",
 			SetJWTClaims(a.oa2Prov, a.log, a.secretKeyV1),
 			v2.GetIncidentHandler(a.db, a.log, a.rbac))
@@ -103,7 +103,7 @@ func (a *API) InitRoutes(openAPISpecPath string) error {
 			AuthenticationMW(a.oa2Prov, a.log, a.secretKeyV1),
 			RBACAuthorizationMW(a.rbac, a.log),
 			CheckEventExistenceMW(a.db, a.log),
-			v2.PatchIncidentHandler(a.db, a.log))
+			v2.PatchIncidentHandler(a.db, a.log, a.notifier))
 		v2API.POST("events/:eventID/extract",
 			AuthenticationMW(a.oa2Prov, a.log, a.secretKeyV1),
 			RBACAuthorizationMW(a.rbac, a.log),
@@ -117,6 +117,20 @@ func (a *API) InitRoutes(openAPISpecPath string) error {
 			v2.PatchEventUpdateTextHandler(a.db, a.log))
 		// Availability section.
 		v2API.GET("availability", v2.GetComponentsAvailabilityHandler(a.db, a.log))
+
+		// Notifications operations (admin only): queue stats, failed rows, re-drive.
+		v2API.GET("notifications/stats",
+			AuthenticationMW(a.oa2Prov, a.log, a.secretKeyV1),
+			RBACAuthorizationMW(a.rbac, a.log),
+			v2.GetNotificationStatsHandler(a.db, a.log))
+		v2API.GET("notifications/failed",
+			AuthenticationMW(a.oa2Prov, a.log, a.secretKeyV1),
+			RBACAuthorizationMW(a.rbac, a.log),
+			v2.GetFailedNotificationsHandler(a.db, a.log))
+		v2API.POST("notifications/redrive",
+			AuthenticationMW(a.oa2Prov, a.log, a.secretKeyV1),
+			RBACAuthorizationMW(a.rbac, a.log),
+			v2.RedriveNotificationsHandler(a.db, a.log, a.notifier))
 
 		// For testing purposes only.
 		v2API.GET("rss/", newRSS.HandleRSS(a.db, a.log))

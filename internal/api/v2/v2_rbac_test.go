@@ -560,7 +560,7 @@ func TestPrepareIncidentCreateNonMaintenance(t *testing.T) {
 		Type:        event.TypeIncident,
 	}
 
-	result := prepareIncidentCreate(c, logger, incData)
+	result := prepareIncidentCreate(c, logger, incData, nil)
 
 	assert.True(t, result, "non-maintenance should pass without RBAC check")
 	assert.Empty(t, incData.Status, "status should not be set for non-maintenance")
